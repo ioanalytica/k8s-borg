@@ -27,6 +27,12 @@ borg create \
     ${BORG_REPO}::${BORGBACKUP_ARCHIVE_PREFIX}'-{now:%Y-%m-%d-%s}' \
     ${BEEGFS_MNT}/users \
     ${BEEGFS_MNT}/ivorix \
+    ${BEEGFS_MNT}/k3s/static/nextcloud-app \
+    ${BEEGFS_MNT}/k3s/static/nextcloud-data \
+    ${BEEGFS_MNT}/k3s/static/nextcloud-db-backup \
+    ${BEEGFS_MNT}/k3s/static/harbor \
+    ${BEEGFS_MNT}/k3s/static/weblogs \
+    ${BEEGFS_MNT}/k3s/static/weblogs-backup \
     ${GITLAB_BACKUP_MNT}
 
 backup_exit=$?
