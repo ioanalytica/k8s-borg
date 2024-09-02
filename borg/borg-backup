@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Ansible managed
+
+# some helpers and error handling:
+info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
+trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
+
+if [ -f /root/.borg.cfg ]; then
+    . /root/.borg.cfg
+fi
+
+if [ -f /root/.bashrc.private ]; then
+    . /root/.bashrc.private
+fi
+
+info "Starting backup ..."
+
+borg create \
+    --verbose \
+    --filter AME \
+    --list \
+    --stats \
+    --show-rc \
+    --compression lz4 \
+    --exclude-caches \
+    ${BORG_REPO}::${BORGBACKUP_ARCHIVE_PREFIX}'-{now:%Y-%m-%d-%s}' \
+    ${BEEGFS_MNT}/users \
+    ${BEEGFS_MNT}/ivorix \
+    ${GITLAB_BACKUP_MNT}
+
+backup_exit=$?
+
+info "Pruning repository ..."
+
+borg prune                     \
+    ${BORG_REPO}               \
+    --verbose                  \
+    --list                     \
+    --show-rc                  \
+    --keep-within   24H        \
+    --keep-daily    7          \
+    --keep-weekly   4          \
+    --keep-monthly  6          \
+
+prune_exit=$?
+
+info_exit=$?
+
+# use highest exit code as global exit code
+global_exit=$(( backup_exit > prune_exit ? backup_exit : prune_exit ))
+global_exit=$(( global_exit > info_exit ? global_exit : info_exit ))
+
+if [ ${global_exit} -eq 1 ];
+then
+    info "Backup and/or Prune finished with a warning!"
+fi
+
+if [ ${global_exit} -gt 1 ];
+then
+    info "Backup and/or Prune finished with an error!"
+fi
+
+exit ${global_exit}
+
+borg-info
+
+# end

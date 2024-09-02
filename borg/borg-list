@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Ansible managed
+
+if [ -f /root/.borg.cfg ]; then
+    . /root/.borg.cfg
+fi
+
+borg list
+
+# end
