@@ -2,10 +2,6 @@
 
 # Ansible managed
 
-if [ -f /root/.borg.cfg ]; then
-    . /root/.borg.cfg
-fi
-
 BORG_BACKUP_SET=$1
 
 usage() {

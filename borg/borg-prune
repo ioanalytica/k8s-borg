@@ -2,10 +2,6 @@
 
 # Ansible managed
 
-if [ -f /root/.borg.cfg ]; then
-    . /root/.borg.cfg
-fi
-
 # some helpers and error handling:
 info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
 trap 'echo $( date ) Prune interrupted >&2; exit 2' INT TERM

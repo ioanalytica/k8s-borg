@@ -2,10 +2,6 @@
 
 # Ansible managed
 
-if [ -f /root/.borg.cfg ]; then
-    . /root/.borg.cfg
-fi
-
 borg info
 
 # end

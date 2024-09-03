@@ -1,8 +1,6 @@
 FROM alpine:latest
 
 ENV BEEGFS_MNT /mnt/beegfs
-ENV GITLAB_BACKUP_MNT /mnt/gitlab-backup
-ENV S3_ENDPOINT https://s3.ioanalytica.com
 
 RUN sed -i 's/#\(.*\/community\)/\1/' /etc/apk/repositories; \
     apk update && apk upgrade --no-cache; \
@@ -10,12 +8,12 @@ RUN sed -i 's/#\(.*\/community\)/\1/' /etc/apk/repositories; \
     apk --update --no-cache add \
     s3fs-fuse \
     borgbackup \
+    py3-llfuse \
     openssh-client \
     ca-certificates \
     bash
 
 RUN mkdir -p "$BEEGFS_MNT" && \
-    mkdir -p "$GITLAB_BACKUP_MNT" && \
     mkdir -p /root/.secrets && \
     mkdir -p /root/.ssh
 
