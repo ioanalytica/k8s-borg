@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Ansible managed
+export BORG_REPO=${BORG_REPO_BASE}/./${NODE_NAME}
 
 BORG_BACKUP_SET=$1
 

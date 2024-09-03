@@ -6,12 +6,12 @@ ENVVARS=(
   "S3_ENDPOINT"
   "S3_MOUNTPOINT"
   "S3_BUCKETS"
-  "BEEGFS_MOUNTPOINT"
   "AWS_KEY"
   "AWS_SECRET_KEY"
   "BORG_PATTERNS"
   "BORG_EXCLUDES"
-  "BORG_REPO"
+  "BORG_REPO_BASE"
+  "NODE_NAME"
   "BORG_PASSPHRASE"
   "BORGBACKUP_ARCHIVE_PREFIX"
   "BORG_ARCHIVE_GLOB"
@@ -26,9 +26,15 @@ do
   fi
 done
 
-echo "Checking for Beegfs mount point …"
-if [[ ! -d ${BEEGFS_MOUNTPOINT} ]]; then
-  echo "The Beegfs mount point ${BEEGFS_MOUNTPOINT} does not exist! Please mount a PVC to ${BEEGFS_MOUNTPOINT}."
+echo "Creating borg mount point /mnt/borg …"
+mkdir -p /mnt/borg
+
+echo "Creating S3 mount point ${S3_MOUNTPOINT} …"
+mkdir -p ${S3_MOUNTPOINT}
+
+echo "Checking S3 mount point …"
+if [[ ! -d ${S3_MOUNTPOINT} ]]; then
+  echo "The S3 mount point ${S3_MOUNTPOINT} does not exist!"
   exit 1
 fi
 
@@ -46,9 +52,6 @@ else
   done < ${S3_BUCKETS}
 fi
 
-echo "Creating borg mount point /mnt/borg …"
-mkdir -p /mnt/borg
-
 echo "Configuration successfully completed."
 
 if [[ "$1" = "run" ]]; then
@@ -56,7 +59,6 @@ if [[ "$1" = "run" ]]; then
     borg-backup
 else
     echo "Running inspection mode …"
-    /usr/local/bin/borg-list > /var/log/borg-backup.log
     tail -F /var/log/borg-backup.log
 fi
 

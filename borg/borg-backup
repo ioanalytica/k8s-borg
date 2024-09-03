@@ -1,12 +1,23 @@
 #!/bin/bash
 
-# Ansible managed
+export BORG_REPO=${BORG_REPO_BASE}/./${NODE_NAME}
 
 # some helpers and error handling:
 info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
 trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
 
 info "Starting backup ..."
+
+if [[ "${BORG_MODE}" = "node" ]]; then
+    info "Running in DaemonSet mode."
+    BACKUP_PATTERNS=${BORG_NODE_PATTERNS}
+    BACKUP_EXCLUDES=${BORG_NODE_EXCLUDES}
+    BORGBACKUP_ARCHIVE_PREFIX=${NODE_NAME}
+else
+    BACKUP_PATTERNS=${BORG_PATTERNS}
+    BACKUP_EXCLUDES=${BORG_EXCLUDES}
+fi
+
 
 borg create \
     --verbose \
@@ -16,8 +27,8 @@ borg create \
     --show-rc \
     --compression lz4 \
     --exclude-caches \
-    --exclude-from=${BORG_EXCLUDES}  \
-    --patterns-from=${BORG_PATTERNS}  \
+    --exclude-from=${BACKUP_EXCLUDES}  \
+    --patterns-from=${BACKUP_PATTERNS}  \
     "$@" \
     ${BORG_REPO}::${BORGBACKUP_ARCHIVE_PREFIX}'-{now:%Y-%m-%d-%s}'
 
