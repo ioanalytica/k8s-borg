@@ -1,5 +1,7 @@
+# hadolint ignore=DL3007
 FROM alpine:latest
 
+# hadolint ignore=DL3018
 RUN sed -i 's/#\(.*\/community\)/\1/' /etc/apk/repositories; \
     apk update && apk upgrade --no-cache; \
     rm -rf /var/cache/apk/*; \
@@ -28,5 +30,5 @@ RUN chmod -R 700 /root/.secrets && \
     chmod 755 /usr/local/bin/borg-* && \
     touch /var/log/borg-backup.log
 
-CMD /run.sh
+CMD [ "/run.sh" ]
 
