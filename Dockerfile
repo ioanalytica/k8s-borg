@@ -31,4 +31,3 @@ RUN chmod -R 700 /root/.secrets && \
     touch /var/log/borg-backup.log
 
 CMD [ "/run.sh" ]
-
