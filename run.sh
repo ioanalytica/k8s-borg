@@ -55,7 +55,7 @@ fi
 echo "Configuration successfully completed."
 
 if [[ "$1" = "run" ]]; then
-    echo "Running borg-backup …"
+    echo "Running borg-backup on ${NODE_NAME} …"
     borg-backup
 else
     echo "Running inspection mode …"
