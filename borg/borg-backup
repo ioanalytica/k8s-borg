@@ -8,6 +8,12 @@ trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
 
 info "Starting backup ..."
 
+BORG_PATTERNS="/root/.borg/cluster-include.patterns"
+BORG_EXCLUDES="/root/.borg/cluster-exclude.patterns"
+BORG_NODE_PATTERNS="/root/.borg/node-include.patterns"
+BORG_NODE_EXCLUDES="/root/.borg/node-exclude.patterns"
+
+
 if [[ "${BORG_MODE}" = "node" ]]; then
     info "Running in DaemonSet mode."
     BACKUP_PATTERNS=${BORG_NODE_PATTERNS}
@@ -18,6 +24,17 @@ else
     BACKUP_EXCLUDES=${BORG_EXCLUDES}
 fi
 
+borg-init >/dev/null 2>&1
+init_exit=$?
+
+if [ ${init_exit} -eq 0 ]; then
+    info "Repository didn't exist and has been created!"
+elif [ ${init_exit} -eq 2 ]; then
+   info "Repository exist and can be accessed!"
+else
+    info "Repository cannot be accessed!"
+    exit ${init_exit}
+fi
 
 borg create \
     --verbose \
@@ -54,18 +71,17 @@ info_exit=$?
 global_exit=$(( backup_exit > prune_exit ? backup_exit : prune_exit ))
 global_exit=$(( global_exit > info_exit ? global_exit : info_exit ))
 
-if [ ${global_exit} -eq 1 ];
-then
+if [ ${global_exit} -eq 1 ]; then
     info "Backup and/or Prune finished with a warning!"
+    global_exit=0
 fi
 
-if [ ${global_exit} -gt 1 ];
-then
+if [ ${global_exit} -gt 1 ]; then
     info "Backup and/or Prune finished with an error!"
 fi
 
-exit ${global_exit}
-
 borg-info
+
+exit ${global_exit}
 
 # end

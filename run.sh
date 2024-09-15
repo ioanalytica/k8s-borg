@@ -1,20 +1,33 @@
 #!/bin/bash
 
-set -e
+# set -e
+
+S3_BUCKETS="/root/.borg/cluster-s3-buckets"
 
 ENVVARS=(
   "S3_ENDPOINT"
   "S3_MOUNTPOINT"
-  "S3_BUCKETS"
   "AWS_KEY"
   "AWS_SECRET_KEY"
-  "BORG_PATTERNS"
-  "BORG_EXCLUDES"
   "BORG_REPO_BASE"
   "NODE_NAME"
   "BORG_PASSPHRASE"
   "BORGBACKUP_ARCHIVE_PREFIX"
   "BORG_ARCHIVE_GLOB"
+)
+
+FILEVARS=(
+  "/root/.borg/cluster-exclude.patterns"
+  "/root/.borg/cluster-include.patterns"
+  "/root/.borg/node-exclude.patterns"
+  "/root/.borg/node-include.patterns"
+  "${S3_BUCKETS}"
+)
+
+SSHFILES=(
+  "/root/.ssh/id_ed25519"
+  "/root/.ssh/id_ed25519.pub"
+  "/root/.ssh/known_hosts"
 )
 
 echo "Checking environment for required settings …"
@@ -23,6 +36,32 @@ do
   if [[ ! -n "${!var}" ]]; then
     echo "The environment variable ${var} must be set via mounted secret!"
     exit 1
+  else
+    echo "${var} - ok"
+  fi
+done
+
+echo "Checking for required config files …"
+for var in "${FILEVARS[@]}"
+do
+  if [[ ! -f "${var}" ]]; then
+    echo "The file ${var} must be mapped into the pod via mounted configMap!"
+    exit 1
+  else
+    echo "${var} - ok"
+  fi
+done
+
+echo "Checking for required ssh files …"
+cp /root/.secrets/* /root/.ssh/
+chmod 600 /root/.ssh/*
+for var in "${SSHFILES[@]}"
+do
+  if [[ ! -f "${var}" ]]; then
+    echo "The file ${var} must be mapped into the pod via mounted secret!"
+    exit 1
+  else
+    echo "${var} - ok"
   fi
 done
 
@@ -32,16 +71,8 @@ mkdir -p /mnt/borg
 echo "Creating S3 mount point ${S3_MOUNTPOINT} …"
 mkdir -p ${S3_MOUNTPOINT}
 
-echo "Checking S3 mount point …"
-if [[ ! -d ${S3_MOUNTPOINT} ]]; then
-  echo "The S3 mount point ${S3_MOUNTPOINT} does not exist!"
-  exit 1
-fi
-
 echo "Checking ${S3_BUCKETS} for S3 buckets to be mounted …"
-if [[ ! -f "${S3_BUCKETS}" ]]; then
-  echo "No S3 buckets specified to be mounted in ${S3_BUCKETS}. Skipping S3 mounts."
-else
+if [[ -f "${S3_BUCKETS}" ]]; then
   echo "${AWS_KEY}:${AWS_SECRET_KEY}" > /root/.s3fs
   chmod 600 /root/.s3fs
 
