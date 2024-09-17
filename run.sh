@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# set -e
+set -e
 
 S3_BUCKETS="/root/.borg/cluster-s3-buckets"
 
@@ -53,12 +53,10 @@ do
 done
 
 echo "Checking for required ssh files …"
-cp /root/.secrets/* /root/.ssh/
-chmod 600 /root/.ssh/*
 for var in "${SSHFILES[@]}"
 do
   if [[ ! -f "${var}" ]]; then
-    echo "The file ${var} must be mapped into the pod via mounted secret!"
+    echo "The file ${var} must be mapped into the pod!"
     exit 1
   else
     echo "${var} - ok"
