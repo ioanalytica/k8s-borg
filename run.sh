@@ -69,26 +69,33 @@ mkdir -p /mnt/borg
 echo "Creating S3 mount point ${S3_MOUNTPOINT} …"
 mkdir -p ${S3_MOUNTPOINT}
 
-echo "Checking ${S3_BUCKETS} for S3 buckets to be mounted …"
-if [[ -f "${S3_BUCKETS}" ]]; then
-  echo "${AWS_KEY}:${AWS_SECRET_KEY}" > /root/.s3fs
-  chmod 600 /root/.s3fs
+# mount S3 buckets for app and cluster job only!
+if [[ ! "${BORG_MODE}" = "node" ]]; then
+  echo "Checking ${S3_BUCKETS} for S3 buckets to be mounted …"
+  if [[ -f "${S3_BUCKETS}" ]]; then
+    echo "${AWS_KEY}:${AWS_SECRET_KEY}" > /root/.s3fs
+    chmod 600 /root/.s3fs
 
-  while read bucket; do
-    echo "Mounting S3 bucket ${bucket} …"
-    mkdir -p ${S3_MOUNTPOINT}/${bucket}
-    s3fs ${bucket} ${S3_MOUNTPOINT}/${bucket} -o passwd_file=/root/.s3fs,use_path_request_style,url=${S3_ENDPOINT}
-  done < ${S3_BUCKETS}
+    while read bucket; do
+      echo "Mounting S3 bucket ${bucket} …"
+      mkdir -p ${S3_MOUNTPOINT}/${bucket}
+      s3fs ${bucket} ${S3_MOUNTPOINT}/${bucket} -o passwd_file=/root/.s3fs,use_path_request_style,url=${S3_ENDPOINT}
+    done < ${S3_BUCKETS}
+  fi
 fi
 
 echo "Configuration successfully completed."
 
 if [[ "$1" = "run" ]]; then
-    echo "Running borg-backup on ${NODE_NAME} …"
-    borg-backup
+  if [[ "${BORG_MODE}" = "node" ]]; then
+    echo "Running borg-backup for node ${NODE_NAME} …"
+  else
+    echo "Running borg-backup for cluster …"
+  fi
+  borg-backup
 else
-    echo "Running inspection mode …"
-    tail -F /var/log/borg-backup.log
+  echo "Running inspection mode …"
+  tail -F /var/log/borg-backup.log
 fi
 
 ret_code=$?
