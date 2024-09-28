@@ -14,6 +14,7 @@ ENVVARS=(
   "BORG_PASSPHRASE"
   "BORGBACKUP_ARCHIVE_PREFIX"
   "BORG_ARCHIVE_GLOB"
+  "DB_BACKUP_LOCATION"
 )
 
 FILEVARS=(
@@ -87,6 +88,24 @@ fi
 echo "Configuration successfully completed."
 
 if [[ "$1" = "run" ]]; then
+  conf_files=(/root/.mariadb/*.conf)
+  for defaults_file in "${conf_files[@]}"
+  do
+    if [[ -f "${defaults_file}" ]]; then
+      echo "Running backup-mariadb using $defaults_file …"
+      backup-mariadb $defaults_file
+    fi
+  done
+
+  conf_files=(/root/.postgres/*.conf)
+  for defaults_file in "${conf_files[@]}"
+  do
+    if [[ -f "${defaults_file}" ]]; then
+      echo "Running backup-postgres using $defaults_file …"
+      backup-postgres $defaults_file
+    fi
+  done
+
   if [[ "${BORG_MODE}" = "node" ]]; then
     echo "Running borg-backup for node ${NODE_NAME} …"
   else

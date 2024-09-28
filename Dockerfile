@@ -12,6 +12,8 @@ RUN sed -i 's/#\(.*\/community\)/\1/' /etc/apk/repositories; \
     py3-llfuse \
     openssh-client \
     ca-certificates \
+    postgresql-client \
+    mariadb-client \
     bash
 
 RUN mkdir -p /root/.secrets && \
@@ -20,6 +22,7 @@ RUN mkdir -p /root/.secrets && \
     mkdir -p /root/.ssh
 
 COPY borg/borg-* /usr/local/bin/
+COPY borg/backup-* /usr/local/bin/
 COPY run.sh /run.sh
 
 # Run the command on container startup
@@ -28,6 +31,7 @@ RUN chmod -R 700 /root/.secrets && \
     chmod -R 700 /root/.ssh && \
     chmod 750 /run.sh && \
     chmod 755 /usr/local/bin/borg-* && \
+    chmod 755 /usr/local/bin/backup-* && \
     touch /var/log/borg-backup.log
 
 CMD [ "/run.sh" ]
