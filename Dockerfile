@@ -14,6 +14,7 @@ RUN sed -i 's/#\(.*\/community\)/\1/' /etc/apk/repositories; \
     ca-certificates \
     postgresql-client \
     mariadb-client \
+    rsync \
     bash
 
 RUN mkdir -p /root/.secrets && \

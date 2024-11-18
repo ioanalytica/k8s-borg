@@ -30,7 +30,7 @@ init_exit=$?
 if [ ${init_exit} -eq 0 ]; then
     info "Repository didn't exist and has been created!"
 elif [ ${init_exit} -eq 2 ]; then
-   info "Repository exist and can be accessed!"
+   info "Repository exists and can be accessed!"
 else
     info "Repository cannot be accessed!"
     exit ${init_exit}
@@ -81,6 +81,7 @@ if [ ${global_exit} -gt 1 ]; then
 fi
 
 borg-info
+borg-list
 
 exit ${global_exit}
 
