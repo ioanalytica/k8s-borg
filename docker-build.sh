@@ -1,5 +1,5 @@
 #!/bin/bash
-DOCKER_IMAGE=harbor.ioanalytica.com/io/devops/k3s-borg:0.9.2
+DOCKER_IMAGE=harbor.ioanalytica.com/io/devops/k3s-borg:0.9.4
 docker buildx build --platform linux/amd64 -t ${DOCKER_IMAGE} . --push
 
 # end
