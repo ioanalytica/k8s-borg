@@ -5,7 +5,7 @@ set -e
 defaults_file=$1
 
 if [ -z "$defaults_file" ]; then
-  echo "Error: No mysql config file specified!"
+  echo "Error: No mariadb config file specified!"
   exit 1
 fi
 
@@ -23,17 +23,17 @@ mkdir -p ${DB_BACKUP_DIR}
 
 echo Dumping MySQL databases ...
 
-databases=`mysql --defaults-file=$defaults_file -e "SHOW DATABASES;" | tr -d "| " | grep -v Database`
+databases=`mariadb --defaults-file=$defaults_file -e "SHOW DATABASES;" | tr -d "| " | grep -v Database`
 
 for db in $databases; do
-    if [ "$db" != "information_schema" ] && [ "$db" != "performance_schema" ]; then
+    if [ "$db" != "information_schema" ] && [ "$db" != "performance_schema" && [ "$db" != "sys" ]; then
         echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.sql.gz"
-        mysqldump --defaults-file=$defaults_file -R -e --triggers --single-transaction --databases $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
+        mariadb-dump --defaults-file=$defaults_file -R -e --triggers --single-transaction --databases $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
         chmod 600 ${DB_BACKUP_DIR}/$db.sql.gz
     fi
 done
 
 echo "Dumping instance: $instance_name -> ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz"
-mysqldump --defaults-file=$defaults_file -A -R -E --triggers --single-transaction | gzip > ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
+mariadb-dump --defaults-file=$defaults_file -A -R -E --triggers --single-transaction | gzip > ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
 chmod 600 ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
 
