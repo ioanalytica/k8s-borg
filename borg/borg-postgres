@@ -20,7 +20,7 @@ instance_name=${xbase%.*}
 while IFS=':' read -r HOST PORT DB USER PASS <&3; do
   echo "Connecting to ${HOST}:${PORT} as user ${USER} …"
   export PGPASSFILE=$credentials_file
-  psql -h $HOST -p $PORT -U $USER "$@" </dev/tty
+  psql -h $HOST -p $PORT -U $USER "$@"
   echo "Disconnected from ${HOST}:${PORT}"
 done
 
