@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -e
+
+credentials_file=$1
+database_name=$2
+
+if [ -z "$credentials_file" ]; then
+  echo "Error: No psql credentials file specified!"
+  exit 1
+fi
+
+if [ -z "$database_name" ]; then
+  echo "Error: No database name specified!"
+  exit 1
+fi
+
+if [ -z "$DB_BACKUP_LOCATION" ]; then
+  echo "Error: environment variable DB_BACKUP_LOCATION not set!"
+  exit 1
+fi
+
+xbase=${credentials_file##*/}
+instance_name=${xbase%.*}
+
+DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+DB_BACKUP_FILE=${DB_BACKUP_DIR}/${database_name}.dump.gz
+
+if [ ! -f "$DB_BACKUP_FILE" ]; then
+  echo "Error: Backup $DB_BACKUP_FILE not found!"
+  exit 1
+fi
+
+
+while IFS=':' read -r HOST PORT DB USER PASS; do
+  echo "In case you are prompted: $PASS"
+  echo "Dropping database: ${database_name} ..."
+  psql -h $HOST -p $PORT -U $USER -A -q -t -c "DROP DATABASE IF EXISTS ${database_name} WITH (FORCE)"
+  echo "Creating database: ${database_name} ..."
+  psql -h $HOST -p $PORT -U $USER -A -q -t -c "CREATE DATABASE ${database_name} WITH TEMPLATE=template0"
+  echo "Restoring database: ${database_name} from dump ..."
+  gunzip -c $DB_BACKUP_FILE | pg_restore -d ${database_name} -h $HOST -p $PORT -U $USER
+done < "$credentials_file"
+
+# end

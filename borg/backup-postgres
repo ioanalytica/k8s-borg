@@ -30,6 +30,7 @@ while IFS=':' read -r HOST PORT DB USER PASS; do
   for db in $databases; do
       echo "Dumping database: $db"
       pg_dump -h $HOST -p $PORT -U $USER -c -C $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
+      pg_dump -h $HOST -p $PORT -U $USER -Fc $db | gzip > ${DB_BACKUP_DIR}/$db.dump.gz
       chmod 600 ${DB_BACKUP_DIR}/$db.sql.gz
   done
 done < "$credentials_file"
