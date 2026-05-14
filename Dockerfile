@@ -24,6 +24,7 @@ RUN mkdir -p /root/.secrets && \
 
 COPY borg/borg-* /usr/local/bin/
 COPY borg/backup-* /usr/local/bin/
+COPY borg/restore-* /usr/local/bin/
 COPY run.sh /run.sh
 
 # Run the command on container startup
@@ -33,6 +34,7 @@ RUN chmod -R 700 /root/.secrets && \
     chmod 750 /run.sh && \
     chmod 755 /usr/local/bin/borg-* && \
     chmod 755 /usr/local/bin/backup-* && \
+    chmod 755 /usr/local/bin/restore-* && \
     touch /var/log/borg-backup.log
 
 CMD [ "/run.sh" ]
