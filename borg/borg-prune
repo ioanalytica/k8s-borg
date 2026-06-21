@@ -8,15 +8,20 @@ trap 'echo $( date ) Prune interrupted >&2; exit 2' INT TERM
 
 info "Pruning repository ..."
 
+# retention policy (overridable via ENV, safe defaults)
+KEEP_DAILY=${KEEP_DAILY:-7}
+KEEP_WEEKLY=${KEEP_WEEKLY:-4}
+KEEP_MONTHLY=${KEEP_MONTHLY:-6}
+
 borg prune                     \
     ${BORG_REPO}               \
     --verbose                  \
     --list                     \
     --show-rc                  \
-    --keep-within   24H        \
-    --keep-daily    7          \
-    --keep-weekly   4          \
-    --keep-monthly  6          \
+    --keep-within   24H              \
+    --keep-daily    ${KEEP_DAILY}    \
+    --keep-weekly   ${KEEP_WEEKLY}   \
+    --keep-monthly  ${KEEP_MONTHLY}  \
 
 global_exit=$?
 

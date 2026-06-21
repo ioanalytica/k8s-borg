@@ -13,6 +13,11 @@ BORG_EXCLUDES="/root/.borg/cluster-exclude.patterns"
 BORG_NODE_PATTERNS="/root/.borg/node-include.patterns"
 BORG_NODE_EXCLUDES="/root/.borg/node-exclude.patterns"
 
+# retention policy (overridable via ENV, safe defaults)
+KEEP_DAILY=${KEEP_DAILY:-7}
+KEEP_WEEKLY=${KEEP_WEEKLY:-4}
+KEEP_MONTHLY=${KEEP_MONTHLY:-6}
+
 
 if [[ "${BORG_MODE}" = "node" ]]; then
     info "Running in DaemonSet mode."
@@ -58,10 +63,10 @@ borg prune                     \
     --verbose                  \
     --list                     \
     --show-rc                  \
-    --keep-within   24H        \
-    --keep-daily    7          \
-    --keep-weekly   4          \
-    --keep-monthly  6          \
+    --keep-within   24H              \
+    --keep-daily    ${KEEP_DAILY}    \
+    --keep-weekly   ${KEEP_WEEKLY}   \
+    --keep-monthly  ${KEEP_MONTHLY}  \
 
 prune_exit=$?
 
