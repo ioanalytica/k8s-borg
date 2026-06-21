@@ -23,11 +23,23 @@ borg prune                     \
     --keep-weekly   ${KEEP_WEEKLY}   \
     --keep-monthly  ${KEEP_MONTHLY}  \
 
-global_exit=$?
+prune_exit=$?
+
+info "Compacting repository ..."
+
+borg compact                   \
+    ${BORG_REPO}               \
+    --verbose                  \
+    --show-rc                  \
+
+compact_exit=$?
+
+# use highest exit code as global exit code
+global_exit=$(( prune_exit > compact_exit ? prune_exit : compact_exit ))
 
 if [  ${global_exit} -gt 0 ];
 then
-    info "Prune finished with an error!"
+    info "Prune and/or Compact finished with an error!"
 fi
 
 exit ${global_exit}
