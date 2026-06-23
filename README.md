@@ -42,6 +42,14 @@ The agent reports both to the server (`detect_borg_binaries` scans `borg` and
 `borg2`); a backup job picks the binary via its `borg_version` (1 → `borg`,
 2 → `borg2`) or an explicit `borg_binary`.
 
+`borg2` is built with the `borgstore[sftp]` extra (paramiko + cryptography),
+so it can use plain **SFTP** repositories with **no server-side Borg** — e.g. a
+Hetzner Storage Box, which only ships server-side Borg 1.x: `borg2 -r
+sftp://uXXXXX@uXXXXX.your-storagebox.de:23/./repo …`. Note that Borg 2's repo
+format is incompatible with Borg 1 (migrate with `borg transfer`), and Borg 2
+is beta — its on-disk format can change between betas, so use the same `borg2`
+build everywhere.
+
 The container runs as `borg` (`1001:1001`), which may run `borg` and `borg2` via
 **passwordless sudo** (`/etc/sudoers.d/borg`).
 
