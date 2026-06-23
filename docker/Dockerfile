@@ -33,8 +33,12 @@ RUN apk add --no-cache \
         libffi \
     && update-ca-certificates
 
-# Borg 2 (beta): no Alpine/musl wheel exists, so compile it into its own venv
-# using a throwaway build toolchain, then expose it on PATH as `borg2`.
+# Borg 2 (beta): no Alpine/musl wheel exists for borgbackup itself, so compile
+# it into its own venv using a throwaway build toolchain, then expose it on PATH
+# as `borg2`. The `borgstore[sftp]` extra adds the SFTP repository backend
+# (paramiko + cryptography, all prebuilt musllinux wheels — no compiler needed),
+# which lets borg2 use plain SFTP targets such as a Hetzner Storage Box without
+# any server-side Borg.
 ENV BORG2_VENV=/opt/borg-ui-agent/borg2-venv
 # hadolint ignore=DL3018
 RUN apk add --no-cache --virtual .borg2-build \
@@ -50,7 +54,8 @@ RUN apk add --no-cache --virtual .borg2-build \
         libffi-dev \
     && python -m venv "${BORG2_VENV}" \
     && "${BORG2_VENV}/bin/pip" install --no-cache-dir --upgrade pip wheel \
-    && "${BORG2_VENV}/bin/pip" install --no-cache-dir --pre "borgbackup>=2.0.0b1,<3" \
+    && "${BORG2_VENV}/bin/pip" install --no-cache-dir --pre \
+        "borgbackup>=2.0.0b1,<3" "borgstore[sftp]" \
     && ln -s "${BORG2_VENV}/bin/borg" /usr/local/bin/borg2 \
     && apk del .borg2-build \
     && borg2 --version
