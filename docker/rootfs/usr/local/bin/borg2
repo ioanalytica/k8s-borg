@@ -1,0 +1,8 @@
+#!/bin/sh
+# Borg 2 wrapper.
+#
+# Provides the `borg2` command on PATH; the real Borg 2 binary lives in its own
+# venv (/opt/borg-ui-agent/borg2-venv/bin/borg). Injects default common params
+# (BORG2_DEFAULT_PARAMS); Borg 2 reaches a Storage Box over sftp:// and usually
+# needs none.
+exec /opt/borg-ui-agent/borg2-venv/bin/borg ${BORG2_DEFAULT_PARAMS:-} "$@"

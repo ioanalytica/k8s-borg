@@ -1,0 +1,27 @@
+#!/bin/bash
+
+set -eo pipefail
+
+credentials_file=$1
+
+if [ -z "$credentials_file" ]; then
+  echo "Error: No psql credentials file specified!"
+  exit 1
+fi
+
+shift || true
+
+# Open credentials on FD 3 so STDIN remains free for an SQL stream
+exec 3<"$credentials_file"
+
+xbase=${credentials_file##*/}
+instance_name=${xbase%.*}
+
+while IFS=':' read -r HOST PORT DB USER PASS <&3; do
+  echo "Connecting to ${HOST}:${PORT} as user ${USER} …"
+  export PGPASSFILE=$credentials_file
+  psql -h $HOST -p $PORT -U $USER "$@"
+  echo "Disconnected from ${HOST}:${PORT}"
+done
+
+# end

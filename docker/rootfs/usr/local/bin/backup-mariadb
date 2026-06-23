@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -e
+
+defaults_file=$1
+
+if [ -z "$defaults_file" ]; then
+  echo "Error: No mariadb config file specified!"
+  exit 1
+fi
+
+if [ -z "$DB_BACKUP_LOCATION" ]; then
+  echo "Error: environment variable DB_BACKUP_LOCATION not set!"
+  exit 1
+fi
+
+xbase=${defaults_file##*/}
+instance_name=${xbase%.*}
+
+DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+
+mkdir -p ${DB_BACKUP_DIR}
+
+echo Dumping MySQL databases ...
+
+databases=`mariadb --defaults-file=$defaults_file -e "SHOW DATABASES;" | tr -d "| " | grep -v Database`
+
+for db in $databases; do
+    if [ "$db" != "information_schema" ] && [ "$db" != "performance_schema" ] && [ "$db" != "sys" ]; then
+        echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.sql.gz"
+        mariadb-dump --defaults-file=$defaults_file -R -e --triggers --single-transaction --databases $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
+        chmod 600 ${DB_BACKUP_DIR}/$db.sql.gz
+    fi
+done
+
+echo "Dumping instance: $instance_name -> ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz"
+mariadb-dump --defaults-file=$defaults_file -A -R -E --triggers --single-transaction | gzip > ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
+chmod 600 ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
+

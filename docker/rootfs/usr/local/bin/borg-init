@@ -1,0 +1,6 @@
+#!/bin/bash
+
+export BORG_REPO=${BORG_REPO_BASE}/./${NODE_NAME}
+borg init --encryption=repokey-blake2
+
+# end

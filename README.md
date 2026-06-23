@@ -21,26 +21,27 @@ agent is **not enrolled**:
 - Borg 1 (`borg`, Alpine package) **and** Borg 2 (`borg2`, compiled into its own
   venv) on `python:3.12-alpine`
 - the `borg-ui-agent` (from the pinned `borg-ui` submodule) in a virtualenv
-- runs as the unprivileged `borg` user (`1001:1001`) with passwordless sudo for
-  `borg`/`borg2` (see below)
+- runs as **root** (no service user), so backups can read any source path; SSH
+  credentials live in `/root/.ssh`
 - no `/etc/borg-ui-agent/config.toml` — registration is deferred
 
 Enrollment (`borg-ui-agent register --server … --token … --name …`) and the
 run loop will be wired into the entry point in a later iteration. See the
 upstream agent docs in `borg-ui/agent/README.md`.
 
-## Borg versions and the `borg` user
+## Borg versions and the wrappers
 
 Both Borg majors are shipped so the server can choose per repository:
 
-| Command | Version | Path |
+| Command (PATH) | Version | Real binary run by the wrapper |
 | --- | --- | --- |
 | `borg`  | 1.x (Alpine package)     | `/usr/bin/borg` |
-| `borg2` | 2.x beta (compiled venv) | `/usr/local/bin/borg2` |
+| `borg2` | 2.x beta (compiled venv) | `/opt/borg-ui-agent/borg2-venv/bin/borg` |
 
 The agent reports both to the server (`detect_borg_binaries` scans `borg` and
 `borg2`); a backup job picks the binary via its `borg_version` (1 → `borg`,
-2 → `borg2`) or an explicit `borg_binary`.
+2 → `borg2`) or an explicit `borg_binary`. Both must exist at once, so a single
+switchable `borg` link would not work.
 
 `borg2` is built with the `borgstore[sftp]` extra (paramiko + cryptography),
 so it can use plain **SFTP** repositories with **no server-side Borg** — e.g. a
@@ -50,16 +51,21 @@ format is incompatible with Borg 1 (migrate with `borg transfer`), and Borg 2
 is beta — its on-disk format can change between betas, so use the same `borg2`
 build everywhere.
 
-The container runs as `borg` (`1001:1001`), which may run `borg` and `borg2` via
-**passwordless sudo** (`/etc/sudoers.d/borg`).
+The image runs as **root**, so backups can read any source path with no
+privilege juggling. On `PATH`, `borg` and `borg2` (`docker/rootfs/usr/local/bin/`)
+are thin wrappers that just inject default params and exec the real binary —
+they no longer escalate. SSH config and credentials live in `/root/.ssh` (e.g.
+mounted by an initContainer from a Secret).
 
-> **Note — the agent does not call sudo itself.** It invokes `borg`/`borg2`
-> directly as the `borg` user, so the sudo grant is only a *capability*. To back
-> up source paths the `borg` user cannot read, one of these is needed (open
-> question, to settle with the enrollment work):
-> - make mounted source volumes readable by uid `1001`, or
-> - put `sudo`-prefixing wrapper scripts named `borg`/`borg2` earlier on `PATH`, or
-> - run the container as root.
+Each wrapper also injects default common params:
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `BORG1_DEFAULT_PARAMS` | (empty) | Borg 1; set e.g. `--remote-path=borg-1.4` for a Hetzner Storage Box over `ssh://` |
+| `BORG2_DEFAULT_PARAMS` | (empty) | Borg 2; reaches a Storage Box over `sftp://`, no `--remote-path` needed |
+
+Both are empty by default — set them per deployment. Server-provided flags also
+override them (borg's argparse lets the last `--remote-path` win).
 
 ## Layout
 

@@ -1,0 +1,19 @@
+#!/bin/bash
+
+set -eo pipefail
+
+defaults_file=$1
+
+if [ -z "$defaults_file" ]; then
+  echo "Error: No mariadb config file specified!"
+  exit 1
+fi
+
+shift || true
+
+xbase=${defaults_file##*/}
+instance_name=${xbase%.*}
+
+mariadb --defaults-file=$defaults_file "$@"
+
+# end

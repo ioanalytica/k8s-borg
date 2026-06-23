@@ -1,0 +1,38 @@
+#!/bin/bash
+
+set -e
+
+credentials_file=$1
+
+if [ -z "$credentials_file" ]; then
+  echo "Error: No psql credentials file specified!"
+  exit 1
+fi
+
+if [ -z "$DB_BACKUP_LOCATION" ]; then
+  echo "Error: environment variable DB_BACKUP_LOCATION not set!"
+  exit 1
+fi
+
+xbase=${credentials_file##*/}
+instance_name=${xbase%.*}
+
+DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+
+mkdir -p ${DB_BACKUP_DIR}
+
+
+while IFS=':' read -r HOST PORT DB USER PASS; do
+  echo Dumping Postgres databases ...
+  export PGPASSFILE=$credentials_file
+  databases=`psql -h $HOST -p $PORT -U $USER -A -q -t -c "SELECT datname FROM pg_database WHERE datistemplate=false;"`
+
+  for db in $databases; do
+      echo "Dumping database: $db"
+      pg_dump -h $HOST -p $PORT -U $USER -c -C $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
+      pg_dump -h $HOST -p $PORT -U $USER -Fc $db | gzip > ${DB_BACKUP_DIR}/$db.dump.gz
+      chmod 600 ${DB_BACKUP_DIR}/$db.sql.gz
+  done
+done < "$credentials_file"
+
+# end
