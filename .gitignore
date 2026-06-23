@@ -1,0 +1,7 @@
+# Ignore all dotfiles by default, then allow the ones we track.
+.*
+!.gitignore
+!.gitmodules
+!.dockerignore
+!.github
+*.retry

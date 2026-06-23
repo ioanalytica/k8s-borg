@@ -1,0 +1,4 @@
+[submodule "borg-ui"]
+	path = borg-ui
+	url = https://github.com/karanhudia/borg-ui.git
+	branch = main
