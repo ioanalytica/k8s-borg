@@ -1,0 +1,36 @@
+# macOS junk
+**/.DS_Store
+**/._*
+
+# Repo metadata not needed in the image build context
+.git
+.github
+.gitignore
+.gitmodules
+.dockerignore
+README.md
+LICENSE
+install.sh
+docker/docker-build.sh
+
+# borg-ui submodule: the Dockerfile only needs pyproject.toml + the agent
+# package. Exclude the server, frontend, docs, tests, and tooling to keep the
+# build context small.
+borg-ui/.git
+borg-ui/.github
+borg-ui/.claude
+borg-ui/.codex
+borg-ui/.impeccable
+borg-ui/app
+borg-ui/frontend
+borg-ui/docs
+borg-ui/tests
+borg-ui/updates-worker
+borg-ui/screenshots
+borg-ui/assets
+borg-ui/security
+borg-ui/scripts
+borg-ui/examples
+borg-ui/docker
+borg-ui/*.png
+borg-ui/*.json
