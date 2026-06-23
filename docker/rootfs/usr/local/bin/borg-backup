@@ -1,0 +1,103 @@
+#!/bin/bash
+
+export BORG_REPO=${BORG_REPO_BASE}/./${NODE_NAME}
+
+# some helpers and error handling:
+info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
+trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
+
+info "Starting backup ..."
+
+BORG_PATTERNS="/root/.borg/cluster-include.patterns"
+BORG_EXCLUDES="/root/.borg/cluster-exclude.patterns"
+BORG_NODE_PATTERNS="/root/.borg/node-include.patterns"
+BORG_NODE_EXCLUDES="/root/.borg/node-exclude.patterns"
+
+# retention policy (overridable via ENV, safe defaults)
+KEEP_DAILY=${KEEP_DAILY:-7}
+KEEP_WEEKLY=${KEEP_WEEKLY:-4}
+KEEP_MONTHLY=${KEEP_MONTHLY:-6}
+
+
+if [[ "${BORG_MODE}" = "node" ]]; then
+    info "Running in DaemonSet mode."
+    BACKUP_PATTERNS=${BORG_NODE_PATTERNS}
+    BACKUP_EXCLUDES=${BORG_NODE_EXCLUDES}
+    BORGBACKUP_ARCHIVE_PREFIX=${NODE_NAME}
+else
+    BACKUP_PATTERNS=${BORG_PATTERNS}
+    BACKUP_EXCLUDES=${BORG_EXCLUDES}
+fi
+
+borg-init >/dev/null 2>&1
+init_exit=$?
+
+if [ ${init_exit} -eq 0 ]; then
+    info "Repository didn't exist and has been created!"
+elif [ ${init_exit} -eq 2 ]; then
+   info "Repository exists and can be accessed!"
+else
+    info "Repository cannot be accessed!"
+    exit ${init_exit}
+fi
+
+borg create \
+    --verbose \
+    --filter AME \
+    --list \
+    --stats \
+    --show-rc \
+    --compression lz4 \
+    --exclude-caches \
+    --exclude-from=${BACKUP_EXCLUDES}  \
+    --patterns-from=${BACKUP_PATTERNS}  \
+    "$@" \
+    ${BORG_REPO}::${BORGBACKUP_ARCHIVE_PREFIX}'-{now:%Y-%m-%d-%s}'
+
+backup_exit=$?
+
+info "Pruning repository ..."
+
+borg prune                     \
+    ${BORG_REPO}               \
+    --verbose                  \
+    --list                     \
+    --show-rc                  \
+    --keep-within   24H              \
+    --keep-daily    ${KEEP_DAILY}    \
+    --keep-weekly   ${KEEP_WEEKLY}   \
+    --keep-monthly  ${KEEP_MONTHLY}  \
+
+prune_exit=$?
+
+info "Compacting repository ..."
+
+borg compact                   \
+    ${BORG_REPO}               \
+    --verbose                  \
+    --show-rc                  \
+
+compact_exit=$?
+
+info_exit=$?
+
+# use highest exit code as global exit code
+global_exit=$(( backup_exit > prune_exit ? backup_exit : prune_exit ))
+global_exit=$(( global_exit > compact_exit ? global_exit : compact_exit ))
+global_exit=$(( global_exit > info_exit ? global_exit : info_exit ))
+
+if [ ${global_exit} -eq 1 ]; then
+    info "Backup, Prune and/or Compact finished with a warning!"
+    global_exit=0
+fi
+
+if [ ${global_exit} -gt 1 ]; then
+    info "Backup, Prune and/or Compact finished with an error!"
+fi
+
+borg-info
+borg-list
+
+exit ${global_exit}
+
+# end

@@ -1,0 +1,47 @@
+#!/bin/bash
+
+export BORG_REPO=${BORG_REPO_BASE}/./${NODE_NAME}
+
+# some helpers and error handling:
+info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
+trap 'echo $( date ) Prune interrupted >&2; exit 2' INT TERM
+
+info "Pruning repository ..."
+
+# retention policy (overridable via ENV, safe defaults)
+KEEP_DAILY=${KEEP_DAILY:-7}
+KEEP_WEEKLY=${KEEP_WEEKLY:-4}
+KEEP_MONTHLY=${KEEP_MONTHLY:-6}
+
+borg prune                     \
+    ${BORG_REPO}               \
+    --verbose                  \
+    --list                     \
+    --show-rc                  \
+    --keep-within   24H              \
+    --keep-daily    ${KEEP_DAILY}    \
+    --keep-weekly   ${KEEP_WEEKLY}   \
+    --keep-monthly  ${KEEP_MONTHLY}  \
+
+prune_exit=$?
+
+info "Compacting repository ..."
+
+borg compact                   \
+    ${BORG_REPO}               \
+    --verbose                  \
+    --show-rc                  \
+
+compact_exit=$?
+
+# use highest exit code as global exit code
+global_exit=$(( prune_exit > compact_exit ? prune_exit : compact_exit ))
+
+if [  ${global_exit} -gt 0 ];
+then
+    info "Prune and/or Compact finished with an error!"
+fi
+
+exit ${global_exit}
+
+# end

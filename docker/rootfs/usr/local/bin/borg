@@ -1,0 +1,10 @@
+#!/bin/sh
+# Borg 1 wrapper.
+#
+# Sits in front of the real /usr/bin/borg on PATH (/usr/local/bin before
+# /usr/bin) and injects default common params (BORG1_DEFAULT_PARAMS), e.g.
+# `--remote-path=borg-1.4` for a Hetzner Storage Box reached over ssh://.
+#
+# Server-provided flags in "$@" override the defaults: borg's argparse lets the
+# last occurrence of an option win, and "$@" comes after BORG1_DEFAULT_PARAMS.
+exec /usr/bin/borg ${BORG1_DEFAULT_PARAMS:-} "$@"

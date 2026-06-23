@@ -1,0 +1,31 @@
+#!/bin/bash
+
+export BORG_REPO=${BORG_REPO_BASE}/./${NODE_NAME}
+
+BORG_BACKUP_SET=$1
+
+usage() {
+    echo "Usage: $0 <borg backup set>"
+    echo ""
+    echo "Existing backup sets can be retrieved with"
+    echo "      borg list"
+    exit 1
+}
+
+if [ -z "$BORG_BACKUP_SET" ];  then
+    usage
+fi
+
+echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} ..."
+
+mkdir -p /mnt/borg
+borg mount ${BORG_REPO}::${BORG_BACKUP_SET} /mnt/borg
+
+if [ $? -gt 0 ];
+then
+    echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} failed!"
+else
+    echo "Backup set ${BORG_REPO}::${BORG_BACKUP_SET} successfully mounted on /mnt/borg"
+fi
+
+# end

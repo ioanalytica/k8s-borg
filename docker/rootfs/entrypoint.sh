@@ -8,10 +8,8 @@
 set -eu
 
 echo "k8s-borg agent image — setup self-test (user: $(id -un) $(id -u):$(id -g))"
-echo "  borg      : $(borg --version 2>/dev/null || echo 'MISSING')"
-echo "  borg2     : $(borg2 --version 2>/dev/null || echo 'MISSING')"
-echo "  sudo borg : $(sudo -n borg --version 2>/dev/null || echo 'NO SUDO')"
-echo "  sudo borg2: $(sudo -n borg2 --version 2>/dev/null || echo 'NO SUDO')"
+echo "  borg      : $(borg --version 2>/dev/null || echo 'MISSING')   [wrapper${BORG1_DEFAULT_PARAMS:+ +$BORG1_DEFAULT_PARAMS}]"
+echo "  borg2     : $(borg2 --version 2>/dev/null || echo 'MISSING')   [wrapper${BORG2_DEFAULT_PARAMS:+ +$BORG2_DEFAULT_PARAMS}]"
 if borg-ui-agent --help >/dev/null 2>&1; then
     echo "  agent     : borg-ui-agent installed ($(command -v borg-ui-agent))"
 else
