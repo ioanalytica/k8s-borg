@@ -18,13 +18,40 @@ ghcr.io/ioanalytica/k8s-borg:latest
 This iteration produces a **"cold" image** — everything is installed but the
 agent is **not enrolled**:
 
-- Borg 1 (`borgbackup`) on `python:3.12-alpine`
+- Borg 1 (`borg`, Alpine package) **and** Borg 2 (`borg2`, compiled into its own
+  venv) on `python:3.12-alpine`
 - the `borg-ui-agent` (from the pinned `borg-ui` submodule) in a virtualenv
+- runs as the unprivileged `borg` user (`1001:1001`) with passwordless sudo for
+  `borg`/`borg2` (see below)
 - no `/etc/borg-ui-agent/config.toml` — registration is deferred
 
 Enrollment (`borg-ui-agent register --server … --token … --name …`) and the
 run loop will be wired into the entry point in a later iteration. See the
 upstream agent docs in `borg-ui/agent/README.md`.
+
+## Borg versions and the `borg` user
+
+Both Borg majors are shipped so the server can choose per repository:
+
+| Command | Version | Path |
+| --- | --- | --- |
+| `borg`  | 1.x (Alpine package)     | `/usr/bin/borg` |
+| `borg2` | 2.x beta (compiled venv) | `/usr/local/bin/borg2` |
+
+The agent reports both to the server (`detect_borg_binaries` scans `borg` and
+`borg2`); a backup job picks the binary via its `borg_version` (1 → `borg`,
+2 → `borg2`) or an explicit `borg_binary`.
+
+The container runs as `borg` (`1001:1001`), which may run `borg` and `borg2` via
+**passwordless sudo** (`/etc/sudoers.d/borg`).
+
+> **Note — the agent does not call sudo itself.** It invokes `borg`/`borg2`
+> directly as the `borg` user, so the sudo grant is only a *capability*. To back
+> up source paths the `borg` user cannot read, one of these is needed (open
+> question, to settle with the enrollment work):
+> - make mounted source volumes readable by uid `1001`, or
+> - put `sudo`-prefixing wrapper scripts named `borg`/`borg2` earlier on `PATH`, or
+> - run the container as root.
 
 ## Layout
 
