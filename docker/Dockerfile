@@ -37,6 +37,12 @@ RUN apk add --no-cache \
 # (paramiko + cryptography, all prebuilt musllinux wheels — no compiler needed),
 # which lets borg2 use plain SFTP targets such as a Hetzner Storage Box without
 # any server-side Borg.
+# `borg2 mount` uses mfusepy (added to the venv below). Alpine's ctypes can't
+# locate libfuse automatically (no ldconfig), so point it at the FUSE 2 library.
+# This MUST be set before borg2 runs — borg2 imports the FUSE impl at startup,
+# so even the build-time `borg2 --version` selftest needs it. libfuse.so.2 comes
+# in via s3fs-fuse above.
+ENV FUSE_LIBRARY_PATH=/usr/lib/libfuse.so.2
 ENV BORG2_VENV=/opt/borg-ui-agent/borg2-venv
 # hadolint ignore=DL3018
 RUN apk add --no-cache --virtual .borg2-build \
@@ -53,7 +59,7 @@ RUN apk add --no-cache --virtual .borg2-build \
     && python -m venv "${BORG2_VENV}" \
     && "${BORG2_VENV}/bin/pip" install --no-cache-dir --upgrade pip wheel \
     && "${BORG2_VENV}/bin/pip" install --no-cache-dir --pre \
-        "borgbackup>=2.0.0b1,<3" "borgstore[sftp]" \
+        "borgbackup>=2.0.0b1,<3" "borgstore[sftp]" mfusepy \
     && apk del .borg2-build \
     && "${BORG2_VENV}/bin/borg" --version
 
