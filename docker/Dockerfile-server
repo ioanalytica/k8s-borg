@@ -45,7 +45,7 @@ ENV APP_VERSION=${APP_VERSION}
 
 LABEL org.opencontainers.image.title="k8s-borg-ui (Borg Web UI, self-built)"
 LABEL org.opencontainers.image.description="Hermetic Borg UI server image for k8s-borg"
-LABEL org.opencontainers.image.source="https://github.com/karanhudia/borg-ui"
+LABEL org.opencontainers.image.source="https://github.com/ioanalytica/k8s-borg"
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 
 WORKDIR /app

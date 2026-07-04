@@ -1,0 +1,127 @@
+name: build-image (reusable)
+
+# Builds one image multi-arch WITHOUT QEMU: each platform builds natively on its
+# own runner, then the per-arch digests are merged into one manifest list.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Short image name under ghcr.io/ioanalytica/
+        required: true
+        type: string
+      context:
+        description: Build context path, or "EMPTY" for a no-COPY Dockerfile
+        required: false
+        type: string
+        default: "."
+      file:
+        description: Path to the Dockerfile
+        required: true
+        type: string
+      build-args:
+        required: false
+        type: string
+        default: ""
+      tags:
+        description: docker/metadata-action tags config (used on the final manifest)
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ioanalytica
+
+jobs:
+  build:
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Prepare
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          if [ "${{ inputs.context }}" = "EMPTY" ]; then
+            mkdir -p "$RUNNER_TEMP/emptyctx"
+            echo "CTX=$RUNNER_TEMP/emptyctx" >> "$GITHUB_ENV"
+          else
+            echo "CTX=${{ inputs.context }}" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: recursive
+      - uses: docker/setup-buildx-action@v3.10.0
+      - uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
+      - id: build
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: ${{ env.CTX }}
+          file: ${{ inputs.file }}
+          platforms: ${{ matrix.platform }}
+          build-args: ${{ inputs.build-args }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ inputs.image }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image }}-${{ matrix.platform }}
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ inputs.image }}-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ inputs.image }}-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3.10.0
+      - uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
+          tags: ${{ inputs.tags }}
+      - name: Create manifest list & push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}@sha256:%s ' *)
+      - name: Inspect
+        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}:${{ steps.meta.outputs.version }}

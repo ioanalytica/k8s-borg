@@ -48,7 +48,7 @@ ENV BORG2_VERSION=${BORG2_VERSION}
 
 LABEL org.opencontainers.image.title="k8s-borg-ui runtime base"
 LABEL org.opencontainers.image.description="Self-built slim Borg UI runtime base (Borg 1.x + Borg 2.x)"
-LABEL org.opencontainers.image.source="https://github.com/karanhudia/borg-ui"
+LABEL org.opencontainers.image.source="https://github.com/ioanalytica/k8s-borg"
 
 WORKDIR /app
 

@@ -100,5 +100,9 @@ RUN borg --version \
 
 WORKDIR /root
 
+LABEL org.opencontainers.image.title="k8s-borg agent"
+LABEL org.opencontainers.image.description="Borg UI managed-agent image for k8s-borg (Borg 1.x + Borg 2.x)"
+LABEL org.opencontainers.image.source="https://github.com/ioanalytica/k8s-borg"
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["borg-ui-agent", "--help"]
