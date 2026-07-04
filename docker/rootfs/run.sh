@@ -66,7 +66,7 @@ fi
 echo "Configuration successfully completed."
 
 echo "Checking BORG_REPO and creating it if necessary."
-borg-init >/dev/null 2>&1
+borg-init >/dev/null
 
 # --- Managed-agent mode: enroll (once) and run the agent ---------------------
 if [[ "${BORG_UI_AGENT:-}" = "true" ]]; then

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Borg 1 wrapper.
 #
 # Sits in front of the real /usr/bin/borg on PATH (/usr/local/bin before
