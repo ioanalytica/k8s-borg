@@ -1,0 +1,15 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: k8s-borg
+
+resources:
+  - k8s-borg-nfs-pv.yaml
+  - k8s-borg-nfs-pvc.yaml
+  - k8s-borg-cache-pv.yaml
+  - k8s-borg-cache-pvc.yaml
+  - k8s-borg-ui-pvc.yaml
+  - k8s-borg-ui-pv.yaml
+  - k8s-borg-ui-agent-pv.yaml
+  - k8s-borg-ui-agent-pvc.yaml

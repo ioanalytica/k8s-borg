@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: k8s-borg-nfs-pv
+spec:
+  capacity:
+    storage: 2Ti
+  accessModes:
+  - ReadWriteMany
+  nfs:
+    server: nfs.example.com
+    path: /storage/shared
+  persistentVolumeReclaimPolicy: Retain

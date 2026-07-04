@@ -1,0 +1,33 @@
+---
+# borg-ui Ingress — https://borgui.example.com.
+# EXAMPLE: the Borg UI holds access to every repository, so it should NOT be
+# publicly reachable. Restrict it to trusted networks (VPN / cluster CIDRs) with
+# whatever your ingress controller offers — e.g. a Traefik IPAllowList
+# middleware, or a policy engine that injects one. Adjust host/TLS/annotations
+# to your cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: k8s-borg-ui
+  labels:
+    app: k8s-borg-ui
+    release: k8s-borg
+  annotations:
+    # example.com/exposure: private   # <- cluster-specific; wire up your own access restriction
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - borgui.example.com
+      secretName: borgui-tls
+  rules:
+    - host: borgui.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: k8s-borg-ui
+                port:
+                  number: 8081

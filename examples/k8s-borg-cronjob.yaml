@@ -1,0 +1,179 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k8s-borg-job
+  namespace: k8s-borg
+spec:
+  schedule: 0 */6 * * *
+  timeZone: "Europe/Berlin"         # local time incl. DST (CEST/CET), not UTC
+  concurrencyPolicy: Forbid         # never overlap; a slow run skips the next tick
+  suspend: false
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      name: k8s-borg-job
+      namespace: k8s-borg
+    spec:
+      backoffLimit: 5
+      template:
+        metadata:
+          name: k8s-borg-job
+          namespace: k8s-borg
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: ssh-credentials
+              emptyDir:
+                medium: Memory
+            - name: k8s-borg-ssh-secret
+              secret:
+                secretName: k8s-borg-ssh-secret
+                defaultMode: 384
+            - name: k8s-borg-mariadb-secret
+              secret:
+                secretName: k8s-borg-mariadb-secret
+                defaultMode: 384
+            - name: k8s-borg-postgres-secret
+              secret:
+                secretName: k8s-borg-postgres-secret
+                defaultMode: 384
+            - name: k8s-borg-config
+              configMap:
+                name: k8s-borg-config
+                defaultMode: 384
+            - name: k8s-borg-nfs-volume
+              persistentVolumeClaim:
+                claimName: k8s-borg-nfs-pvc
+            - name: k8s-borg-cache-volume
+              persistentVolumeClaim:
+                claimName: k8s-borg-cache-pvc
+            - name: k8s-borg-ui-agent-volume
+              persistentVolumeClaim:
+                claimName: k8s-borg-ui-agent-pvc
+          initContainers:
+            - name: configure
+              image: busybox
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Setting ssh configuration for $(POD_NAME) …"
+                  cp /mnt/ssh/id* /ssh/
+                  cp /mnt/ssh/known_hosts /ssh/
+                  chown -R 0:0 /ssh
+                  chmod 700 /ssh
+                  chmod 600 /ssh/*
+              volumeMounts:
+                - name: ssh-credentials
+                  mountPath: /ssh
+                - name: k8s-borg-ssh-secret
+                  mountPath: /mnt/ssh
+                  readOnly: true
+          containers:
+            - name: k8s-borg-job
+              image: ghcr.io/ioanalytica/k8s-borg:1.0.4
+              imagePullPolicy: Always
+              securityContext:
+                privileged: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+              volumeMounts:
+                - name: ssh-credentials
+                  mountPath: "/root/.ssh"
+                - mountPath: "/root/.mariadb"
+                  name: k8s-borg-mariadb-secret
+                  readOnly: true
+                - mountPath: "/root/.postgres"
+                  name: k8s-borg-postgres-secret
+                  readOnly: true
+                - mountPath: "/root/.borg"
+                  name: k8s-borg-config
+                  readOnly: true
+                - mountPath: "/mnt/nfs"
+                  name: k8s-borg-nfs-volume
+                - mountPath: "/root/.cache"
+                  name: k8s-borg-cache-volume
+                  subPathExpr: $(NODE_NAME)
+                - mountPath: "/etc/borg-ui-agent"
+                  name: k8s-borg-ui-agent-volume
+                  subPathExpr: $(NODE_NAME)
+              # Set hostname to NODE_NAME (procfs fallback if no hostname binary), then exec borg
+              # (exec preserves the Job's exit code).
+              command: ["/bin/sh", "-c"]
+              args: ["hostname \"${NODE_NAME}\" 2>/dev/null || printf '%s' \"${NODE_NAME}\" > /proc/sys/kernel/hostname; exec /run.sh run"]
+              env:
+                - name: NODE_NAME
+                  value: k8s-borg-mycluster
+                - name: TZ
+                  value: Europe/Berlin
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: S3_ENDPOINT
+                - name: S3_MOUNTPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: S3_MOUNTPOINT
+                - name: BORG_REPO_BASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: BORG_REPO_BASE
+                - name: BORG_REPO
+                  value: "$(BORG_REPO_BASE)/$(NODE_NAME)"
+                - name: BORG_VERSION
+                  value: "1"   # 1 | 2
+                - name: BORG_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: BORG_PASSPHRASE
+                - name: BORGBACKUP_ARCHIVE_PREFIX
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: BORGBACKUP_ARCHIVE_PREFIX
+                - name: BORG_ARCHIVE_GLOB
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: BORG_ARCHIVE_GLOB
+                - name: AWS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: AWS_KEY
+                - name: AWS_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: AWS_SECRET_KEY
+                - name: DB_BACKUP_LOCATION
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: DB_BACKUP_LOCATION
+                - name: KEEP_DAILY
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: KEEP_DAILY
+                - name: KEEP_WEEKLY
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: KEEP_WEEKLY
+                - name: KEEP_MONTHLY
+                  valueFrom:
+                    secretKeyRef:
+                      name: k8s-borg-secret
+                      key: KEEP_MONTHLY

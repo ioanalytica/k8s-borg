@@ -1,0 +1,67 @@
+---
+# borg-ui — web frontend (ghcr.io/ioanalytica/k8s-borg-ui) for browsing the Borg
+# repositories. Shares the Borg client cache (k8s-borg-cache-pvc) with the
+# backup workloads and keeps its own app state on k8s-borg-ui-pvc at /data.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-borg-ui
+  labels:
+    app: k8s-borg-ui
+    release: k8s-borg
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # Recreate: /data lives on RWX NFS and holds the app's own state — never run
+  # two writers concurrently during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: k8s-borg-ui
+  template:
+    metadata:
+      labels:
+        app: k8s-borg-ui
+        release: k8s-borg
+    spec:
+      volumes:
+        - name: k8s-borg-ui-volume
+          persistentVolumeClaim:
+            claimName: k8s-borg-ui-pvc
+        - name: k8s-borg-cache-volume
+          persistentVolumeClaim:
+            claimName: k8s-borg-cache-pvc
+      containers:
+        - name: k8s-borg-ui
+          image: ghcr.io/ioanalytica/k8s-borg-ui:2.2.5
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: PUBLIC_BASE_URL
+              value: "https://borgui.example.com"
+          volumeMounts:
+            - name: k8s-borg-ui-volume
+              mountPath: /data
+            - name: k8s-borg-cache-volume
+              mountPath: /home/borg/.cache
+              subPathExpr: k8s-borg-ui
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi

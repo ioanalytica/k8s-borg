@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k8s-borg-cache-pvc
+  labels:
+    app: k8s-borg
+    release: k8s-borg
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: k8s-borg-cache-pv
+  storageClassName: ''
+  volumeMode: Filesystem
+

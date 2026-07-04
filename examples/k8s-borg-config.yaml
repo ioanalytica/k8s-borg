@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-borg-config
+data:
+  cluster-s3-buckets: |
+    bucket-one
+    bucket-two
+    bucket-three
+    bucket-four
+  cluster-include.patterns: |
+    # ATTENTION: first line important, add directories below
+    P fm
+    R /mnt/s3
+    R /mnt/nfs/users
+    R /mnt/nfs/data/static
+    R /mnt/nfs/data/db-backup
+  cluster-exclude.patterns: |
+    # (These app datadirs are recreatable -> keep them out of the backup.)
+    /mnt/nfs/data/static/app1
+    /mnt/nfs/data/static/app2
+    /mnt/nfs/data/static/app3
+  node-include.patterns: |
+    # ATTENTION: first line important, add directories below
+    # Don't forget to prepend the mount path!
+    P fm
+    R /node/etc
+    R /node/home
+    R /node/root
+    R /node/var/lib/rancher/rke2/server/db/snapshots
+  node-exclude.patterns: |
+    # Don't forget to prepend the mount path!
+    /node/storage
+    /node/data
+    /node/srv
