@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+for defaults_file in /root/.postgres/*.conf; do
+  echo "Running backup-postgres using ${defaults_file} …"
+  backup-postgres "${defaults_file}"
+done
+
+# end

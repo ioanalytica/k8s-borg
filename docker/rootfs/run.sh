@@ -65,6 +65,9 @@ fi
 
 echo "Configuration successfully completed."
 
+echo "Checking BORG_REPO and creating it if necessary."
+borg-init >/dev/null 2>&1
+
 # --- Managed-agent mode: enroll (once) and run the agent ---------------------
 if [[ "${BORG_UI_AGENT:-}" = "true" ]]; then
   exec /run-agent.sh
@@ -78,14 +81,8 @@ fi
 
 # Database dumps before the filesystem backup.
 shopt -s nullglob
-for defaults_file in /root/.mariadb/*.conf; do
-  echo "Running backup-mariadb using ${defaults_file} …"
-  backup-mariadb "${defaults_file}"
-done
-for defaults_file in /root/.postgres/*.conf; do
-  echo "Running backup-postgres using ${defaults_file} …"
-  backup-postgres "${defaults_file}"
-done
+backup-cluster-mariadb
+backup-cluster-postgres
 
 if [[ "${BORG_MODE}" = "node" ]]; then
   echo "Running borg-backup for node ${NODE_NAME} …"

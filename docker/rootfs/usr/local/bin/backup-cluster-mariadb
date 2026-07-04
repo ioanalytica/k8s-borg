@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+shopt -s nullglob
+for defaults_file in /root/.mariadb/*.conf; do
+  echo "Running backup-mariadb using ${defaults_file} …"
+  backup-mariadb "${defaults_file}"
+done
+
+
+# end
