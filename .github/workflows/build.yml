@@ -1,0 +1,154 @@
+name: Build & push
+
+on:
+  push:
+    branches: [develop, master]
+    tags: ['*']
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ioanalytica
+
+jobs:
+  # ---------------------------------------------------------------- agent image
+  agent:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: recursive
+      - uses: docker/setup-qemu-action@v3.6.0
+      - uses: docker/setup-buildx-action@v3.10.0
+      - uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
+  # --------------------------------------------------------- runtime base image
+  runtime-base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: recursive
+      - name: Load borg version pins
+        run: cat borg-ui/docker/runtime-base.env >> "$GITHUB_ENV"
+      - name: Empty build context (Dockerfile has no COPY)
+        run: mkdir -p empty-ctx
+      - uses: docker/setup-qemu-action@v3.6.0
+      - uses: docker/setup-buildx-action@v3.10.0
+      - uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg-ui-runtime-base
+          tags: |
+            type=raw,value=${{ env.BORG_RUNTIME_BASE_TAG }}
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6.18.0
+        with:
+          context: empty-ctx
+          file: ./docker/Dockerfile-runtime-base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BORG1_VERSION=${{ env.BORG1_VERSION }}
+            BORG2_VERSION=${{ env.BORG2_VERSION }}
+            BORGSTORE_VERSION=0.4.1
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=runtime-base
+          cache-to: type=gha,mode=max,scope=runtime-base
+
+  # ---------------------------------------------------- server image (FROM base)
+  server:
+    needs: runtime-base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      APP_VERSION: "2.2.5"
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: recursive
+      - name: Load borg version pins
+        run: cat borg-ui/docker/runtime-base.env >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@v3.6.0
+      - uses: docker/setup-buildx-action@v3.10.0
+      - uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg-ui
+          tags: |
+            type=raw,value=${{ env.APP_VERSION }}
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6.18.0
+        with:
+          context: borg-ui
+          file: ./docker/Dockerfile-server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg-ui-runtime-base:${{ env.BORG_RUNTIME_BASE_TAG }}
+            APP_VERSION=${{ env.APP_VERSION }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+  # ------------------------------------------------------------------ helm chart
+  chart:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: azure/setup-helm@v4
+      - name: Lint & package
+        run: |
+          mkdir -p "$RUNNER_TEMP/chart"
+          helm lint ./chart
+          helm package ./chart --destination "$RUNNER_TEMP/chart"
+      - name: Push chart to GHCR (master / tags only)
+        if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          helm push "$RUNNER_TEMP"/chart/k8s-borg-*.tgz "oci://$REGISTRY/$OWNER/charts"
