@@ -106,6 +106,16 @@ borg:
     default: ""
     ## @param borg.checkSchedule.perHost Per-pod-hostname cron map, e.g. { k8s-borg-node01: "0 3 * * *", console: "0 4 * * 0" }
     perHost: {}
+  ## Scheduled backups (borg create via a server-side backup plan). Same shape and
+  ## POD-HOSTNAME keying as checkSchedule; each agent pod applies its own cron via
+  ## `register-backup-plan`, mounted at BORG_BACKUP_SCHEDULE_DIR. Sources/excludes
+  ## come from config.* (the /root/.borg pattern files), not from here. Leave both
+  ## empty to create plans without a schedule (they can still be run manually).
+  backupSchedule:
+    ## @param borg.backupSchedule.default Fallback backup cron for pods without a perHost entry (empty = no default)
+    default: ""
+    ## @param borg.backupSchedule.perHost Per-pod-hostname backup cron map, e.g. { k8s-borg-node01: "0 2 * * *", console: "0 2 * * 0" }
+    perHost: {}
 
 ## @section S3 sources (cluster/app jobs)
 ## Buckets (config.s3Buckets) are mounted via s3fs under s3.mountPath. The init

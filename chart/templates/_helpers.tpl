@@ -53,6 +53,10 @@ Secret names (support existing secrets).
 {{- printf "%s-check-schedules" (include "common.names.fullname" .) -}}
 {{- end -}}
 
+{{- define "k8s-borg.backupSchedulesConfigMapName" -}}
+{{- printf "%s-backup-schedules" (include "common.names.fullname" .) -}}
+{{- end -}}
+
 {{/*
 Per-component standard labels. Usage: include "k8s-borg.labels" (dict "context" $ "component" "node")
 */}}
@@ -185,6 +189,8 @@ INITIAL_ADMIN_PASSWORD.
       key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
 - name: BORG_CHECK_SCHEDULE_DIR
   value: /etc/borg-check-schedules
+- name: BORG_BACKUP_SCHEDULE_DIR
+  value: /etc/borg-backup-schedules
 {{- end -}}
 
 {{/*
@@ -227,6 +233,10 @@ Volumes shared by all backup workloads (SSH, config, NFS source, cache, agent st
   configMap:
     name: {{ include "k8s-borg.checkSchedulesConfigMapName" . }}
     optional: true
+- name: backup-schedules
+  configMap:
+    name: {{ include "k8s-borg.backupSchedulesConfigMapName" . }}
+    optional: true
 {{- end -}}
 
 {{/*
@@ -248,6 +258,9 @@ Volume mounts shared by all backup workloads. Requires NODE_NAME in the env.
   subPathExpr: $(NODE_NAME)
 - name: check-schedules
   mountPath: /etc/borg-check-schedules
+  readOnly: true
+- name: backup-schedules
+  mountPath: /etc/borg-backup-schedules
   readOnly: true
 {{- end -}}
 

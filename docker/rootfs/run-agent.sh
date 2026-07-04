@@ -53,16 +53,19 @@ if [ "${BORG_UI_AGENT:-}" = "true" ]; then
     echo "Already enrolled (${BORG_UI_CONFIG}) — skipping enrollment."
   fi
 
-  # --- 2) server-side config: repo + check-schedule (idempotent, best-effort) -
-  # Runs every start so it self-heals hosts enrolled by an older image. One admin
-  # JWT is shared with both commands; a failure here never blocks the agent.
+  # --- 2) server-side config: repo + check-schedule + backup plan ------------
+  # Idempotent/declarative, best-effort: runs every start so it self-heals hosts
+  # enrolled by an older image. One admin JWT is shared with all commands; a
+  # failure here never blocks the agent. Order matters: the repo must exist
+  # before its schedule/plan can bind to it.
   if login; then
     export BORG_UI_JWT="$jwt"
-    register-repo      || echo "WARN: repo registration failed — continuing." >&2
-    set-check-schedule || echo "WARN: check-schedule setup failed — continuing." >&2
+    register-repo        || echo "WARN: repo registration failed — continuing." >&2
+    set-check-schedule   || echo "WARN: check-schedule setup failed — continuing." >&2
+    register-backup-plan || echo "WARN: backup-plan setup failed — continuing." >&2
     unset BORG_UI_JWT
   else
-    echo "WARN: no admin JWT — skipping repo registration and check-schedule." >&2
+    echo "WARN: no admin JWT — skipping repo registration, check-schedule and backup plan." >&2
   fi
 
   # --- 3) run ----------------------------------------------------------------

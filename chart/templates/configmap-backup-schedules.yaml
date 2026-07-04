@@ -1,0 +1,28 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Backup-schedule ConfigMap: one key per pod hostname (<hostname>_backup_schedule)
+plus an optional default_backup_schedule fallback. Mounted read-only at
+BORG_BACKUP_SCHEDULE_DIR into every agent pod; `register-backup-plan` picks the
+key matching its own $(hostname). Rendered only when the managed agent is enabled
+and at least one schedule is configured.
+*/}}
+{{- if and .Values.borgUI.agent.enabled (or .Values.borg.backupSchedule.default .Values.borg.backupSchedule.perHost) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-borg.backupSchedulesConfigMapName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+  {{- with .Values.borg.backupSchedule.default }}
+  default_backup_schedule: {{ . | quote }}
+  {{- end }}
+  {{- range $host, $cron := .Values.borg.backupSchedule.perHost }}
+  {{ $host }}_backup_schedule: {{ $cron | quote }}
+  {{- end }}
+{{- end }}
