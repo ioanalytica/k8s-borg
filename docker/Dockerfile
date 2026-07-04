@@ -13,21 +13,22 @@
 FROM python:3.12-alpine
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache \
-        bash \
-        borgbackup \
-        s3fs-fuse \
-        py3-llfuse \
-        ca-certificates \
-        openssh-client \
-        tzdata \
-        lz4-libs \
-        zstd-libs \
-        openssl \
-        libffi \
-        postgresql-client \
-        mariadb-client \
-        rsync \
+RUN apk --update --no-cache add \
+    bash \
+    borgbackup \
+    s3fs-fuse \
+    py3-llfuse \
+    ca-certificates \
+    openssh-client \
+    tzdata \
+    lz4-libs \
+    zstd-libs \
+    openssl \
+    libffi \
+    postgresql-client \
+    mariadb-client \
+    rsync \
+    curl \
     && update-ca-certificates
 
 # Borg 2 (beta): no Alpine/musl wheel exists for borgbackup itself, so compile

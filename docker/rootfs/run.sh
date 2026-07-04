@@ -32,6 +32,7 @@ require_env S3_ENDPOINT \
             S3_MOUNTPOINT \
             AWS_KEY \
             AWS_SECRET_KEY \
+            BORG_VERSION \
             BORG_REPO \
             NODE_NAME \
             BORG_PASSPHRASE \

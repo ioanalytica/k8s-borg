@@ -46,7 +46,7 @@ borg create \
     --list \
     --stats \
     --show-rc \
-    --compression lz4 \
+    --compression auto,lz4 \
     --exclude-caches \
     --exclude-from=${BACKUP_EXCLUDES}  \
     --patterns-from=${BACKUP_PATTERNS}  \
