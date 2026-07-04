@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+#
+# Register a Borg UI backup plan for this node's repository. In managed-agent
+# mode the legacy `borg-backup` loop never runs (run.sh hands off to the agent),
+# so backups must be defined as server-side plans that dispatch to the agent.
+#
+# Sources + excludes come from the k8s-borg-config borg pattern files already
+# mounted at $BORG_PATTERNS_DIR (node-* or cluster-* selected by BORG_MODE).
+# Translation to the plan model (the agent runs `borg create --exclude P … ROOT…`,
+# NOT --patterns-from):
+#   include file:  "R <root>"  -> source_directories entry
+#                  "P …" style -> ignored (borg --exclude is fnmatch anyway)
+#                  other (+/-/!)-> skipped with a warning (not supported here)
+#   exclude file:  each line    -> exclude_patterns (borg --exclude)
+#
+# Standalone command — also meant to be called by run-agent.sh with a shared
+# admin JWT via BORG_UI_JWT (else it logs in with BORG_UI_ADMIN_USER/PASS).
+# Declarative (GitOps): the plan is fully managed from config, so an existing
+# plan of the same name is reconciled to match (PUT, full replace) rather than
+# left drifted; a missing one is created. Manual UI edits are NOT preserved.
+#
+#   BORG_UI_SERVER            e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
+#   BORG_REPO                 repository path/URL (to locate the repo record)
+#   BORG_MODE                 node | cluster (default cluster) — picks pattern set
+#   BORG_ARCHIVE_NAME_TEMPLATE  optional; default "${NODE_NAME}-{now:%Y-%m-%d-%s}"
+#                               (borg-native {now:FMT} passes through for borg1;
+#                                borg-ui placeholders {date}/{time}/{timestamp} also work)
+#   BORG_PLAN_SKIP_MISSING_SOURCES  optional; default 1 = drop non-existent roots
+#   KEEP_DAILY/WEEKLY/MONTHLY prune retention (default 7/4/6)
+#   BORG_UI_AGENT_NAME        optional; repo/agent name. Default: pod hostname.
+#   BORG_PATTERNS_DIR         optional; default /root/.borg
+#   BORG_BACKUP_SCHEDULE_DIR  optional; default /etc/borg-backup-schedules
+#   BORG_BACKUP_CRON          optional; cron override (else ConfigMap keys below)
+#   BORG_COMPRESSION          optional; default auto,lz4
+#   BORG_CHECK_TIMEZONE / TZ  optional; schedule timezone (default UTC)
+#   BORG_UI_JWT               optional; reuse a pre-fetched admin JWT
+#   BORG_UI_ADMIN_USER/PASS   admin creds (only when BORG_UI_JWT is unset)
+#
+# Backup cron resolution — first match wins:
+#   1. $BORG_BACKUP_CRON
+#   2. $BORG_BACKUP_SCHEDULE_DIR/<repo_name>_backup_schedule
+#   3. $BORG_BACKUP_SCHEDULE_DIR/default_backup_schedule
+#   4. none -> plan created but schedule disabled (run manually / schedule later)
+#
+set -euo pipefail
+
+: "${BORG_UI_SERVER:?set BORG_UI_SERVER, e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081}"
+: "${BORG_REPO:?set BORG_REPO to locate the repository record}"
+
+: "${REPO_NAME:=${BORG_UI_AGENT_NAME:-$(hostname)}}"
+: "${BORG_MODE:=cluster}"
+: "${BORG_PATTERNS_DIR:=/root/.borg}"
+: "${BORG_BACKUP_SCHEDULE_DIR:=/etc/borg-backup-schedules}"
+# Archive name: NODE_NAME prefix + BORG'S OWN placeholder {now:%Y-%m-%d-%s}
+# (date + unix seconds) — identical to legacy borg-backup (which named node
+# archives "${NODE_NAME}-{now:%Y-%m-%d-%s}"). borg-ui does only literal
+# {now}/{date}/{time}/{timestamp} substitution, so it leaves {now:FMT} untouched
+# (bare {now} would be ISO-with-millis + colons) and BORG expands it at create
+# time. For borg2 archive series the time placeholder is stripped, yielding a
+# stable, timeless name. Falls back to the hostname if NODE_NAME is unset.
+# NB: plain if-assignment, not ${VAR:=default} — the literal "}" in "{now:…}"
+# would prematurely close a ${…:=…} expansion.
+if [ -z "${BORG_ARCHIVE_NAME_TEMPLATE:-}" ]; then
+  BORG_ARCHIVE_NAME_TEMPLATE="${NODE_NAME:-${REPO_NAME}}-{now:%Y-%m-%d-%s}"
+fi
+# Drop source roots that don't exist on THIS node (e.g. control-plane-only paths
+# on a worker) so borg doesn't warn -> exit 1 -> the job is marked "failed".
+: "${BORG_PLAN_SKIP_MISSING_SOURCES:=1}"
+plan_name="${BORG_BACKUP_PLAN_NAME:-backup-${REPO_NAME}}"
+
+# pattern files by mode
+if [ "$BORG_MODE" = "node" ]; then
+  inc="${BORG_PATTERNS_DIR}/node-include.patterns"
+  exc="${BORG_PATTERNS_DIR}/node-exclude.patterns"
+else
+  inc="${BORG_PATTERNS_DIR}/cluster-include.patterns"
+  exc="${BORG_PATTERNS_DIR}/cluster-exclude.patterns"
+fi
+
+# --- backup cron (override / ConfigMap; optional) ----------------------------
+cron="${BORG_BACKUP_CRON:-}"
+if [ -z "$cron" ] && [ -f "${BORG_BACKUP_SCHEDULE_DIR}/${REPO_NAME}_backup_schedule" ]; then
+  cron=$(cat "${BORG_BACKUP_SCHEDULE_DIR}/${REPO_NAME}_backup_schedule")
+fi
+if [ -z "$cron" ] && [ -f "${BORG_BACKUP_SCHEDULE_DIR}/default_backup_schedule" ]; then
+  cron=$(cat "${BORG_BACKUP_SCHEDULE_DIR}/default_backup_schedule")
+fi
+cron=$(printf '%s' "$cron" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+# --- admin JWT: reuse a shared one, else log in ------------------------------
+jwt="${BORG_UI_JWT:-}"
+if [ -z "$jwt" ]; then
+  : "${BORG_UI_ADMIN_USER:?set BORG_UI_ADMIN_USER (or pass BORG_UI_JWT)}"
+  : "${BORG_UI_ADMIN_PASS:?set BORG_UI_ADMIN_PASS (or pass BORG_UI_JWT)}"
+  jwt=$(curl -fsS -X POST "${BORG_UI_SERVER}/api/auth/login" \
+          --data-urlencode "username=${BORG_UI_ADMIN_USER}" \
+          --data-urlencode "password=${BORG_UI_ADMIN_PASS}" \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])') \
+    || { echo "FATAL: login failed (credentials / server reachable?)" >&2; exit 1; }
+fi
+
+# --- resolve repo_id + agent_machine_id (match by name OR path) --------------
+repo_row=$(curl -fsS "${BORG_UI_SERVER}/api/repositories/" \
+             -H "Authorization: Bearer ${jwt}" \
+           | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" python3 -c '
+import sys, json, os
+data = json.load(sys.stdin)
+repos = data.get("repositories", data if isinstance(data, list) else [])
+name, path = os.environ["REPO_NAME"], os.environ["BORG_REPO"]
+m = [r for r in repos if r.get("name") == name or r.get("path") == path]
+if m:
+    aid = m[0].get("agent_machine_id")
+    print(str(m[0]["id"]) + "\t" + (str(aid) if aid not in (None, "") else ""))') \
+  || { echo "FATAL: could not list repositories" >&2; exit 1; }
+
+repo_id="${repo_row%%$'\t'*}"
+agent_mid="${repo_row##*$'\t'}"
+if [ -z "$repo_id" ]; then
+  echo "FATAL: repository '${REPO_NAME}' (${BORG_REPO}) not found — register it first." >&2
+  exit 1
+fi
+
+# --- declarative: find OUR plan (by name) to reconcile, else create ----------
+# GitOps-style — the plan is fully managed from config, so an existing one is
+# updated (PUT, full replace) to match, not left drifted.
+plan_id=$(curl -fsS "${BORG_UI_SERVER}/api/backup-plans/" \
+            -H "Authorization: Bearer ${jwt}" \
+          | PLAN_NAME="$plan_name" python3 -c '
+import sys, json, os
+data = json.load(sys.stdin)
+plans = data.get("backup_plans", data if isinstance(data, list) else [])
+name = os.environ["PLAN_NAME"]
+m = [p for p in plans if p.get("name") == name]
+print(m[0]["id"] if m else "")') \
+  || { echo "FATAL: could not list backup plans" >&2; exit 1; }
+
+# --- build the payload (parse pattern files -> source_directories/excludes) ---
+if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
+             ARCHIVE_TEMPLATE="$BORG_ARCHIVE_NAME_TEMPLATE" SKIP_MISSING="$BORG_PLAN_SKIP_MISSING_SOURCES" \
+             REPO_ID="$repo_id" AGENT_MID="$agent_mid" CRON="$cron" \
+             COMPRESSION="${BORG_COMPRESSION:-auto,lz4}" \
+             TZ_VAL="${BORG_CHECK_TIMEZONE:-${TZ:-UTC}}" \
+             KEEP_DAILY="${KEEP_DAILY:-7}" KEEP_WEEKLY="${KEEP_WEEKLY:-4}" KEEP_MONTHLY="${KEEP_MONTHLY:-6}" \
+             python3 -c '
+import sys, json, os
+
+def read_lines(p):
+    try:
+        with open(p) as f:
+            return [ln.strip() for ln in f]
+    except FileNotFoundError:
+        return []
+
+sources, unsupported = [], []
+for ln in read_lines(os.environ["INC_FILE"]):
+    if not ln or ln.startswith("#"):
+        continue
+    parts = ln.split(None, 1)
+    tag = parts[0]
+    if tag in ("R", "r"):
+        if len(parts) > 1 and parts[1].strip():
+            sources.append(parts[1].strip())
+    elif tag in ("P", "p"):
+        continue  # pattern-style directive, no path
+    else:
+        unsupported.append(ln)
+
+excludes = [ln for ln in read_lines(os.environ["EXC_FILE"]) if ln and not ln.startswith("#")]
+
+if unsupported:
+    sys.stderr.write("skipping unsupported include lines (only \"R <root>\" is translated): %r\n" % unsupported)
+if os.environ.get("SKIP_MISSING", "1") == "1":
+    missing = [p for p in sources if not os.path.isdir(p)]
+    if missing:
+        sys.stderr.write("dropping source roots that do not exist on this node: %r\n" % missing)
+    sources = [p for p in sources if os.path.isdir(p)]
+if not sources:
+    sys.stderr.write("no existing \"R <root>\" source paths (%s)\n" % os.environ["INC_FILE"])
+    sys.exit(3)
+
+cron = os.environ.get("CRON") or ""
+agent_mid = os.environ.get("AGENT_MID") or ""
+plan = {
+    "name": os.environ["PLAN_NAME"],
+    "enabled": True,
+    # Agent repos execute the backup on the agent, so the source must be an
+    # "agent" location bound to the SAME agent (server-local sources are rejected
+    # by the backup route planner). Non-agent repos keep plain local sources.
+    "source_type": "agent" if agent_mid else "local",
+    "source_directories": sources,
+    "exclude_patterns": excludes,
+    "archive_name_template": os.environ["ARCHIVE_TEMPLATE"],
+    "compression": os.environ["COMPRESSION"],
+    "schedule_enabled": bool(cron),
+    "cron_expression": cron or None,
+    "timezone": os.environ["TZ_VAL"],
+    "run_prune_after": True,
+    "run_compact_after": True,
+    "prune_keep_within": "24H",
+    "prune_keep_hourly": 0,
+    "prune_keep_daily": int(os.environ["KEEP_DAILY"]),
+    "prune_keep_weekly": int(os.environ["KEEP_WEEKLY"]),
+    "prune_keep_monthly": int(os.environ["KEEP_MONTHLY"]),
+    "prune_keep_quarterly": 0,
+    "prune_keep_yearly": 0,
+    "repositories": [{"repository_id": int(os.environ["REPO_ID"]), "execution_order": 1}],
+}
+if agent_mid:
+    plan["source_locations"] = [{
+        "source_type": "agent",
+        "agent_machine_id": int(agent_mid),
+        "paths": sources,
+    }]
+print(json.dumps(plan))'); then
+  :
+else
+  rc=$?
+  if [ "$rc" = "3" ]; then
+    echo "No 'R <root>' source paths configured for ${BORG_MODE} mode (${inc}) — leaving backup plan unchanged."
+    exit 0
+  fi
+  echo "FATAL: could not build backup-plan payload" >&2
+  exit 1
+fi
+
+# --- create (POST) or reconcile (PUT), surfacing the server error body --------
+if [ -n "$plan_id" ]; then
+  method="PUT";  url="${BORG_UI_SERVER}/api/backup-plans/${plan_id}"; verb="updated"
+else
+  method="POST"; url="${BORG_UI_SERVER}/api/backup-plans/";           verb="created"
+fi
+
+body_file=$(mktemp)
+trap 'rm -f "$body_file"' EXIT
+code=$(curl -sS -o "$body_file" -w '%{http_code}' -X "$method" "$url" \
+         -H "Authorization: Bearer ${jwt}" -H "Content-Type: application/json" \
+         -d "${payload}") \
+  || { echo "FATAL: backup plan request failed (server unreachable?)" >&2; exit 1; }
+if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+  echo "FATAL: backup plan ${method} failed (HTTP ${code}): $(cat "$body_file")" >&2
+  exit 1
+fi
+
+if [ -n "$cron" ]; then
+  echo "Backup plan '${plan_name}' ${verb} for repo id ${repo_id} (schedule '${cron}')."
+else
+  echo "Backup plan '${plan_name}' ${verb} for repo id ${repo_id} (no schedule — run manually)."
+fi

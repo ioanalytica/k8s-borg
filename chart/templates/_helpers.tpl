@@ -129,6 +129,8 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
   value: "$(BORG_REPO_BASE)/$(NODE_NAME)"
 - name: BORG_VERSION
   value: {{ .Values.borg.version | quote }}
+- name: BORG_TREAT_WARNINGS_AS_ERRORS
+  value: {{ .Values.borg.treatWarningsAsErrors | quote }}
 - name: BORG_PASSPHRASE
   valueFrom:
     secretKeyRef:

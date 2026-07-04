@@ -1,10 +1,30 @@
 #!/usr/bin/env bash
-# Borg 1 wrapper.
+# Borg 1 wrapper / gateway.
 #
 # Sits in front of the real /usr/bin/borg on PATH (/usr/local/bin before
-# /usr/bin) and injects default common params (BORG1_DEFAULT_PARAMS), e.g.
-# `--remote-path=borg-1.4` for a Hetzner Storage Box reached over ssh://.
+# /usr/bin) and does two things:
 #
-# Server-provided flags in "$@" override the defaults: borg's argparse lets the
-# last occurrence of an option win, and "$@" comes after BORG1_DEFAULT_PARAMS.
-exec /usr/bin/borg ${BORG1_DEFAULT_PARAMS:-} "$@"
+# 1) Injects default common params (BORG1_DEFAULT_PARAMS), e.g.
+#    `--remote-path=borg-1.4` for a Hetzner Storage Box reached over ssh://.
+#    Server-provided flags in "$@" override the defaults: borg's argparse lets
+#    the last occurrence of an option win, and "$@" comes after the defaults.
+#
+# 2) Warning handling. Borg exit codes: 0 = ok, 1 = warning, >=2 = error. A
+#    warning (a listed path is missing, or a file changed/vanished mid-backup —
+#    on a live filesystem essentially routine) otherwise propagates as non-zero
+#    and makes a managed-agent backup job count as "failed". By DEFAULT this
+#    wrapper downgrades rc=1 to 0 for the caller — same spirit as borg-backup's
+#    exit-1 handling. Set BORG_TREAT_WARNINGS_AS_ERRORS=true to pass the warning
+#    through unchanged instead.
+#
+# NB: we run borg (not exec) so we can remap its exit code; borg shares this
+# process group, so the agent's process-group SIGTERM still cancels it cleanly.
+
+/usr/bin/borg ${BORG1_DEFAULT_PARAMS:-} "$@"
+rc=$?
+
+if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
+  echo "borg: warning (rc=1) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
+  rc=0
+fi
+exit "$rc"

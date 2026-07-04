@@ -1,8 +1,27 @@
 #!/usr/bin/env bash
-# Borg 2 wrapper.
+# Borg 2 wrapper / gateway.
 #
 # Provides the `borg2` command on PATH; the real Borg 2 binary lives in its own
-# venv (/opt/borg-ui-agent/borg2-venv/bin/borg). Injects default common params
-# (BORG2_DEFAULT_PARAMS); Borg 2 reaches a Storage Box over sftp:// and usually
-# needs none.
-exec /opt/borg-ui-agent/borg2-venv/bin/borg ${BORG2_DEFAULT_PARAMS:-} "$@"
+# venv (/opt/borg-ui-agent/borg2-venv/bin/borg). Does two things:
+#
+# 1) Injects default common params (BORG2_DEFAULT_PARAMS); Borg 2 reaches a
+#    Storage Box over sftp:// and usually needs none. Server-provided flags in
+#    "$@" override the defaults (last occurrence wins).
+#
+# 2) Warning handling, identical to the borg1 wrapper. Borg uses legacy exit
+#    codes (0 = ok, 1 = warning, >=2 = error) unless BORG_EXIT_CODES=modern,
+#    which we don't set. By DEFAULT a warning (rc=1) is downgraded to 0 so a
+#    managed-agent backup job isn't marked "failed" on a routine warning; set
+#    BORG_TREAT_WARNINGS_AS_ERRORS=true to pass it through unchanged.
+#
+# NB: run (not exec) so we can remap the exit code; borg2 shares this process
+# group, so the agent's process-group SIGTERM still cancels it cleanly.
+
+/opt/borg-ui-agent/borg2-venv/bin/borg ${BORG2_DEFAULT_PARAMS:-} "$@"
+rc=$?
+
+if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
+  echo "borg2: warning (rc=1) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
+  rc=0
+fi
+exit "$rc"

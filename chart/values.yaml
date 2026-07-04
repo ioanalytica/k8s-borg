@@ -65,6 +65,10 @@ initImage:
 borg:
   ## @param borg.version Borg binary the scripts use: 1 or 2 (transport comes from the URL scheme)
   version: 1
+  ## @param borg.treatWarningsAsErrors Propagate borg warnings (rc=1) as failures. Default false: the
+  ## borg wrapper downgrades rc=1 (missing path, file changed mid-backup) to success so managed-agent
+  ## backup jobs aren't marked "failed" on routine warnings.
+  treatWarningsAsErrors: false
   ## Repository base, e.g. ssh://user@host:22/./cluster. Each pod appends its node name.
   ## Sensitive: provide `value`, or reference an existing Secret via existingSecret[+existingSecretKey].
   repoBase:
