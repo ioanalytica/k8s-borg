@@ -1,28 +1,70 @@
 #!/usr/bin/env bash
-# Local build helper for testing the k8s-borg agent image.
 #
-# CI (.github/workflows/docker-build.yml) builds and pushes multi-arch images
-# to ghcr.io on tag pushes. This script is only for local verification: it
-# builds for the host architecture, loads the image into the local docker, and
-# runs the self-test entry point.
+# docker-build.sh — build the k8s-borg AGENT image from the pinned borg-ui
+# submodule (same commit as the server → server/agent lockstep).
+#   ->  ghcr.io/ioanalytica/k8s-borg
 #
-# Usage: docker/docker-build.sh [tag]   (default tag: local)
+# Build context = the repo root (the Dockerfile COPYs borg-ui/ and docker/rootfs/
+# from there). By default builds for the host arch, --load into the local docker
+# and runs the self-test entry point. PUSH=1 (or --push) builds multi-arch and
+# pushes to GHCR — same recipe as docker-build-runtime-base.sh / docker-build-server.sh.
+# CI (.github/workflows/docker-build.yml) also builds + pushes on tag pushes.
+#
+# Usage:
+#   ./docker-build.sh [tag]           # local build (host arch, --load) + self-test
+#   PUSH=1 ./docker-build.sh [tag]    # multi-arch build + push to GHCR
+#   ./docker-build.sh --push [tag]    #  (equivalent)
+#   (default tag: local)
+#
+# Requires: docker (buildx). No host build tools.
+
 set -euo pipefail
 
-cd "$(dirname "$0")/.."   # repository root == build context
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # repo root == build context
+SUB="$ROOT/borg-ui"
+IMAGE="ghcr.io/ioanalytica/k8s-borg"
+PUSH="${PUSH:-0}"
 
-TAG="${1:-local}"
-IMAGE="k8s-borg:${TAG}"
+# ensure we have history + tags
+TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+[ -n "$TAG" ] || TAG="local"   # fallback if no tag at all
 
-if [ ! -f borg-ui/pyproject.toml ]; then
-  echo "borg-ui submodule is not checked out. Run:" >&2
-  echo "  git submodule update --init" >&2
+for arg in "$@"; do
+  case "$arg" in
+    --push)     PUSH=1 ;;
+    --no-push)  PUSH=0 ;;
+    -*)         echo "WARN: unknown argument '$arg' ignored" >&2 ;;
+    *)          TAG="$arg" ;;
+  esac
+done
+REF="${IMAGE}:${TAG}"
+
+[ -f "$SUB/pyproject.toml" ] || {
+  echo "✗ borg-ui submodule not initialized at $SUB — run: git submodule update --init" >&2
   exit 1
+}
+
+echo "▶ k8s-borg agent build"
+echo "   submodule commit : $(git -C "$SUB" rev-parse --short HEAD)"
+echo "   image tag        : $REF"
+echo "   push             : $PUSH"
+
+COMMON=(
+  -f "$ROOT/docker/Dockerfile"
+  -t "$REF"
+)
+
+if [ "$PUSH" = "1" ]; then
+  echo "▶ multi-arch build + push …"
+  docker buildx build --platform linux/amd64,linux/arm64 "${COMMON[@]}" --push "$ROOT"
+  echo "✓ pushed $REF"
+  exit 0
 fi
 
-echo "Building ${IMAGE} for the host architecture …"
-docker build -f docker/Dockerfile -t "${IMAGE}" .
+echo "▶ local build (host arch, --load) …"
+docker buildx build "${COMMON[@]}" --load "$ROOT"
+echo "✓ built $REF (local)"
 
-echo
-echo "Running self-test for ${IMAGE}:"
-docker run --rm "${IMAGE}"
+echo "▶ self-test …"
+docker run --rm "$REF"
+echo "✓ self-test passed — $REF"
