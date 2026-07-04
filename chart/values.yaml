@@ -90,6 +90,18 @@ borg:
     daily: 7
     weekly: 4
     monthly: 3
+  ## Scheduled repository integrity checks (borg check). Rendered into a ConfigMap
+  ## and mounted at BORG_CHECK_SCHEDULE_DIR; at startup each agent pod applies its
+  ## own schedule via `set-check-schedule`, selecting the key that matches its
+  ## POD HOSTNAME (`<hostname>_check_schedule`) and falling back to `default`.
+  ## Requires borgUI.agent.enabled. Leave both empty to create no schedules.
+  ## Pod hostnames: DaemonSet nodes are "k8s-borg-<node>", the app/console pod is
+  ## its app.nodeName.
+  checkSchedule:
+    ## @param borg.checkSchedule.default Fallback cron for pods without a perHost entry (empty = no default)
+    default: ""
+    ## @param borg.checkSchedule.perHost Per-pod-hostname cron map, e.g. { k8s-borg-node01: "0 3 * * *", console: "0 4 * * 0" }
+    perHost: {}
 
 ## @section S3 sources (cluster/app jobs)
 ## Buckets (config.s3Buckets) are mounted via s3fs under s3.mountPath. The init

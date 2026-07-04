@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# Set the Borg UI check-schedule for this node's repository from config.
+# Declarative: applies the configured cron (creates/updates/re-enables as needed).
+#
+# Standalone command — also called by run-agent.sh. To share a single admin JWT
+# across calls, set BORG_UI_JWT (run-agent.sh does this); otherwise this logs in
+# itself using BORG_UI_ADMIN_USER/PASS.
+#
+# Cron resolution — first match wins:
+#   1. $BORG_CHECK_CRON                                          (test override)
+#   2. $BORG_CHECK_SCHEDULE_DIR/<repo_name>_check_schedule       (per-repo key)
+#   3. $BORG_CHECK_SCHEDULE_DIR/default_check_schedule           (fallback key)
+#   4. none  ->  no schedule is created (exit 0)
+#
+# The config is a ConfigMap projected as a directory of files, one file per key
+# (chosen over envFrom because repo names are pod hostnames and may contain '-'
+# or '.', which are invalid in env var names but fine as file names):
+#   data:
+#     <repo_name>_check_schedule: "0 3 * * *"   # e.g. small node repos, daily
+#     default_check_schedule:     "0 3 * * 0"   # fallback, weekly
+#   mounted at $BORG_CHECK_SCHEDULE_DIR (default /etc/borg-ui-agent/check-schedules)
+#
+#   BORG_UI_SERVER      e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
+#   BORG_REPO           repository path/URL (used to locate the repo record)
+#   BORG_UI_AGENT_NAME  optional; repo/agent name. Default: pod hostname.
+#   BORG_CHECK_TIMEZONE optional; default $TZ, else the server default.
+#   BORG_UI_JWT         optional; reuse a pre-fetched admin JWT (skips login)
+#   BORG_UI_ADMIN_USER  admin user   (only needed when BORG_UI_JWT is unset)
+#   BORG_UI_ADMIN_PASS  admin password (only needed when BORG_UI_JWT is unset)
+#
+set -euo pipefail
+
+: "${BORG_UI_SERVER:?set BORG_UI_SERVER, e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081}"
+: "${BORG_REPO:?set BORG_REPO to locate the repository record}"
+
+: "${REPO_NAME:=${BORG_UI_AGENT_NAME:-$(hostname)}}"
+: "${BORG_CHECK_SCHEDULE_DIR:=/etc/borg-ui-agent/check-schedules}"
+
+# --- 1) resolve the cron expression from override / ConfigMap ----------------
+cron="${BORG_CHECK_CRON:-}"; src="env BORG_CHECK_CRON"
+if [ -z "$cron" ] && [ -f "${BORG_CHECK_SCHEDULE_DIR}/${REPO_NAME}_check_schedule" ]; then
+  cron=$(cat "${BORG_CHECK_SCHEDULE_DIR}/${REPO_NAME}_check_schedule"); src="${REPO_NAME}_check_schedule"
+fi
+if [ -z "$cron" ] && [ -f "${BORG_CHECK_SCHEDULE_DIR}/default_check_schedule" ]; then
+  cron=$(cat "${BORG_CHECK_SCHEDULE_DIR}/default_check_schedule"); src="default_check_schedule"
+fi
+# trim CR + surrounding whitespace
+cron=$(printf '%s' "$cron" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+if [ -z "$cron" ]; then
+  echo "No check schedule configured for '${REPO_NAME}' (no ${REPO_NAME}_check_schedule / default_check_schedule) — skipping."
+  exit 0
+fi
+echo "Check schedule for '${REPO_NAME}': '${cron}' (source: ${src})"
+
+# --- 2) admin JWT: reuse a shared one, else log in ---------------------------
+jwt="${BORG_UI_JWT:-}"
+if [ -z "$jwt" ]; then
+  : "${BORG_UI_ADMIN_USER:?set BORG_UI_ADMIN_USER (or pass BORG_UI_JWT)}"
+  : "${BORG_UI_ADMIN_PASS:?set BORG_UI_ADMIN_PASS (or pass BORG_UI_JWT)}"
+  jwt=$(curl -fsS -X POST "${BORG_UI_SERVER}/api/auth/login" \
+          --data-urlencode "username=${BORG_UI_ADMIN_USER}" \
+          --data-urlencode "password=${BORG_UI_ADMIN_PASS}" \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])') \
+    || { echo "FATAL: login failed (credentials / server reachable?)" >&2; exit 1; }
+fi
+
+# --- 3) resolve repo_id (match by name OR path) ------------------------------
+repo_id=$(curl -fsS "${BORG_UI_SERVER}/api/repositories/" \
+            -H "Authorization: Bearer ${jwt}" \
+          | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" python3 -c '
+import sys, json, os
+data = json.load(sys.stdin)
+repos = data.get("repositories", data if isinstance(data, list) else [])
+name, path = os.environ["REPO_NAME"], os.environ["BORG_REPO"]
+m = [r for r in repos if r.get("name") == name or r.get("path") == path]
+print(m[0]["id"] if m else "")') \
+  || { echo "FATAL: could not list repositories" >&2; exit 1; }
+
+if [ -z "$repo_id" ]; then
+  echo "FATAL: repository '${REPO_NAME}' (${BORG_REPO}) not found — register it first." >&2
+  exit 1
+fi
+
+# --- 4) idempotent: skip if already enabled with this exact cron -------------
+current=$(curl -fsS "${BORG_UI_SERVER}/api/repositories/${repo_id}/check-schedule" \
+            -H "Authorization: Bearer ${jwt}" \
+          | python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("check_cron_expression") or "") + "\t" + ("1" if d.get("enabled") else "0"))') \
+  || { echo "WARN: could not read current schedule — will try to set it." >&2; current=$'\t0'; }
+
+cur_cron="${current%%$'\t'*}"
+cur_en="${current##*$'\t'}"
+if [ "$cur_en" = "1" ] && [ "$cur_cron" = "$cron" ]; then
+  echo "Check schedule already set to '${cron}' and enabled — nothing to do."
+  exit 0
+fi
+
+# --- 5) PUT the schedule -----------------------------------------------------
+payload=$(CRON="$cron" TZ_VAL="${BORG_CHECK_TIMEZONE:-${TZ:-}}" python3 -c '
+import json, os
+b = {"cron_expression": os.environ["CRON"], "schedule_enabled": True}
+tz = os.environ.get("TZ_VAL")
+if tz:
+    b["timezone"] = tz
+print(json.dumps(b))')
+
+curl -fsS -X PUT "${BORG_UI_SERVER}/api/repositories/${repo_id}/check-schedule" \
+     -H "Authorization: Bearer ${jwt}" -H "Content-Type: application/json" \
+     -d "${payload}" >/dev/null \
+  || { echo "FATAL: failed to set check schedule" >&2; exit 1; }
+
+echo "Check schedule set for '${REPO_NAME}' (repo id ${repo_id}): '${cron}'."

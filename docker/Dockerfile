@@ -81,7 +81,7 @@ RUN python -m venv "${BORG_UI_AGENT_VENV}" \
 RUN install -d -m 0750 /etc/borg-ui-agent
 
 COPY docker/rootfs/ /
-RUN chmod 0755 /entrypoint.sh /usr/local/bin/borg* /usr/local/bin/backup* /usr/local/bin/restore*
+RUN chmod 0755 /entrypoint.sh /run-agent.sh /usr/local/bin/*
 
 # Explicit HOME so `~` resolves to /root everywhere (the agent, borg's
 # cache/security dirs, and ~/.ssh).

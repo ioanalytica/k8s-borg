@@ -49,6 +49,10 @@ Secret names (support existing secrets).
 {{- printf "%s-config" (include "common.names.fullname" .) -}}
 {{- end -}}
 
+{{- define "k8s-borg.checkSchedulesConfigMapName" -}}
+{{- printf "%s-check-schedules" (include "common.names.fullname" .) -}}
+{{- end -}}
+
 {{/*
 Per-component standard labels. Usage: include "k8s-borg.labels" (dict "context" $ "component" "node")
 */}}
@@ -177,6 +181,8 @@ INITIAL_ADMIN_PASSWORD.
     secretKeyRef:
       name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
       key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
+- name: BORG_CHECK_SCHEDULE_DIR
+  value: /etc/borg-check-schedules
 {{- end -}}
 
 {{/*
@@ -215,6 +221,10 @@ Volumes shared by all backup workloads (SSH, config, NFS source, cache, agent st
 - name: ui-agent
   persistentVolumeClaim:
     claimName: {{ include "k8s-borg.pvc.uiAgent" . }}
+- name: check-schedules
+  configMap:
+    name: {{ include "k8s-borg.checkSchedulesConfigMapName" . }}
+    optional: true
 {{- end -}}
 
 {{/*
@@ -234,6 +244,9 @@ Volume mounts shared by all backup workloads. Requires NODE_NAME in the env.
 - name: ui-agent
   mountPath: /etc/borg-ui-agent
   subPathExpr: $(NODE_NAME)
+- name: check-schedules
+  mountPath: /etc/borg-check-schedules
+  readOnly: true
 {{- end -}}
 
 {{/*

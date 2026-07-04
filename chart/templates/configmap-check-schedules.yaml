@@ -1,0 +1,28 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Check-schedule ConfigMap: one key per pod hostname (<hostname>_check_schedule)
+plus an optional default_check_schedule fallback. Mounted read-only at
+BORG_CHECK_SCHEDULE_DIR into every agent pod; `set-check-schedule` picks the key
+matching its own $(hostname). Rendered only when the managed agent is enabled and
+at least one schedule is configured.
+*/}}
+{{- if and .Values.borgUI.agent.enabled (or .Values.borg.checkSchedule.default .Values.borg.checkSchedule.perHost) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-borg.checkSchedulesConfigMapName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+  {{- with .Values.borg.checkSchedule.default }}
+  default_check_schedule: {{ . | quote }}
+  {{- end }}
+  {{- range $host, $cron := .Values.borg.checkSchedule.perHost }}
+  {{ $host }}_check_schedule: {{ $cron | quote }}
+  {{- end }}
+{{- end }}
