@@ -191,6 +191,16 @@ INITIAL_ADMIN_PASSWORD.
   value: /etc/borg-check-schedules
 - name: BORG_BACKUP_SCHEDULE_DIR
   value: /etc/borg-backup-schedules
+- name: BORG_PLAN_RUN_PRUNE
+  value: {{ .Values.borg.backupMaintenance.prune | quote }}
+- name: BORG_PLAN_RUN_COMPACT
+  value: {{ .Values.borg.backupMaintenance.compact | quote }}
+- name: BORG_PLAN_RUN_CHECK
+  value: {{ .Values.borg.backupMaintenance.check | quote }}
+- name: BORG_PLAN_CHECK_MAX_DURATION
+  value: {{ .Values.borg.backupMaintenance.checkMaxDuration | quote }}
+- name: BORG_PLAN_CHECK_EXTRA_FLAGS
+  value: {{ .Values.borg.backupMaintenance.checkExtraFlags | quote }}
 {{- end -}}
 
 {{/*

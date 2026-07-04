@@ -27,6 +27,12 @@
 #                                borg-ui placeholders {date}/{time}/{timestamp} also work)
 #   BORG_PLAN_SKIP_MISSING_SOURCES  optional; default 1 = drop non-existent roots
 #   KEEP_DAILY/WEEKLY/MONTHLY prune retention (default 7/4/6)
+#   BORG_PLAN_RUN_PRUNE       optional; run prune after backup (default true)
+#   BORG_PLAN_RUN_COMPACT     optional; run compact after backup (default true)
+#   BORG_PLAN_RUN_CHECK       optional; run an EXTRA check after each backup
+#                             (default false; separate from the check-schedule)
+#   BORG_PLAN_CHECK_MAX_DURATION  optional; post-backup check budget in s (default 3600)
+#   BORG_PLAN_CHECK_EXTRA_FLAGS   optional; extra flags for the post-backup check
 #   BORG_UI_AGENT_NAME        optional; repo/agent name. Default: pod hostname.
 #   BORG_PATTERNS_DIR         optional; default /root/.borg
 #   BORG_BACKUP_SCHEDULE_DIR  optional; default /etc/borg-backup-schedules
@@ -141,6 +147,10 @@ if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              COMPRESSION="${BORG_COMPRESSION:-auto,lz4}" \
              TZ_VAL="${BORG_CHECK_TIMEZONE:-${TZ:-UTC}}" \
              KEEP_DAILY="${KEEP_DAILY:-7}" KEEP_WEEKLY="${KEEP_WEEKLY:-4}" KEEP_MONTHLY="${KEEP_MONTHLY:-6}" \
+             RUN_PRUNE="${BORG_PLAN_RUN_PRUNE:-true}" RUN_COMPACT="${BORG_PLAN_RUN_COMPACT:-true}" \
+             RUN_CHECK="${BORG_PLAN_RUN_CHECK:-false}" \
+             CHECK_MAX_DURATION="${BORG_PLAN_CHECK_MAX_DURATION:-3600}" \
+             CHECK_EXTRA_FLAGS="${BORG_PLAN_CHECK_EXTRA_FLAGS:-}" \
              python3 -c '
 import sys, json, os
 
@@ -178,6 +188,9 @@ if not sources:
     sys.stderr.write("no existing \"R <root>\" source paths (%s)\n" % os.environ["INC_FILE"])
     sys.exit(3)
 
+def envbool(key, default):
+    return (os.environ.get(key) or default).strip().lower() in ("1", "true", "yes", "on")
+
 cron = os.environ.get("CRON") or ""
 agent_mid = os.environ.get("AGENT_MID") or ""
 plan = {
@@ -194,8 +207,10 @@ plan = {
     "schedule_enabled": bool(cron),
     "cron_expression": cron or None,
     "timezone": os.environ["TZ_VAL"],
-    "run_prune_after": True,
-    "run_compact_after": True,
+    "run_prune_after": envbool("RUN_PRUNE", "true"),
+    "run_compact_after": envbool("RUN_COMPACT", "true"),
+    "run_check_after": envbool("RUN_CHECK", "false"),
+    "check_max_duration": int(os.environ.get("CHECK_MAX_DURATION") or "3600"),
     "prune_keep_within": "24H",
     "prune_keep_hourly": 0,
     "prune_keep_daily": int(os.environ["KEEP_DAILY"]),
@@ -205,6 +220,9 @@ plan = {
     "prune_keep_yearly": 0,
     "repositories": [{"repository_id": int(os.environ["REPO_ID"]), "execution_order": 1}],
 }
+_cef = (os.environ.get("CHECK_EXTRA_FLAGS") or "").strip()
+if _cef:
+    plan["check_extra_flags"] = _cef
 if agent_mid:
     plan["source_locations"] = [{
         "source_type": "agent",

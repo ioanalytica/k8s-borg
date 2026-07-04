@@ -94,6 +94,20 @@ borg:
     daily: 7
     weekly: 4
     monthly: 3
+  ## Post-backup maintenance run by each backup plan (register-backup-plan).
+  ## Prune retention comes from borg.retention above. NB: `check` here is an EXTRA
+  ## check after every backup — independent of borg.checkSchedule (scheduled checks).
+  backupMaintenance:
+    ## @param borg.backupMaintenance.prune Run borg prune after each backup
+    prune: true
+    ## @param borg.backupMaintenance.compact Run borg compact after each backup
+    compact: true
+    ## @param borg.backupMaintenance.check Run an extra borg check after each backup
+    check: false
+    ## @param borg.backupMaintenance.checkMaxDuration Time budget (seconds) for the post-backup check
+    checkMaxDuration: 3600
+    ## @param borg.backupMaintenance.checkExtraFlags Extra flags for the post-backup check (e.g. "--verify-data")
+    checkExtraFlags: ""
   ## Scheduled repository integrity checks (borg check). Rendered into a ConfigMap
   ## and mounted at BORG_CHECK_SCHEDULE_DIR; at startup each agent pod applies its
   ## own schedule via `set-check-schedule`, selecting the key that matches its
