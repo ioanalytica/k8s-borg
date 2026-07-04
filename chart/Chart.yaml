@@ -1,0 +1,42 @@
+# Copyright IO ANALYTICA. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: k8s-borg
+version: 1.0.4-0
+appVersion: "1.0.4"
+
+description: >-
+  Backup for Kubernetes clusters with BorgBackup. Deploys a node-backup
+  DaemonSet, a cluster-data-backup CronJob, and a console StatefulSet, each
+  talking to its own Borg repository. Optional Borg UI server + managed-agent
+  enrollment (DEV/TEST) for browsing repos and scheduling jobs.
+home: https://github.com/ioanalytica/k8s-borg
+icon: https://raw.githubusercontent.com/ioanalytica/k8s-borg/master/icon.png
+sources:
+  - https://github.com/ioanalytica/k8s-borg
+
+maintainers:
+  - name: IO ANALYTICA
+    url: https://ioanalytica.com
+
+keywords:
+  - backup
+  - borg
+  - borgbackup
+  - kubernetes
+  - disaster-recovery
+
+annotations:
+  category: Storage
+  licenses: Apache-2.0
+  images: |
+    - name: k8s-borg
+      image: ghcr.io/ioanalytica/k8s-borg:1.0.4
+    - name: k8s-borg-ui
+      image: ghcr.io/ioanalytica/k8s-borg-ui:2.2.5
+
+dependencies:
+  - name: common
+    repository: oci://ghcr.io/ioanalytica/charts
+    version: 0.1.x

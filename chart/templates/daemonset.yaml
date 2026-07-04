@@ -1,0 +1,76 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- if .Values.node.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ printf "%s-node" (include "common.names.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels: {{- include "k8s-borg.matchLabels" (dict "context" $ "component" "node") | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 8 }}
+    spec:
+      {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.node.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.node.tolerations "context" $) | nindent 8 }}
+      {{- end }}
+      volumes:
+        {{- include "k8s-borg.volumes.common" . | nindent 8 }}
+        - name: rootfs
+          hostPath:
+            path: {{ .Values.node.hostRootPath | quote }}
+            type: Directory
+        {{- if .Values.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
+        {{- end }}
+      initContainers:
+        {{- include "k8s-borg.sshInitContainer" . | nindent 8 }}
+      containers:
+        - name: node
+          image: {{ include "k8s-borg.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              hostname "k8s-borg-${NODE_NAME}" 2>/dev/null || printf '%s' "${NODE_NAME}" > /proc/sys/kernel/hostname
+              while true; do
+                /run.sh run
+                sleep {{ .Values.node.backupIntervalSeconds }}
+              done
+          securityContext: {{- toYaml .Values.node.containerSecurityContext | nindent 12 }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: BORG_MODE
+              value: node
+            {{- include "k8s-borg.env.common" . | nindent 12 }}
+            {{- if .Values.borgUI.agent.enabled }}
+            {{- include "k8s-borg.env.agent" . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
+            - name: rootfs
+              mountPath: /node
+              readOnly: true
+            {{- if .Values.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if .Values.node.resources }}
+          resources: {{- toYaml .Values.node.resources | nindent 12 }}
+          {{- end }}
+{{- end }}

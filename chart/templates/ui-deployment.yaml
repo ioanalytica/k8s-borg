@@ -1,0 +1,71 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- if .Values.borgUI.enabled }}
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ printf "%s-ui" (include "common.names.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "ui") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # /data holds the server's own state on RWX storage — never two writers at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "k8s-borg.matchLabels" (dict "context" $ "component" "ui") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "ui") | nindent 8 }}
+    spec:
+      {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      volumes:
+        - name: ui
+          persistentVolumeClaim:
+            claimName: {{ include "k8s-borg.pvc.ui" . }}
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ include "k8s-borg.pvc.cache" . }}
+      containers:
+        - name: ui
+          image: {{ include "k8s-borg.ui.image" . | quote }}
+          imagePullPolicy: {{ .Values.borgUI.image.pullPolicy | quote }}
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: PUBLIC_BASE_URL
+              value: {{ .Values.borgUI.publicBaseUrl | quote }}
+            {{- if or .Values.borgUI.adminPassword.value .Values.borgUI.adminPassword.existingSecret }}
+            - name: INITIAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
+                  key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
+            {{- end }}
+          volumeMounts:
+            - name: ui
+              mountPath: /data
+            - name: cache
+              mountPath: /home/borg/.cache
+              subPath: k8s-borg-ui
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          {{- if .Values.borgUI.resources }}
+          resources: {{- toYaml .Values.borgUI.resources | nindent 12 }}
+          {{- end }}
+{{- end }}

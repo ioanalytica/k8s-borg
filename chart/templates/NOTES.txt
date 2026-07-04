@@ -1,0 +1,42 @@
+k8s-borg {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Backup image: {{ include "k8s-borg.image" . }}
+Borg binary : borg {{ .Values.borg.version }}   (transport comes from the repo URL scheme)
+
+Workloads:
+{{- if .Values.node.enabled }}
+  • DaemonSet  {{ include "common.names.fullname" . }}-node     — per-node backups (BORG_MODE=node)
+{{- end }}
+{{- if .Values.cluster.enabled }}
+  • CronJob    {{ include "common.names.fullname" . }}-cluster  — cluster-data backups ({{ .Values.cluster.schedule }})
+{{- end }}
+{{- if .Values.app.enabled }}
+  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod (kubectl exec)
+{{- end }}
+
+Mode:
+{{- if .Values.borgUI.agent.enabled }}
+  Borg UI managed-agent enrollment is ENABLED (DEV/TEST). Pods enroll at
+  {{ .Values.borgUI.agent.server }} and register their repository.
+{{- else }}
+  Standalone (stable). Set borgUI.agent.enabled=true only in DEV/TEST to enroll
+  the pods at a Borg UI server.
+{{- end }}
+
+{{- if .Values.borgUI.enabled }}
+
+Borg UI server:
+{{- if .Values.borgUI.ingress.enabled }}
+  http{{ if .Values.borgUI.ingress.tls.enabled }}s{{ end }}://{{ .Values.borgUI.ingress.host }}
+  (restrict this Ingress to trusted networks — it can reach every repository!)
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "common.names.fullname" . }}-ui {{ .Values.borgUI.service.port }}:{{ .Values.borgUI.service.port }}
+{{- end }}
+{{- end }}
+
+{{- if not .Values.existingSecret }}
+
+Reminder: this release created a Secret with your borg/S3 credentials. For
+production keep them out of values.yaml — use existingSecret with SOPS / Sealed
+Secrets / External Secrets instead.
+{{- end }}

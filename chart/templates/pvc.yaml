@@ -1,0 +1,31 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- range $key, $p := .Values.persistence }}
+{{- if not $p.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-%s" (include "common.names.fullname" $) ($key | kebabcase) }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" $.Values.commonLabels "context" $) | nindent 4 }}
+  {{- if $p.retain }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  {{- if $p.createPV }}
+  storageClassName: ""
+  volumeName: {{ printf "%s-%s-pv" (include "common.names.fullname" $) ($key | kebabcase) }}
+  {{- else if $p.storageClassName }}
+  storageClassName: {{ $p.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size | quote }}
+{{- end }}
+{{- end }}

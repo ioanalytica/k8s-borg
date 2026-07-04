@@ -1,0 +1,59 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- if .Values.cluster.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-cluster" (include "common.names.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "cluster") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  schedule: {{ .Values.cluster.schedule | quote }}
+  timeZone: {{ .Values.cluster.timeZone | default .Values.timezone | quote }}
+  concurrencyPolicy: {{ .Values.cluster.concurrencyPolicy }}
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 5
+      template:
+        metadata:
+          labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "cluster") | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          {{- include "k8s-borg.imagePullSecrets" . | nindent 10 }}
+          volumes:
+            {{- include "k8s-borg.volumes.common" . | nindent 12 }}
+            {{- include "k8s-borg.volumes.db" . | nindent 12 }}
+            {{- if .Values.extraVolumes }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 12 }}
+            {{- end }}
+          initContainers:
+            {{- include "k8s-borg.sshInitContainer" . | nindent 12 }}
+          containers:
+            - name: cluster
+              image: {{ include "k8s-borg.image" . | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - hostname "${NODE_NAME}" 2>/dev/null || printf '%s' "${NODE_NAME}" > /proc/sys/kernel/hostname; exec /run.sh run
+              securityContext: {{- toYaml .Values.cluster.containerSecurityContext | nindent 16 }}
+              env:
+                - name: NODE_NAME
+                  value: {{ .Values.cluster.nodeName | quote }}
+                {{- include "k8s-borg.env.common" . | nindent 16 }}
+              volumeMounts:
+                {{- include "k8s-borg.volumeMounts.common" . | nindent 16 }}
+                {{- include "k8s-borg.volumeMounts.db" . | nindent 16 }}
+                {{- if .Values.extraVolumeMounts }}
+                {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 16 }}
+                {{- end }}
+              {{- if .Values.cluster.resources }}
+              resources: {{- toYaml .Values.cluster.resources | nindent 16 }}
+              {{- end }}
+{{- end }}

@@ -1,0 +1,31 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Optional static NFS PersistentVolumes. Cluster-infra-specific — only rendered
+for persistence.<vol>.createPV=true. Otherwise bind your own PVs/StorageClass.
+*/}}
+{{- range $key, $p := .Values.persistence }}
+{{- if and $p.createPV (not $p.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ printf "%s-%s-pv" (include "common.names.fullname" $) ($key | kebabcase) }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" $.Values.commonLabels "context" $) | nindent 4 }}
+  {{- if $p.retain }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  capacity:
+    storage: {{ $p.size | quote }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: {{ ternary "Retain" "Delete" $p.retain }}
+  storageClassName: ""
+  nfs:
+    server: {{ $p.server | quote }}
+    path: {{ $p.path | quote }}
+{{- end }}
+{{- end }}

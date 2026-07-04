@@ -1,0 +1,46 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+The Borg UI can reach every repository — keep this Ingress restricted to trusted
+networks (VPN / cluster CIDRs) via borgUI.ingress.annotations and your ingress
+controller (e.g. a Traefik IPAllowList or a policy engine that injects one).
+*/}}
+{{- if and .Values.borgUI.enabled .Values.borgUI.ingress.enabled }}
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ printf "%s-ui" (include "common.names.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "ui") | nindent 4 }}
+  {{- if or .Values.borgUI.ingress.annotations .Values.commonAnnotations }}
+  annotations:
+    {{- if .Values.commonAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+    {{- end }}
+    {{- if .Values.borgUI.ingress.annotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.borgUI.ingress.annotations "context" $) | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- if .Values.borgUI.ingress.ingressClassName }}
+  ingressClassName: {{ .Values.borgUI.ingress.ingressClassName | quote }}
+  {{- end }}
+  {{- if .Values.borgUI.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.borgUI.ingress.host | quote }}
+      secretName: {{ .Values.borgUI.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.borgUI.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-ui" (include "common.names.fullname" .) }}
+                port:
+                  number: {{ .Values.borgUI.service.port }}
+{{- end }}

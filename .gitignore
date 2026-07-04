@@ -8,3 +8,5 @@
 # Local SSH test keys at the repo root only — must NOT shadow rootfs paths like
 # docker/rootfs/etc/ssh/, hence the leading slash.
 /ssh/
+# Local, environment-specific Flux manifests (real values) — never commit.
+*.local.yaml

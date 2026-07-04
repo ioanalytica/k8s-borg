@@ -1,0 +1,120 @@
+# Flux: install k8s-borg from the public OCI chart repository.
+# Sensitive values are referenced from Secrets you create separately (SOPS /
+# Sealed Secrets / External Secrets) — nothing secret lives in this file.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ioanalytica-public
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 30m
+  url: oci://ghcr.io/ioanalytica/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: k8s-borg
+  namespace: k8s-borg
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: k8s-borg
+      version: "1.0.4-0"
+      sourceRef:
+        kind: HelmRepository
+        name: ioanalytica-public
+        namespace: flux-system
+  values:
+    timezone: "UTC"
+
+    # The shared backup source is yours — mount it here (NFS, PVC, …) at /mnt/nfs
+    # and reference it from config.clusterInclude.
+    extraVolumes:
+      - name: nfs
+        nfs:
+          server: nfs.example.com
+          path: /storage/shared
+    extraVolumeMounts:
+      - name: nfs
+        mountPath: /mnt/nfs
+
+    borg:
+      version: 1
+      # ssh:// works for borg 1 and 2; sftp:// is borg-2-only.
+      repoBase:
+        existingSecret: k8s-borg-secret
+        existingSecretKey: BORG_REPO_BASE
+      passphrase:
+        existingSecret: k8s-borg-secret
+        existingSecretKey: BORG_PASSPHRASE
+      archivePrefix: "k8s-borg-mycluster"
+
+    s3:
+      enabled: true
+      endpoint: "http://minio.minio.svc:9000"
+      accessKey:
+        existingSecret: k8s-borg-secret
+        existingSecretKey: AWS_KEY
+      secretKey:
+        existingSecret: k8s-borg-secret
+        existingSecretKey: AWS_SECRET_KEY
+
+    config:
+      clusterInclude:
+        - "P fm"
+        - "R /mnt/s3"
+        - "R /mnt/nfs/users"
+      nodeInclude:
+        - "P fm"
+        - "R /node/etc"
+        - "R /node/home"
+        - "R /node/root"
+      s3Buckets:
+        - "my-bucket-1"
+        - "my-bucket-2"
+
+    ssh:
+      existingSecret: k8s-borg-ssh-secret
+
+    databases:
+      mariadb:
+        enabled: true
+        existingSecret: k8s-borg-mariadb-secret
+      postgres:
+        enabled: true
+        existingSecret: k8s-borg-postgres-secret
+
+    cluster:
+      nodeName: "k8s-borg-mycluster"
+    app:
+      nodeName: "k8s-borg-mycluster"
+
+    # Optional Borg UI server + managed-agent enrollment (DEV/TEST).
+    # borgUI:
+    #   enabled: true
+    #   ingress:
+    #     enabled: true
+    #     host: borgui.example.com
+    #   adminPassword:
+    #     existingSecret: k8s-borg-secret
+    #     existingSecretKey: BORG_UI_ADMIN_PASS
+    #   agent:
+    #     enabled: true
+
+    persistence:
+      cache:
+        createPV: true
+        server: "nfs.example.com"
+        path: "/storage/shared/k8s-borg-cache"
+      ui:
+        # retain defaults to true — Borg UI /data survives uninstall
+        createPV: true
+        server: "nfs.example.com"
+        path: "/storage/shared/k8s-borg-ui"
+      uiAgent:
+        createPV: true
+        server: "nfs.example.com"
+        path: "/storage/shared/k8s-borg-ui-agent"

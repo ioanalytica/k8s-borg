@@ -1,0 +1,337 @@
+# Copyright IO ANALYTICA. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+## @section Global parameters
+##
+global:
+  ## @param global.imageRegistry Global Docker image registry (overrides image.registry)
+  imageRegistry: ""
+  ## @param global.imagePullSecrets Global Docker registry secret names as an array
+  imagePullSecrets: []
+  ## @param global.defaultStorageClass Global default StorageClass for PVC(s)
+  defaultStorageClass: ""
+
+## @section Common parameters
+##
+## @param nameOverride Partially override the fullname
+nameOverride: ""
+## @param fullnameOverride Fully override the fullname
+fullnameOverride: ""
+## @param commonLabels Labels added to all deployed resources
+commonLabels: {}
+## @param commonAnnotations Annotations added to all deployed resources
+commonAnnotations: {}
+## @param timezone Timezone for all pods (also the CronJob default). Safe default: UTC.
+timezone: "UTC"
+
+## @param extraVolumes Extra volumes added to ALL backup workloads. Mount your own
+##   sources to back up here — e.g. an NFS share or a PVC at /mnt/nfs. The chart
+##   does not assume any shared source of its own.
+extraVolumes: []
+#  - name: nfs
+#    persistentVolumeClaim:
+#      claimName: my-shared-nfs
+## @param extraVolumeMounts Extra volume mounts added to ALL backup workloads
+extraVolumeMounts: []
+#  - name: nfs
+#    mountPath: /mnt/nfs
+
+## @param mountPoints Extra directories the init container pre-creates so the pod
+##   can mount there at runtime (e.g. s3fs targets). MUST live under /mnt (a shared
+##   writable emptyDir). The S3 mount path (s3.mountPath) is created automatically.
+mountPoints: []
+#  - /mnt/objectstore
+
+## @section Image parameters
+##
+image:
+  ## @param image.registry Agent image registry
+  registry: ghcr.io
+  ## @param image.repository Agent image repository
+  repository: ioanalytica/k8s-borg
+  ## @param image.tag Agent image tag (defaults to the chart appVersion)
+  tag: ""
+  ## @param image.pullPolicy Agent image pull policy
+  pullPolicy: IfNotPresent
+
+## @param initImage Image used by the SSH init container
+initImage:
+  repository: busybox
+  tag: "1.37"
+  pullPolicy: IfNotPresent
+
+## @section Borg parameters
+##
+borg:
+  ## @param borg.version Borg binary the scripts use: 1 or 2 (transport comes from the URL scheme)
+  version: 1
+  ## Repository base, e.g. ssh://user@host:22/./cluster. Each pod appends its node name.
+  ## Sensitive: provide `value`, or reference an existing Secret via existingSecret[+existingSecretKey].
+  repoBase:
+    ## @param borg.repoBase.value Repository base URL
+    value: ""
+    ## @param borg.repoBase.existingSecret Existing Secret holding the repository base
+    existingSecret: ""
+    ## @param borg.repoBase.existingSecretKey Key in existingSecret (default: BORG_REPO_BASE)
+    existingSecretKey: ""
+  ## Repository passphrase (sensitive).
+  passphrase:
+    value: ""
+    existingSecret: ""
+    existingSecretKey: ""
+  ## @param borg.archivePrefix Archive name prefix
+  archivePrefix: "k8s-borg-mycluster"
+  ## @param borg.archiveGlob Archive selection glob
+  archiveGlob: "k8s-borg-*"
+  ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving
+  dbBackupLocation: "/mnt/nfs/data/db-backup"
+  ## @param borg.retention Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)
+  retention:
+    daily: 7
+    weekly: 4
+    monthly: 3
+
+## @section S3 sources (cluster/app jobs)
+## Buckets (config.s3Buckets) are mounted via s3fs under s3.mountPath. The init
+## container pre-creates that directory in the shared /mnt volume.
+##
+s3:
+  ## @param s3.enabled Mount S3 buckets as read sources (via s3fs)
+  enabled: false
+  ## @param s3.endpoint S3 endpoint URL
+  endpoint: "http://minio.minio.svc:9000"
+  ## @param s3.mountPath Where buckets are mounted (must be under /mnt)
+  mountPath: "/mnt/s3"
+  ## S3 access key (sensitive).
+  accessKey:
+    value: ""
+    existingSecret: ""
+    existingSecretKey: ""
+  ## S3 secret key (sensitive).
+  secretKey:
+    value: ""
+    existingSecret: ""
+    existingSecretKey: ""
+
+## @section Backup patterns (ConfigMap, mounted at /root/.borg)
+## Only the elementary "P fm" style line is a default — everything else is
+## site-specific, so add your own roots/excludes. The commented lines are examples.
+##
+config:
+  ## @param config.clusterInclude Borg include patterns for cluster/app backups
+  clusterInclude:
+    - "P fm"
+    # - "R /mnt/s3"
+    # - "R /mnt/nfs/users"
+    # - "R /mnt/nfs/data/static"
+    # - "R /mnt/nfs/data/db-backup"
+  ## @param config.clusterExclude Borg exclude patterns for cluster/app backups
+  clusterExclude: []
+    # - "/mnt/nfs/data/static/some-recreatable-app"
+  ## @param config.nodeInclude Borg include patterns for node backups (prepend the /node mount)
+  nodeInclude:
+    - "P fm"
+    # - "R /node/etc"
+    # - "R /node/home"
+    # - "R /node/root"
+    # - "R /node/var/lib/rancher/rke2/server/db/snapshots"
+  ## @param config.nodeExclude Borg exclude patterns for node backups
+  nodeExclude: []
+    # - "/node/storage"
+    # - "/node/data"
+  ## @param config.s3Buckets Buckets to mount and back up (one per line → cluster-s3-buckets)
+  s3Buckets: []
+    # - "my-bucket-1"
+    # - "my-bucket-2"
+
+## @section SSH credentials (Secret, staged into /root/.ssh)
+##
+ssh:
+  ## @param ssh.existingSecret Use an existing SSH Secret (keys: id_ed25519, id_ed25519.pub, known_hosts)
+  existingSecret: ""
+  ## @param ssh.privateKey SSH private key for the Borg host
+  privateKey: ""
+  ## @param ssh.publicKey SSH public key
+  publicKey: ""
+  ## @param ssh.knownHosts known_hosts for the Borg host
+  knownHosts: ""
+
+## @section Databases (logical dumps; cluster/app workloads)
+##
+databases:
+  mariadb:
+    ## @param databases.mariadb.enabled Back up MariaDB instances
+    enabled: false
+    ## @param databases.mariadb.existingSecret Use an existing Secret (one *.conf per instance)
+    existingSecret: ""
+    ## @param databases.mariadb.instances MariaDB instances: name + MySQL defaults-file config
+    instances: []
+    #  - name: mariadb-example
+    #    config: |
+    #      [client]
+    #      host = mariadb.databases.svc
+    #      user = backup
+    #      password = CHANGE_ME
+  postgres:
+    ## @param databases.postgres.enabled Back up PostgreSQL instances
+    enabled: false
+    ## @param databases.postgres.existingSecret Use an existing Secret (one *.conf per instance)
+    existingSecret: ""
+    ## @param databases.postgres.instances PostgreSQL instances: name + pgpass line
+    instances: []
+    #  - name: postgres-example
+    #    config: |
+    #      postgres.databases.svc:5432:*:backup:CHANGE_ME
+
+## @section Node backup (DaemonSet)
+##
+node:
+  ## @param node.enabled Deploy the node-backup DaemonSet
+  enabled: true
+  ## @param node.backupIntervalSeconds Sleep between node backups
+  backupIntervalSeconds: 3600
+  ## @param node.hostRootPath Host path mounted read-only at /node
+  hostRootPath: /
+  ## @param node.tolerations Tolerations (backups run on every node by default)
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+  ## @param node.containerSecurityContext Node container security context (privileged: reads node FS, FUSE)
+  containerSecurityContext:
+    privileged: true
+    capabilities:
+      add:
+        - SYS_ADMIN
+  ## @param node.resources Node container resources
+  resources: {}
+
+## @section Cluster backup (CronJob)
+##
+cluster:
+  ## @param cluster.enabled Deploy the cluster-data CronJob
+  enabled: true
+  ## @param cluster.schedule Cron schedule
+  schedule: "0 */6 * * *"
+  ## @param cluster.timeZone CronJob time zone (defaults to .timezone)
+  timeZone: ""
+  ## @param cluster.nodeName Logical NODE_NAME for cluster archives
+  nodeName: "k8s-borg-mycluster"
+  ## @param cluster.concurrencyPolicy CronJob concurrency policy
+  concurrencyPolicy: Forbid
+  ## @param cluster.containerSecurityContext Cluster container security context
+  containerSecurityContext:
+    privileged: true
+    capabilities:
+      add:
+        - SYS_ADMIN
+  ## @param cluster.resources Cluster container resources
+  resources: {}
+
+## @section Console app (StatefulSet)
+##
+app:
+  ## @param app.enabled Deploy the console StatefulSet
+  enabled: true
+  ## @param app.nodeName Logical NODE_NAME for the console pod
+  nodeName: "k8s-borg-mycluster"
+  ## @param app.containerSecurityContext App container security context
+  containerSecurityContext:
+    privileged: true
+    capabilities:
+      add:
+        - SYS_ADMIN
+  ## @param app.resources App container resources
+  resources: {}
+
+## @section Borg UI (optional; DEV/TEST)
+##
+borgUI:
+  ## @param borgUI.enabled Deploy the Borg UI server (Deployment/Service/Ingress)
+  enabled: false
+  image:
+    ## @param borgUI.image.registry Borg UI server image registry
+    registry: ghcr.io
+    ## @param borgUI.image.repository Borg UI server image repository
+    repository: ioanalytica/k8s-borg-ui
+    ## @param borgUI.image.tag Borg UI server image tag
+    tag: "2.2.5"
+    ## @param borgUI.image.pullPolicy Borg UI server image pull policy
+    pullPolicy: IfNotPresent
+  ## @param borgUI.publicBaseUrl Public base URL advertised by the server
+  publicBaseUrl: "https://borgui.example.com"
+  ## @param borgUI.adminUser Admin username (the Borg UI server hardcodes "admin"; kept for enrollment login)
+  adminUser: "admin"
+  ## Admin password. Drives the server's INITIAL_ADMIN_PASSWORD *and* agent enrollment
+  ## login — they must match. Sensitive: value or existingSecret[+existingSecretKey].
+  adminPassword:
+    value: ""
+    existingSecret: ""
+    existingSecretKey: ""
+  service:
+    ## @param borgUI.service.type Borg UI Service type
+    type: ClusterIP
+    ## @param borgUI.service.port Borg UI Service port
+    port: 8081
+  ingress:
+    ## @param borgUI.ingress.enabled Expose the Borg UI via Ingress
+    enabled: false
+    ## @param borgUI.ingress.ingressClassName Ingress class
+    ingressClassName: traefik
+    ## @param borgUI.ingress.host Ingress host
+    host: "borgui.example.com"
+    ## @param borgUI.ingress.annotations Ingress annotations (restrict exposure to trusted networks!)
+    annotations: {}
+    tls:
+      ## @param borgUI.ingress.tls.enabled Enable TLS
+      enabled: true
+      ## @param borgUI.ingress.tls.secretName TLS Secret name
+      secretName: "borgui-tls"
+  ## @param borgUI.resources Borg UI server resources
+  resources: {}
+  ## Managed-agent enrollment — makes the backup pods enroll at the server.
+  agent:
+    ## @param borgUI.agent.enabled Enroll backup pods as managed agents (DEV/TEST only)
+    enabled: false
+    ## @param borgUI.agent.server Borg UI server URL. Empty → derived from the in-cluster Service.
+    server: ""
+
+## @section Persistence
+## Operational volumes only: the Borg client cache, the Borg UI server state, and
+## the managed-agent config/enrollment. (The backup *sources* are yours — mount
+## them via extraVolumes.) Each volume can use an existing PVC, or the chart
+## creates one (+ an optional static NFS PV via createPV).
+##
+## `retain: true` sets the PV reclaim policy to Retain AND adds
+## helm.sh/resource-policy: keep to the PVC, so `helm uninstall` does NOT delete
+## it — your Borg UI instance, config and agent enrollment survive and a
+## re-install over the top picks them back up. `retain: false` lets uninstall
+## remove the volume (fine for the disposable cache).
+##
+persistence:
+  cache:
+    ## @param persistence.cache.retain Keep the PVC/PV on uninstall (disposable → false)
+    retain: false
+    existingClaim: ""
+    createPV: false
+    server: "nfs.example.com"
+    path: "/storage/shared/cluster/static/k8s-borg-cache"
+    size: 5Gi
+    storageClassName: ""
+  ui:
+    ## @param persistence.ui.retain Keep the Borg UI /data PVC/PV on uninstall (config survives)
+    retain: true
+    existingClaim: ""
+    createPV: false
+    server: "nfs.example.com"
+    path: "/storage/shared/cluster/static/k8s-borg-ui"
+    size: 5Gi
+    storageClassName: ""
+  uiAgent:
+    ## @param persistence.uiAgent.retain Keep the agent config PVC/PV on uninstall (avoids re-enrollment)
+    retain: true
+    existingClaim: ""
+    createPV: false
+    server: "nfs.example.com"
+    path: "/storage/shared/cluster/static/k8s-borg-ui-agent"
+    size: 10Mi
+    storageClassName: ""
