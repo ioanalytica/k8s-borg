@@ -4,9 +4,9 @@
 # under the agent's name, bound to this node's agent (executor_type=agent).
 # Idempotent: an already-registered repo (matched by name OR path) is left as is.
 #
-# Standalone command — also called by run-agent.sh. To share a single admin JWT
-# across calls, set BORG_UI_JWT (run-agent.sh does this); otherwise this logs in
-# itself using BORG_UI_ADMIN_USER/PASS.
+# Standalone command — also called by run-agent.sh. Auth (borgui-common.sh) is
+# PAT-first: BORG_UI_ADMIN_PAT when it works, else BORG_UI_ADMIN_USER/PASS; a
+# parent may share a resolved token via BORG_UI_JWT to skip re-auth.
 #
 #   BORG_UI_SERVER      e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
 #   BORG_REPO           the repository path/URL to register
@@ -15,13 +15,16 @@
 #   BORG_UI_AGENT_NAME  optional; repo/agent name. Default: pod hostname.
 #   BORG_ENCRYPTION     optional, default "repokey-blake2" (matches borg-init)
 #   BORG_COMPRESSION    optional, default "auto,lz4"
-#   BORG_UI_JWT         optional; reuse a pre-fetched admin JWT (skips login)
-#   BORG_UI_ADMIN_USER  admin user   (only needed when BORG_UI_JWT is unset)
-#   BORG_UI_ADMIN_PASS  admin password (only needed when BORG_UI_JWT is unset)
+#   BORG_UI_ADMIN_PAT   preferred admin credential (bootstrap-minted PAT)
+#   BORG_UI_ADMIN_USER  admin user   (fallback when no working PAT)
+#   BORG_UI_ADMIN_PASS  admin password (fallback when no working PAT)
+#   BORG_UI_JWT         optional; a pre-resolved token shared by a parent
 #
 set -euo pipefail
 
-: "${BORG_UI_SERVER:?set BORG_UI_SERVER, e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081}"
+. /usr/local/lib/borgui-common.sh
+
+borgui_require_server
 : "${BORG_REPO:?set BORG_REPO to the repository path/URL to register}"
 : "${BORG_VERSION:?set BORG_VERSION to 1 or 2}"
 
@@ -29,30 +32,12 @@ set -euo pipefail
 enc="${BORG_ENCRYPTION:-repokey-blake2}"
 comp="${BORG_COMPRESSION:-auto,lz4}"
 
-# admin JWT: reuse a shared one, else log in
-jwt="${BORG_UI_JWT:-}"
-if [ -z "$jwt" ]; then
-  : "${BORG_UI_ADMIN_USER:?set BORG_UI_ADMIN_USER (or pass BORG_UI_JWT)}"
-  : "${BORG_UI_ADMIN_PASS:?set BORG_UI_ADMIN_PASS (or pass BORG_UI_JWT)}"
-  jwt=$(curl -fsS -X POST "${BORG_UI_SERVER}/api/auth/login" \
-          --data-urlencode "username=${BORG_UI_ADMIN_USER}" \
-          --data-urlencode "password=${BORG_UI_ADMIN_PASS}" \
-        | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])') \
-    || { echo "FATAL: login failed (credentials / server reachable?)" >&2; exit 1; }
-fi
+# admin bearer token (PAT-first; reuses BORG_UI_JWT if a parent set it)
+jwt=$(borgui_bearer) || borgui_die "could not authenticate to Borg UI"
 
 # already registered? (match by name OR path -> idempotent, no duplicates)
-already=$(curl -fsS "${BORG_UI_SERVER}/api/repositories/" \
-            -H "Authorization: Bearer ${jwt}" \
-          | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" python3 -c '
-import sys, json, os
-data = json.load(sys.stdin)
-repos = data.get("repositories", data if isinstance(data, list) else [])
-name, path = os.environ["REPO_NAME"], os.environ["BORG_REPO"]
-print("yes" if any(r.get("name") == name or r.get("path") == path for r in repos) else "no")') \
-  || { echo "FATAL: could not list repositories" >&2; exit 1; }
-
-if [ "$already" = "yes" ]; then
+repo_row=$(borgui_repo_row "$jwt") || borgui_die "could not list repositories"
+if [ -n "${repo_row%%$'\t'*}" ]; then
   echo "Repository '${REPO_NAME}' already registered — nothing to do."
   exit 0
 fi
@@ -60,8 +45,7 @@ fi
 # resolve this node's agent id. Duplicate records with the same name can linger
 # from earlier rollouts, so pick the NEWEST queueable one (highest id, not
 # revoked/disabled/deleted) — a stale revoked duplicate would fail the import 409.
-agent_id=$(curl -fsS "${BORG_UI_SERVER}/api/managed-machines/agents" \
-             -H "Authorization: Bearer ${jwt}" \
+agent_id=$(borgui_api "$jwt" GET /api/managed-machines/agents \
            | REPO_NAME="${REPO_NAME}" python3 -c '
 import sys, json, os
 agents = json.load(sys.stdin)
@@ -74,11 +58,10 @@ if named and not ok:
 elif len(ok) > 1:
     sys.stderr.write("multiple queueable agents named %r; using newest\n" % name)
 print(max(ok, key=lambda a: a["id"])["id"] if ok else "")') \
-  || { echo "FATAL: could not list agents" >&2; exit 1; }
+  || borgui_die "could not list agents"
 
 if [ -z "$agent_id" ]; then
-  echo "FATAL: no queueable agent named '${REPO_NAME}' — enroll the node first." >&2
-  exit 1
+  borgui_die "no queueable agent named '${REPO_NAME}' — enroll the node first."
 fi
 
 # build the import payload (python3 handles JSON escaping + int coercion)
@@ -100,12 +83,11 @@ pw = os.environ.get("BORG_PASSPHRASE")
 if pw:
     p["passphrase"] = pw
 print(json.dumps(p))') \
-  || { echo "FATAL: could not build repo payload (bad BORG_VERSION?)" >&2; exit 1; }
+  || borgui_die "could not build repo payload (bad BORG_VERSION?)"
 
 # import = record an existing repo; no borg init, no agent round-trip
-curl -fsS -X POST "${BORG_UI_SERVER}/api/repositories/import" \
-     -H "Authorization: Bearer ${jwt}" -H "Content-Type: application/json" \
-     -d "${payload}" >/dev/null \
-  || { echo "FATAL: repository registration failed" >&2; exit 1; }
+borgui_api "$jwt" POST /api/repositories/import \
+  -H "Content-Type: application/json" -d "${payload}" >/dev/null \
+  || borgui_die "repository registration failed"
 
 echo "Repository '${REPO_NAME}' registered (agent id ${agent_id})."

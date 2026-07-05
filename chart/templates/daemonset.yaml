@@ -38,6 +38,9 @@ spec:
         {{- end }}
       initContainers:
         {{- include "k8s-borg.sshInitContainer" . | nindent 8 }}
+        {{- if eq .Values.node.backupMode "agent" }}
+        {{- include "k8s-borg.waitForBorgUIInitContainer" . | nindent 8 }}
+        {{- end }}
       containers:
         - name: node
           image: {{ include "k8s-borg.image" . | quote }}

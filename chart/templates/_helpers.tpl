@@ -138,6 +138,26 @@ Names for the bootstrap Job's PAT Secret, ServiceAccount and Role.
 {{- end -}}
 
 {{/*
+Gating init container for managed-agent workloads: blocks pod startup until the
+Borg UI server answers /health, so the agent never races enrollment against a
+server (and its bootstrap Job) that isn't up yet. Uses the agent image (has curl).
+*/}}
+{{- define "k8s-borg.waitForBorgUIInitContainer" -}}
+- name: wait-for-borgui
+  image: {{ include "k8s-borg.image" . | quote }}
+  imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+  command: ["/bin/sh", "-c"]
+  args:
+    - |
+      echo "Waiting for Borg UI at ${BORG_UI_SERVER}/health …"
+      until curl -fsS -o /dev/null "${BORG_UI_SERVER}/health"; do sleep 3; done
+      echo "Borg UI is up."
+  env:
+    - name: BORG_UI_SERVER
+      value: {{ include "k8s-borg.ui.serverUrl" . | quote }}
+{{- end -}}
+
+{{/*
 Common backup env. Requires NODE_NAME to be defined earlier in the env list
 (BORG_REPO references it). Non-sensitive knobs come from values; sensitive ones
 resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
@@ -203,6 +223,15 @@ server-side; the password matches the server's INITIAL_ADMIN_PASSWORD.
   value: "true"
 - name: BORG_UI_SERVER
   value: {{ include "k8s-borg.ui.serverUrl" . | quote }}
+# Preferred credential: the admin PAT minted by the server bootstrap (optional —
+# absent before the first bootstrap or for out-of-cluster agents, then run-agent.sh
+# falls back to the admin user/password below).
+- name: BORG_UI_ADMIN_PAT
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "k8s-borg.ui.patSecretName" . }}
+      key: BORG_UI_ADMIN_PAT
+      optional: true
 - name: BORG_UI_ADMIN_USER
   value: {{ .Values.borgUI.adminUser | quote }}
 - name: BORG_UI_ADMIN_PASS
