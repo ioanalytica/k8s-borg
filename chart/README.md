@@ -47,7 +47,7 @@ Backup execution is chosen **per component**, along two independent axes:
     with `cronjob` the CronJob backs up and the agent just makes the repo visible.
 
 Managed-agent modes need a reachable server: set `borgUI.agentConnection.server`,
-or deploy one in-cluster with `borgUI.enabled=true` (which also runs a bootstrap
+or deploy one in-cluster with `borgUI.enabled=true` (which also runs a reconcile
 Job that mints an admin PAT and reconciles `borgUI.oidc`).
 
 ## Borg 1 vs 2
@@ -70,7 +70,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `config` | include/exclude patterns + bucket list (→ ConfigMap) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
 | `node` / `cluster` / `app` | the three backup workloads (each toggleable; `backupMode` per component) |
-| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `bootstrap` Job, `oidc` |
+| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines` |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 
 ## Security posture

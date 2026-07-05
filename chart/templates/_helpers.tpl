@@ -105,7 +105,7 @@ with the right ownership/mode. Identical across all backup workloads.
 {{- end -}}
 
 {{/*
-Borg UI in-cluster Service URL (used for agent enrollment and the bootstrap Job).
+Borg UI in-cluster Service URL (used for agent enrollment and the reconcile Job).
 Derived from the release unless borgUI.agentConnection.server overrides it.
 */}}
 {{- define "k8s-borg.ui.serverUrl" -}}
@@ -128,13 +128,13 @@ true
 {{- end -}}
 
 {{/*
-Names for the bootstrap Job's PAT Secret, ServiceAccount and Role.
+Names for the reconcile Job's PAT Secret, ServiceAccount and Role.
 */}}
 {{- define "k8s-borg.ui.patSecretName" -}}
 {{- printf "%s-ui-pat" (include "common.names.fullname" .) -}}
 {{- end -}}
-{{- define "k8s-borg.bootstrapSAName" -}}
-{{- printf "%s-bootstrap" (include "common.names.fullname" .) -}}
+{{- define "k8s-borg.reconcileSAName" -}}
+{{- printf "%s-reconcile" (include "common.names.fullname" .) -}}
 {{- end -}}
 
 {{/*
@@ -182,7 +182,7 @@ as its system key. A plain secret mount would be root-owned / wrong mode.
 {{/*
 Gating init container for managed-agent workloads: blocks pod startup until the
 Borg UI server answers /health, so the agent never races enrollment against a
-server (and its bootstrap Job) that isn't up yet. Uses the agent image (has curl).
+server (and its reconcile Job) that isn't up yet. Uses the agent image (has curl).
 */}}
 {{- define "k8s-borg.waitForBorgUIInitContainer" -}}
 - name: wait-for-borgui
@@ -265,8 +265,8 @@ server-side; the password matches the server's INITIAL_ADMIN_PASSWORD.
   value: "true"
 - name: BORG_UI_SERVER
   value: {{ include "k8s-borg.ui.serverUrl" . | quote }}
-# Preferred credential: the admin PAT minted by the server bootstrap (optional —
-# absent before the first bootstrap or for out-of-cluster agents, then run-agent.sh
+# Preferred credential: the admin PAT minted by the reconcile Job (optional —
+# absent before the first reconcile or for out-of-cluster agents, then run-agent.sh
 # falls back to the admin user/password below).
 - name: BORG_UI_ADMIN_PAT
   valueFrom:

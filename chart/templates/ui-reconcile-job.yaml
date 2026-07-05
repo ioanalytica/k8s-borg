@@ -2,18 +2,18 @@
 Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
-Bootstrap Job (Helm post-install/upgrade hook). Runs the k8s-borg agent image's
-bootstrap-borgui reconciler against the freshly (re)deployed server: waits for
+Reconcile Job (Helm post-install/upgrade hook). Runs the k8s-borg agent image's
+reconcile-borgui reconciler against the freshly (re)deployed server: waits for
 health, reuses/mints the admin PAT into the retained PAT Secret, and reconciles
-OIDC from borgUI.oidc. Idempotent — safe to re-run on every upgrade.
+OIDC / system SSH key / remote machines. Idempotent — safe to re-run on every upgrade.
 */}}
-{{- if and .Values.borgUI.enabled .Values.borgUI.bootstrap.enabled }}
+{{- if and .Values.borgUI.enabled .Values.borgUI.reconcile.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ printf "%s-bootstrap" (include "common.names.fullname" .) }}
+  name: {{ printf "%s-reconcile" (include "common.names.fullname" .) }}
   namespace: {{ .Release.Namespace | quote }}
-  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 4 }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -22,21 +22,21 @@ metadata:
     {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
     {{- end }}
 spec:
-  # Single-shot: one attempt only. A failed bootstrap must fail the Helm hook (and
+  # Single-shot: one attempt only. A failed reconcile must fail the Helm hook (and
   # thus the release) immediately — never spin up retry pods.
   backoffLimit: 0
   template:
     metadata:
-      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 8 }}
+      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 8 }}
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "k8s-borg.bootstrapSAName" . }}
+      serviceAccountName: {{ include "k8s-borg.reconcileSAName" . }}
       {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
       containers:
-        - name: bootstrap
+        - name: reconcile
           image: {{ include "k8s-borg.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
-          command: ["/usr/local/bin/bootstrap-borgui"]
+          command: ["/usr/local/bin/reconcile-borgui"]
           env:
             - name: TZ
               value: {{ .Values.timezone | quote }}
@@ -62,9 +62,9 @@ spec:
             - name: PAT_SECRET_KEY
               value: "BORG_UI_ADMIN_PAT"
             - name: PAT_NAME
-              value: {{ .Values.borgUI.bootstrap.patName | quote }}
-            - name: BOOTSTRAP_WAIT_SECONDS
-              value: {{ .Values.borgUI.bootstrap.waitSeconds | quote }}
+              value: {{ .Values.borgUI.reconcile.patName | quote }}
+            - name: RECONCILE_WAIT_SECONDS
+              value: {{ .Values.borgUI.reconcile.waitSeconds | quote }}
             {{- if .Values.borgUI.oidc.enabled }}
             - name: OIDC_ENABLED
               value: {{ .Values.borgUI.oidc.enabled | quote }}

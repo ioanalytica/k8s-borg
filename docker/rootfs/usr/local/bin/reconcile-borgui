@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
-# Bootstrap a Borg UI server so the managed agents can authenticate with a PAT —
-# the chart's init step (Minio/GitLab style). Idempotent and cheap on re-runs:
+# Reconcile a Borg UI server to the desired state declared in the HelmRelease —
+# runs on every install/upgrade (Helm post-* hook), idempotent and cheap on
+# re-runs. NOT a one-shot bootstrap: it converges admin PAT, OIDC, the system SSH
+# key and remote machines every time, like a controller.
 #
 #   1. wait for the server to be healthy (GET /health)
 #   2. if the current PAT (from the PAT Secret) still authenticates -> reuse it,
@@ -11,18 +13,19 @@
 #          rotate to the configured one), clearing the forced first-login change
 #        - revoke stale PATs of the same name, mint a fresh one, write it to the
 #          PAT Secret
-#   4. optionally (re)configure OIDC/SSO, using the PAT as the admin credential
+#   4. optionally (re)configure OIDC/SSO, the system SSH key and remote machines,
+#      using the PAT as the admin credential
 #
-# So the admin username/password is only ever needed on the FIRST bootstrap (or
-# if the PAT is lost/revoked); steady-state HR updates just verify the PAT.
+# So the admin username/password is only ever needed on the FIRST run (or if the
+# PAT is lost/revoked); steady-state HR updates just verify the PAT.
 #
 #   BORG_UI_SERVER             e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
 #   BORG_UI_ADMIN_PAT          the current PAT (injected from the PAT Secret; empty first run)
 #   BORG_UI_ADMIN_USER         built-in admin (default "admin"; only used to mint)
 #   BORG_UI_ADMIN_PASS         admin password (REQUIRED only to mint a new PAT)
 #   BORG_UI_ADMIN_DEFAULT_PASS fresh-install fallback (default "admin123")
-#   BOOTSTRAP_WAIT_SECONDS     health-wait timeout (default 300)
-#   PAT_NAME                   name for the minted PAT (default "k8s-borg-bootstrap")
+#   RECONCILE_WAIT_SECONDS     health-wait timeout (default 300)
+#   PAT_NAME                   name for the minted PAT (default "k8s-borg-reconcile")
 #   PAT_SECRET_NAME            k8s Secret to write the PAT to (needs SA + patch RBAC)
 #   PAT_SECRET_KEY             key in that Secret (default "BORG_UI_ADMIN_PAT")
 #   OIDC_*                     optional; configured when OIDC_DISCOVERY_URL is set
@@ -36,8 +39,8 @@ set -euo pipefail
 : "${BORG_UI_SERVER:?set BORG_UI_SERVER, e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081}"
 : "${BORG_UI_ADMIN_USER:=admin}"
 : "${BORG_UI_ADMIN_DEFAULT_PASS:=admin123}"
-: "${BOOTSTRAP_WAIT_SECONDS:=300}"
-: "${PAT_NAME:=k8s-borg-bootstrap}"
+: "${RECONCILE_WAIT_SECONDS:=300}"
+: "${PAT_NAME:=k8s-borg-reconcile}"
 : "${PAT_SECRET_KEY:=BORG_UI_ADMIN_PAT}"
 
 api() { printf '%s/api/%s' "${BORG_UI_SERVER}" "$1"; }
@@ -72,10 +75,10 @@ write_pat_to_secret() {  # $1=pat ; writes to PAT_SECRET_NAME via the k8s API
 }
 
 # --- 1) wait for health ------------------------------------------------------
-echo "Waiting for ${BORG_UI_SERVER}/health (up to ${BOOTSTRAP_WAIT_SECONDS}s) …"
-deadline=$(( $(date +%s) + BOOTSTRAP_WAIT_SECONDS ))
+echo "Waiting for ${BORG_UI_SERVER}/health (up to ${RECONCILE_WAIT_SECONDS}s) …"
+deadline=$(( $(date +%s) + RECONCILE_WAIT_SECONDS ))
 until curl -fsS -o /dev/null "${BORG_UI_SERVER}/health" 2>/dev/null; do
-  [ "$(date +%s)" -lt "$deadline" ] || { echo "FATAL: server not healthy within ${BOOTSTRAP_WAIT_SECONDS}s" >&2; exit 1; }
+  [ "$(date +%s)" -lt "$deadline" ] || { echo "FATAL: server not healthy within ${RECONCILE_WAIT_SECONDS}s" >&2; exit 1; }
   sleep 3
 done
 echo "Server healthy."
@@ -234,7 +237,7 @@ fi
 # Each machine is registered via test-connection against the system key (no
 # password — the public key must already be on the target). Idempotent: an
 # existing connection for the same host is reused. Reachability failures are
-# recorded on the connection (status) but do not fail the bootstrap.
+# recorded on the connection (status) but do not fail the reconcile.
 if [ -n "${BORG_UI_REMOTE_MACHINES:-}" ] && [ "${BORG_UI_REMOTE_MACHINES}" != "[]" ]; then
   key_id=$(curl -fsS "$(api ssh-keys/system-key)" "${auth[@]}" \
             | python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("ssh_key") or {}).get("id") or "")' 2>/dev/null || echo "")
@@ -260,4 +263,4 @@ except Exception:
       done
 fi
 
-echo "Bootstrap complete."
+echo "Reconciliation complete."
