@@ -1,0 +1,20 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Reconcile-status ConfigMap. The reconcile Job PATCHes data.reconciled=<revision>
+on success; agent workloads gate their startup on it (wait-for-reconcile init
+container). The template declares no `data` so Helm never clobbers the marker the
+Job writes out-of-band.
+*/}}
+{{- if include "k8s-borg.ui.reconcileGate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-borg.ui.reconcileStatusCMName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+{{- end }}

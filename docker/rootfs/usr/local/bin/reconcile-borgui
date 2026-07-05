@@ -33,6 +33,8 @@
 #                              the system SSH key (+ _PUBLIC_PATH, _NAME)
 #   BORG_UI_REMOTE_MACHINES    optional; JSON list [{host,username,port}] to register
 #                              as SSH connections against the system key
+#   RECONCILE_STATUS_CONFIGMAP optional; ConfigMap to publish the success marker to
+#   RECONCILE_TOKEN            optional; marker value (the release revision) agents wait for
 #
 set -euo pipefail
 
@@ -72,6 +74,18 @@ write_pat_to_secret() {  # $1=pat ; writes to PAT_SECRET_NAME via the k8s API
            -d "{\"data\":{\"${PAT_SECRET_KEY}\":\"${b64}\"}}") \
     || { echo "FATAL: could not reach the k8s API to write the PAT" >&2; return 1; }
   [ "$code" = "200" ] || { echo "FATAL: writing PAT to secret ${PAT_SECRET_NAME} failed (HTTP ${code})" >&2; return 1; }
+}
+
+publish_reconcile_marker() {  # writes data.reconciled=$RECONCILE_TOKEN to the status ConfigMap
+  local SA=/var/run/secrets/kubernetes.io/serviceaccount ns code
+  ns=$(cat "$SA/namespace")
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --cacert "$SA/ca.crt" \
+           -H "Authorization: Bearer $(cat "$SA/token")" \
+           -H "Content-Type: application/merge-patch+json" \
+           -X PATCH "https://kubernetes.default.svc/api/v1/namespaces/${ns}/configmaps/${RECONCILE_STATUS_CONFIGMAP}" \
+           -d "{\"data\":{\"reconciled\":\"${RECONCILE_TOKEN}\"}}") \
+    || { echo "FATAL: could not reach the k8s API to publish the reconcile marker" >&2; return 1; }
+  [ "$code" = "200" ] || { echo "FATAL: publishing reconcile marker to ${RECONCILE_STATUS_CONFIGMAP} failed (HTTP ${code})" >&2; return 1; }
 }
 
 # --- 1) wait for health ------------------------------------------------------
@@ -261,6 +275,14 @@ except Exception:
     print("error")' 2>/dev/null || echo "error")
         echo "  ${user}@${host}:${port} → ${status}"
       done
+fi
+
+# --- 7) publish the success marker so gated agent workloads can proceed -------
+# Agents block on this ConfigMap (wait-for-reconcile init container), so a failure
+# here must fail the Job (Flux/Helm --wait then fails the release), not warn.
+if [ -n "${RECONCILE_STATUS_CONFIGMAP:-}" ] && [ -n "${RECONCILE_TOKEN:-}" ]; then
+  publish_reconcile_marker || exit 1
+  echo "Published reconcile marker '${RECONCILE_TOKEN}' to ${RECONCILE_STATUS_CONFIGMAP}."
 fi
 
 echo "Reconciliation complete."

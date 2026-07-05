@@ -143,6 +143,63 @@ Where the SSH key is staged for the Borg UI server to import as its system key.
 {{- define "k8s-borg.ui.sshKeyDir" -}}/etc/borg-ui-ssh{{- end -}}
 
 {{/*
+Reconcile-status ConfigMap + agent ServiceAccount names.
+*/}}
+{{- define "k8s-borg.ui.reconcileStatusCMName" -}}
+{{- printf "%s-reconcile-status" (include "common.names.fullname" .) -}}
+{{- end -}}
+{{- define "k8s-borg.agentSAName" -}}
+{{- printf "%s-agent" (include "common.names.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Whether agent workloads should gate their startup on the reconcile Job's success
+(GitLab migrate-job style) — only when an in-cluster server + reconcile Job exist
+in THIS release AND at least one workload runs as an agent. Emits "true" or "".
+*/}}
+{{- define "k8s-borg.ui.reconcileGate" -}}
+{{- if and .Values.borgUI.enabled .Values.borgUI.reconcile.enabled (include "k8s-borg.anyAgent" .) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Gating init container: blocks until the reconcile Job has published this release
+revision into the reconcile-status ConfigMap (which it only does after the server
+is healthy and fully reconciled). Needs the agent ServiceAccount's RBAC (get on
+that one ConfigMap). Uses the agent image (curl + python3).
+*/}}
+{{- define "k8s-borg.waitForReconcileInitContainer" -}}
+- name: wait-for-reconcile
+  image: {{ include "k8s-borg.image" . | quote }}
+  imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+  command:
+    - /bin/sh
+    - -c
+    - |
+      SA=/var/run/secrets/kubernetes.io/serviceaccount
+      ns=$(cat "$SA/namespace")
+      echo "Waiting for Borg UI reconcile (token ${RECONCILE_TOKEN}) …"
+      deadline=$(( $(date +%s) + ${RECONCILE_WAIT_SECONDS:-600} ))
+      while :; do
+        val=$(curl -sS --cacert "$SA/ca.crt" -H "Authorization: Bearer $(cat "$SA/token")" \
+                "https://kubernetes.default.svc/api/v1/namespaces/${ns}/configmaps/${RECONCILE_STATUS_CONFIGMAP}" 2>/dev/null \
+              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("reconciled",""))' 2>/dev/null || true)
+        [ "$val" = "${RECONCILE_TOKEN}" ] && break
+        [ "$(date +%s)" -lt "$deadline" ] || { echo "reconcile not complete within ${RECONCILE_WAIT_SECONDS:-600}s" >&2; exit 1; }
+        sleep 3
+      done
+      echo "Reconcile complete — proceeding."
+  env:
+    - name: RECONCILE_STATUS_CONFIGMAP
+      value: {{ include "k8s-borg.ui.reconcileStatusCMName" . | quote }}
+    - name: RECONCILE_TOKEN
+      value: {{ .Release.Revision | quote }}
+    - name: RECONCILE_WAIT_SECONDS
+      value: {{ .Values.borgUI.reconcile.waitSeconds | quote }}
+{{- end -}}
+
+{{/*
 Whether the Borg UI server should carry the pods' SSH key as its system key —
 explicitly (systemSshKey.import) or implicitly because remote machines are
 configured (they need it). Emits "true" or "".

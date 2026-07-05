@@ -2,18 +2,18 @@
 Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
-ServiceAccount + minimal Role for the reconcile Job: it reads and PATCHes exactly
-the PAT Secret (persist the minted admin PAT) and — when agents gate on it — the
-reconcile-status ConfigMap (publish the success marker). Scoped to those single
-resourceNames — no broad access.
+ServiceAccount + minimal Role for agent workloads (DaemonSet / console StatefulSet)
+so their wait-for-reconcile init container can read the reconcile-status ConfigMap.
+Scoped to that single resourceName — read-only, nothing else. Only rendered when
+agents gate on an in-cluster reconcile.
 */}}
-{{- if and .Values.borgUI.enabled .Values.borgUI.reconcile.enabled }}
+{{- if include "k8s-borg.ui.reconcileGate" . }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "k8s-borg.reconcileSAName" . }}
+  name: {{ include "k8s-borg.agentSAName" . }}
   namespace: {{ .Release.Namespace | quote }}
-  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "agent") | nindent 4 }}
   {{- if .Values.commonAnnotations }}
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
@@ -21,39 +21,33 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "k8s-borg.reconcileSAName" . }}
+  name: {{ include "k8s-borg.agentSAName" . }}
   namespace: {{ .Release.Namespace | quote }}
-  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "agent") | nindent 4 }}
   {{- if .Values.commonAnnotations }}
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 rules:
   - apiGroups: [""]
-    resources: ["secrets"]
-    resourceNames: ["{{ include "k8s-borg.ui.patSecretName" . }}"]
-    verbs: ["get", "patch"]
-  {{- if include "k8s-borg.ui.reconcileGate" . }}
-  - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames: ["{{ include "k8s-borg.ui.reconcileStatusCMName" . }}"]
-    verbs: ["get", "patch"]
-  {{- end }}
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "k8s-borg.reconcileSAName" . }}
+  name: {{ include "k8s-borg.agentSAName" . }}
   namespace: {{ .Release.Namespace | quote }}
-  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "agent") | nindent 4 }}
   {{- if .Values.commonAnnotations }}
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "k8s-borg.reconcileSAName" . }}
+  name: {{ include "k8s-borg.agentSAName" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "k8s-borg.reconcileSAName" . }}
+    name: {{ include "k8s-borg.agentSAName" . }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}

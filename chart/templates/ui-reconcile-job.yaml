@@ -11,20 +11,21 @@ OIDC / system SSH key / remote machines. Idempotent — safe to re-run on every 
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ printf "%s-reconcile" (include "common.names.fullname" .) }}
+  # A REGULAR resource (not a Helm hook) so agent workloads can gate their startup
+  # on its completion — a hook runs AFTER Helm --wait blocks on those pods, which
+  # would deadlock. Named per release revision because Jobs are immutable; old ones
+  # are pruned on the next upgrade and TTL-reaped meanwhile.
+  name: {{ printf "%s-reconcile-%d" (include "common.names.fullname" .) .Release.Revision }}
   namespace: {{ .Release.Namespace | quote }}
   labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
-    {{- if .Values.commonAnnotations }}
-    {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
-    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
 spec:
-  # Single-shot: one attempt only. A failed reconcile must fail the Helm hook (and
-  # thus the release) immediately — never spin up retry pods.
+  # Single-shot: one attempt only. A failed reconcile leaves the Job failed, so
+  # Flux/Helm --wait marks the release failed — never spin up retry pods.
   backoffLimit: 0
+  ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 8 }}
@@ -65,6 +66,13 @@ spec:
               value: {{ .Values.borgUI.reconcile.patName | quote }}
             - name: RECONCILE_WAIT_SECONDS
               value: {{ .Values.borgUI.reconcile.waitSeconds | quote }}
+            {{- if include "k8s-borg.ui.reconcileGate" . }}
+            # Publish this revision as the success marker agent pods gate on.
+            - name: RECONCILE_STATUS_CONFIGMAP
+              value: {{ include "k8s-borg.ui.reconcileStatusCMName" . | quote }}
+            - name: RECONCILE_TOKEN
+              value: {{ .Release.Revision | quote }}
+            {{- end }}
             {{- if .Values.borgUI.oidc.enabled }}
             - name: OIDC_ENABLED
               value: {{ .Values.borgUI.oidc.enabled | quote }}
