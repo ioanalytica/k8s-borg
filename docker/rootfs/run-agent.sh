@@ -58,11 +58,20 @@ if [ "${BORG_UI_AGENT:-}" = "true" ]; then
   # enrolled by an older image. One admin JWT is shared with all commands; a
   # failure here never blocks the agent. Order matters: the repo must exist
   # before its schedule/plan can bind to it.
+  #
+  # register-backup-plan is gated by BORG_REGISTER_PLAN (default true): when the
+  # backups are driven elsewhere (e.g. a k8s CronJob), the agent still enrols and
+  # registers its repo + check-schedule — so the repository is visible/browsable
+  # in Borg UI — but registers NO backup plan of its own.
   if login; then
     export BORG_UI_JWT="$jwt"
     register-repo        || echo "WARN: repo registration failed — continuing." >&2
     set-check-schedule   || echo "WARN: check-schedule setup failed — continuing." >&2
-    register-backup-plan || echo "WARN: backup-plan setup failed — continuing." >&2
+    if [ "${BORG_REGISTER_PLAN:-true}" = "true" ]; then
+      register-backup-plan || echo "WARN: backup-plan setup failed — continuing." >&2
+    else
+      echo "BORG_REGISTER_PLAN=${BORG_REGISTER_PLAN} — skipping backup-plan registration (backups managed elsewhere)."
+    fi
     unset BORG_UI_JWT
   else
     echo "WARN: no admin JWT — skipping repo registration, check-schedule and backup plan." >&2

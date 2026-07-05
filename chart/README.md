@@ -27,18 +27,24 @@ with SOPS, Sealed Secrets, or External Secrets) — see [`../examples`](../examp
 
 ## Modes
 
-Backup execution is chosen **per component**, so the node fleet and the
-cluster-scope backup are independent:
+Backup execution is chosen **per component**, along two independent axes:
+*who runs the backup* and *whether the pod is enrolled in Borg UI*.
 
 - **Node (DaemonSet)** — `node.backupMode`:
   - `interval` (default): the stable in-pod loop runs `/run.sh` every
     `node.backupIntervalSeconds` against `borg.repoBase`.
-  - `agent`: each node pod enrolls at a Borg UI server and registers a per-node
-    backup plan.
-- **Cluster (the S3/NFS/DB sources)** — `cluster.backupMode` (mutually exclusive):
+  - `agent`: each node pod enrolls at Borg UI and registers a per-node backup plan.
+- **Cluster backup mechanism** — `cluster.backupMode` (only when `cluster.enabled`,
+  mutually exclusive): this picks *how the backup is scheduled*, nothing else.
   - `cronjob` (default): a k8s CronJob runs the backup on `cluster.schedule`.
-  - `plan`: the console/app pod enrolls as a managed agent and registers a
-    server-side backup plan; **no** CronJob is created. Requires `app.enabled`.
+  - `plan`: a server-side BackupPlan in Borg UI runs it (registered by the app
+    pod, so it needs `app.mode=agent`); **no** CronJob is created.
+- **Console/app enrollment** — `app.mode`:
+  - `legacy` (default): inspection only (tails the log, `kubectl exec` in).
+  - `agent`: fully enroll at Borg UI — register the cluster repository +
+    check-schedule so it is **browsable in the UI regardless of who backs it up**,
+    and run the agent. It registers a BackupPlan only when `cluster.backupMode=plan`;
+    with `cronjob` the CronJob backs up and the agent just makes the repo visible.
 
 Managed-agent modes need a reachable server: set `borgUI.agentConnection.server`,
 or deploy one in-cluster with `borgUI.enabled=true` (which also runs a bootstrap

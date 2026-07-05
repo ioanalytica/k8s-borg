@@ -257,13 +257,12 @@ node:
 cluster:
   ## @param cluster.enabled Back up cluster-scope data at all (the S3/NFS/DB sources)
   enabled: true
-  ## @param cluster.backupMode Who runs the cluster backup: "cronjob" (a k8s
-  ##   CronJob runs the legacy flow on cluster.schedule) or "plan" (the console/app
-  ##   pod enrolls as a managed agent and registers a server-side backup plan in
-  ##   Borg UI). The two are mutually exclusive: in "cronjob" mode the app pod
-  ##   registers NO plan; in "plan" mode NO CronJob is installed (requires
-  ##   app.enabled and a reachable Borg UI). Plan schedules come from
-  ##   borg.backupSchedule/checkSchedule (keyed by the app pod hostname = app.nodeName).
+  ## @param cluster.backupMode ONLY selects HOW the cluster backup is scheduled
+  ##   (not who talks to Borg UI): "cronjob" → a k8s CronJob runs the backup on
+  ##   cluster.schedule; "plan" → a server-side BackupPlan in Borg UI runs it. The
+  ##   two are mutually exclusive. "plan" is registered by the console/app pod, so
+  ##   it requires app.enabled=true and app.mode=agent. Plan/check schedules come
+  ##   from borg.backupSchedule/checkSchedule (keyed by app.nodeName).
   backupMode: cronjob
   ## @param cluster.schedule Cron schedule (backupMode=cronjob only)
   schedule: "0 */6 * * *"
@@ -283,14 +282,21 @@ cluster:
   resources: {}
 
 ## @section Console app (StatefulSet)
-## The long-lived console pod. It doubles as the "cluster node": when
-## cluster.backupMode=plan it enrolls as a managed agent and registers the
-## cluster backup plan. Otherwise it stays in inspection mode (kubectl exec in).
+## The long-lived console pod = the "cluster node" that represents the cluster
+## repository in Borg UI.
 ##
 app:
   ## @param app.enabled Deploy the console StatefulSet
   enabled: true
-  ## @param app.nodeName Logical NODE_NAME for the console pod (also the schedule/plan key when cluster.backupMode=plan)
+  ## @param app.mode Console pod behaviour: "legacy" (inspection only — tails the
+  ##   log, kubectl exec in) or "agent" (fully enrol at Borg UI: register the
+  ##   cluster repository + check-schedule so it is browsable in the UI, and run
+  ##   the agent). In "agent" mode it registers a BackupPlan ONLY when
+  ##   cluster.backupMode=plan — otherwise backups are driven elsewhere (CronJob)
+  ##   and the agent just makes the repo visible. Needs a reachable Borg UI
+  ##   (borgUI.agentConnection.server or an in-cluster borgUI.enabled server).
+  mode: legacy
+  ## @param app.nodeName Logical NODE_NAME for the console pod (also its Borg UI agent/repo/schedule key)
   nodeName: "k8s-borg-mycluster"
   ## @param app.containerSecurityContext App container security context
   containerSecurityContext:

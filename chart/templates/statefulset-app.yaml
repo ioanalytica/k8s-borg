@@ -45,8 +45,12 @@ spec:
             - name: NODE_NAME
               value: {{ .Values.app.nodeName | quote }}
             {{- include "k8s-borg.env.common" . | nindent 12 }}
-            {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}
+            {{- if eq .Values.app.mode "agent" }}
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
+            # Register a BackupPlan only when the cluster backup is plan-driven;
+            # in cronjob mode the agent just makes the repo visible in Borg UI.
+            - name: BORG_REGISTER_PLAN
+              value: {{ and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") | ternary "true" "false" | quote }}
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}

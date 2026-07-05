@@ -61,6 +61,8 @@ spec:
             {{- include "k8s-borg.env.common" . | nindent 12 }}
             {{- if eq .Values.node.backupMode "agent" }}
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
+            - name: BORG_REGISTER_PLAN
+              value: "true"
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}

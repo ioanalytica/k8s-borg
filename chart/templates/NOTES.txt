@@ -11,16 +11,22 @@ Workloads:
   • CronJob    {{ include "common.names.fullname" . }}-cluster  — cluster-data backups ({{ .Values.cluster.schedule }})
 {{- end }}
 {{- if .Values.app.enabled }}
-  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod{{ if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }} + cluster agent (registers a backup plan){{ else }} (kubectl exec){{ end }}
+  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod ({{ .Values.app.mode }}{{ if eq .Values.app.mode "agent" }}: enrolled in Borg UI{{ if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}, registers a backup plan{{ else }}, repo visible only{{ end }}{{ end }})
 {{- end }}
 
 Mode:
 {{- if include "k8s-borg.anyAgent" . }}
-  Managed-agent enrollment is ACTIVE ({{ if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}cluster→plan {{ end }}{{ if and .Values.node.enabled (eq .Values.node.backupMode "agent") }}node→agent{{ end }}).
-  Agents connect to {{ include "k8s-borg.ui.serverUrl" . }} and register their repository/plan.
-{{- else }}
-  Standalone. Set node.backupMode=agent or cluster.backupMode=plan to enroll the
-  respective workload as a managed agent at a Borg UI server.
+  Managed-agent enrollment is ACTIVE ({{ if and .Values.app.enabled (eq .Values.app.mode "agent") }}app→agent {{ end }}{{ if and .Values.node.enabled (eq .Values.node.backupMode "agent") }}node→agent{{ end }}).
+  Agents connect to {{ include "k8s-borg.ui.serverUrl" . }} and register their repository.
+{{- end }}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
+  Cluster backup: k8s CronJob ({{ .Values.cluster.schedule }}).
+{{- else if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}
+  Cluster backup: Borg UI BackupPlan (registered by the app pod).
+{{- end }}
+{{- if not (include "k8s-borg.anyAgent" .) }}
+  Standalone. Set app.mode=agent or node.backupMode=agent to enroll a workload at
+  a Borg UI server.
 {{- end }}
 
 {{- if .Values.borgUI.enabled }}
