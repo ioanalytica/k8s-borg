@@ -26,6 +26,10 @@
 #   PAT_SECRET_NAME            k8s Secret to write the PAT to (needs SA + patch RBAC)
 #   PAT_SECRET_KEY             key in that Secret (default "BORG_UI_ADMIN_PAT")
 #   OIDC_*                     optional; configured when OIDC_DISCOVERY_URL is set
+#   BORG_UI_SSH_IMPORT_PRIVATE_PATH  optional; import this server-side key file as
+#                              the system SSH key (+ _PUBLIC_PATH, _NAME)
+#   BORG_UI_REMOTE_MACHINES    optional; JSON list [{host,username,port}] to register
+#                              as SSH connections against the system key
 #
 set -euo pipefail
 
@@ -199,6 +203,61 @@ print(json.dumps(p))')
     || { echo "FATAL: OIDC configuration failed" >&2; exit 1; }
   ll="ON"; [ "$(printf %s "$want_disable" | tr '[:upper:]' '[:lower:]')" = "true" ] && ll="OFF"
   echo "OIDC reconciled — enabled; local login ${ll}."
+fi
+
+# --- 5) optional system SSH key import (the pods' key, staged on the server) --
+# borg-ui uses the singleton SYSTEM key for all SSH ops (ssh:// repos, remote
+# machines), so import the pods' key once. The private key path is read by the
+# SERVER (its init container staged it); we only trigger the import via the API.
+if [ -n "${BORG_UI_SSH_IMPORT_PRIVATE_PATH:-}" ]; then
+  have=$(curl -fsS "$(api ssh-keys/system-key)" "${auth[@]}" \
+          | python3 -c 'import sys,json; print("yes" if json.load(sys.stdin).get("exists") else "no")' 2>/dev/null || echo no)
+  if [ "$have" = "yes" ]; then
+    echo "System SSH key already present — skipping import."
+  else
+    echo "Importing system SSH key '${BORG_UI_SSH_IMPORT_NAME:-k8s-borg-system}' from ${BORG_UI_SSH_IMPORT_PRIVATE_PATH} …"
+    ssh_payload=$(BORG_UI_SSH_IMPORT_NAME="${BORG_UI_SSH_IMPORT_NAME:-k8s-borg-system}" \
+                  PRIV="${BORG_UI_SSH_IMPORT_PRIVATE_PATH}" \
+                  PUB="${BORG_UI_SSH_IMPORT_PUBLIC_PATH:-${BORG_UI_SSH_IMPORT_PRIVATE_PATH}.pub}" python3 -c '
+import json, os
+print(json.dumps({"name": os.environ["BORG_UI_SSH_IMPORT_NAME"],
+                  "private_key_path": os.environ["PRIV"],
+                  "public_key_path": os.environ["PUB"]}))')
+    curl -fsS -X POST "$(api ssh-keys/import)" "${auth[@]}" -H "Content-Type: application/json" \
+      -d "${ssh_payload}" >/dev/null \
+      || { echo "FATAL: system SSH key import failed (is the key staged at ${BORG_UI_SSH_IMPORT_PRIVATE_PATH} on the server?)" >&2; exit 1; }
+    echo "System SSH key imported."
+  fi
+fi
+
+# --- 6) optional remote machines (SSH connections; declarative, best-effort) --
+# Each machine is registered via test-connection against the system key (no
+# password — the public key must already be on the target). Idempotent: an
+# existing connection for the same host is reused. Reachability failures are
+# recorded on the connection (status) but do not fail the bootstrap.
+if [ -n "${BORG_UI_REMOTE_MACHINES:-}" ] && [ "${BORG_UI_REMOTE_MACHINES}" != "[]" ]; then
+  key_id=$(curl -fsS "$(api ssh-keys/system-key)" "${auth[@]}" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("ssh_key") or {}).get("id") or "")' 2>/dev/null || echo "")
+  [ -n "$key_id" ] || { echo "FATAL: remote machines requested but no system SSH key exists (set borgUI.systemSshKey.import)" >&2; exit 1; }
+  echo "Reconciling remote machines against system key id ${key_id} …"
+  printf '%s' "${BORG_UI_REMOTE_MACHINES}" \
+    | python3 -c 'import sys,json
+for m in json.load(sys.stdin):
+    print("%s\t%s\t%s" % (m["host"], m["username"], m.get("port", 22)))' \
+    | while IFS="$(printf '\t')" read -r host user port; do
+        [ -n "$host" ] || continue
+        body=$(HOST="$host" USER_="$user" PORT="$port" python3 -c '
+import json, os
+print(json.dumps({"host": os.environ["HOST"], "username": os.environ["USER_"], "port": int(os.environ["PORT"])}))')
+        status=$(curl -sS -X POST "$(api ssh-keys/${key_id}/test-connection)" "${auth[@]}" \
+                   -H "Content-Type: application/json" -d "${body}" \
+                 | python3 -c 'import sys,json
+try:
+    d = json.load(sys.stdin); print((d.get("connection") or {}).get("status") or "unknown")
+except Exception:
+    print("error")' 2>/dev/null || echo "error")
+        echo "  ${user}@${host}:${port} → ${status}"
+      done
 fi
 
 echo "Bootstrap complete."

@@ -419,6 +419,25 @@ borgUI:
     defaultAllRepositoriesRole: "viewer"
     ## @param borgUI.oidc.disableLocalAuth Disable local password login (OIDC-only). Guarded: kept ON until an OIDC admin can sign in.
     disableLocalAuth: false
+  ## Import the pods' SSH key (ssh.existingSecret) as the Borg UI *system* SSH key,
+  ## so the server reaches ssh:// repos and remote machines with the SAME identity
+  ## the backup pods use (its public key is already on those targets). An init
+  ## container stages the key for the server user (uid 1001) — a plain secret mount
+  ## would have the wrong owner/mode. The bootstrap Job then imports it once
+  ## (POST /api/ssh-keys/import) and it lives encrypted in the Borg UI DB.
+  ## Enabling remoteMachines below implies this import.
+  systemSshKey:
+    ## @param borgUI.systemSshKey.import Import ssh.existingSecret as the Borg UI system SSH key
+    import: false
+    ## @param borgUI.systemSshKey.name Name for the imported system key
+    name: "k8s-borg-system"
+  ## @param borgUI.remoteMachines Remote machines (SSH connections) the bootstrap Job
+  ##   reconciles via POST /api/ssh-keys/{systemKey}/test-connection (idempotent; no
+  ##   password — the public key must already be deployed on each target). Each entry
+  ##   is { host, username, port }; the connection is created with Borg UI defaults
+  ##   (use_sftp_mode=true, Hetzner-friendly). Requires the system key (auto-imported).
+  remoteMachines: []
+  #  - { host: "borg01.example.com", username: "u12345", port: 23 }
 
 ## @section Persistence
 ## Operational volumes only: the Borg client cache, the Borg UI server state, and

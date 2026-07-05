@@ -138,6 +138,48 @@ Names for the bootstrap Job's PAT Secret, ServiceAccount and Role.
 {{- end -}}
 
 {{/*
+Where the SSH key is staged for the Borg UI server to import as its system key.
+*/}}
+{{- define "k8s-borg.ui.sshKeyDir" -}}/etc/borg-ui-ssh{{- end -}}
+
+{{/*
+Whether the Borg UI server should carry the pods' SSH key as its system key —
+explicitly (systemSshKey.import) or implicitly because remote machines are
+configured (they need it). Emits "true" or "".
+*/}}
+{{- define "k8s-borg.ui.systemKeyActive" -}}
+{{- if and .Values.borgUI.enabled (or .Values.borgUI.systemSshKey.import (gt (len .Values.borgUI.remoteMachines) 0)) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Init container that stages the SSH key into an in-memory volume owned by the Borg
+UI server user (uid 1001) with sane modes, so the server can read it once to import
+as its system key. A plain secret mount would be root-owned / wrong mode.
+*/}}
+{{- define "k8s-borg.uiSshInitContainer" -}}
+- name: stage-ssh-key
+  image: {{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}
+  imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+  command:
+    - /bin/sh
+    - -c
+    - |
+      cp /ssh-secret/id_ed25519 /ssh-staged/id_ed25519
+      cp /ssh-secret/id_ed25519.pub /ssh-staged/id_ed25519.pub
+      chown 1001:1001 /ssh-staged/id_ed25519 /ssh-staged/id_ed25519.pub
+      chmod 600 /ssh-staged/id_ed25519
+      chmod 644 /ssh-staged/id_ed25519.pub
+  volumeMounts:
+    - name: ssh-secret
+      mountPath: /ssh-secret
+      readOnly: true
+    - name: ssh-staged
+      mountPath: /ssh-staged
+{{- end -}}
+
+{{/*
 Gating init container for managed-agent workloads: blocks pod startup until the
 Borg UI server answers /health, so the agent never races enrollment against a
 server (and its bootstrap Job) that isn't up yet. Uses the agent image (has curl).

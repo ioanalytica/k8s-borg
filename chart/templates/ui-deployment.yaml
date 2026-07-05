@@ -32,6 +32,19 @@ spec:
         - name: cache
           persistentVolumeClaim:
             claimName: {{ include "k8s-borg.pvc.cache" . }}
+        {{- if include "k8s-borg.ui.systemKeyActive" . }}
+        - name: ssh-secret
+          secret:
+            secretName: {{ include "k8s-borg.sshSecretName" . }}
+            defaultMode: 384
+        - name: ssh-staged
+          emptyDir:
+            medium: Memory
+        {{- end }}
+      {{- if include "k8s-borg.ui.systemKeyActive" . }}
+      initContainers:
+        {{- include "k8s-borg.uiSshInitContainer" . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ui
           image: {{ include "k8s-borg.ui.image" . | quote }}
@@ -57,6 +70,11 @@ spec:
             - name: cache
               mountPath: /home/borg/.cache
               subPath: k8s-borg-ui
+            {{- if include "k8s-borg.ui.systemKeyActive" . }}
+            - name: ssh-staged
+              mountPath: {{ include "k8s-borg.ui.sshKeyDir" . }}
+              readOnly: true
+            {{- end }}
           readinessProbe:
             tcpSocket:
               port: http

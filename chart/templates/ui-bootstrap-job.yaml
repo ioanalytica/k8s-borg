@@ -114,6 +114,20 @@ spec:
             - name: OIDC_DISABLE_LOCAL_AUTH
               value: {{ .Values.borgUI.oidc.disableLocalAuth | quote }}
             {{- end }}
+            {{- if include "k8s-borg.ui.systemKeyActive" . }}
+            # System SSH key import (path is read by the SERVER, staged there by its
+            # init container) + remote machines to reconcile.
+            - name: BORG_UI_SSH_IMPORT_NAME
+              value: {{ .Values.borgUI.systemSshKey.name | quote }}
+            - name: BORG_UI_SSH_IMPORT_PRIVATE_PATH
+              value: {{ printf "%s/id_ed25519" (include "k8s-borg.ui.sshKeyDir" .) | quote }}
+            - name: BORG_UI_SSH_IMPORT_PUBLIC_PATH
+              value: {{ printf "%s/id_ed25519.pub" (include "k8s-borg.ui.sshKeyDir" .) | quote }}
+            {{- if .Values.borgUI.remoteMachines }}
+            - name: BORG_UI_REMOTE_MACHINES
+              value: {{ .Values.borgUI.remoteMachines | toJson | quote }}
+            {{- end }}
+            {{- end }}
           {{- if .Values.borgUI.resources }}
           resources: {{- toYaml .Values.borgUI.resources | nindent 12 }}
           {{- end }}
