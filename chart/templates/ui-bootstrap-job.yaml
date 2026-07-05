@@ -1,0 +1,118 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Bootstrap Job (Helm post-install/upgrade hook). Runs the k8s-borg agent image's
+bootstrap-borgui reconciler against the freshly (re)deployed server: waits for
+health, reuses/mints the admin PAT into the retained PAT Secret, and reconciles
+OIDC from borgUI.oidc. Idempotent — safe to re-run on every upgrade.
+*/}}
+{{- if and .Values.borgUI.enabled .Values.borgUI.bootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-bootstrap" (include "common.names.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- if .Values.commonAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "k8s-borg.bootstrapSAName" . }}
+      {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: bootstrap
+          image: {{ include "k8s-borg.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command: ["/usr/local/bin/bootstrap-borgui"]
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: BORG_UI_SERVER
+              value: {{ include "k8s-borg.ui.serverUrl" . | quote }}
+            - name: BORG_UI_ADMIN_USER
+              value: {{ .Values.borgUI.adminUser | quote }}
+            {{- if or .Values.borgUI.adminPassword.value .Values.borgUI.adminPassword.existingSecret }}
+            - name: BORG_UI_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
+                  key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
+            {{- end }}
+            - name: BORG_UI_ADMIN_PAT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "k8s-borg.ui.patSecretName" . }}
+                  key: BORG_UI_ADMIN_PAT
+                  optional: true
+            - name: PAT_SECRET_NAME
+              value: {{ include "k8s-borg.ui.patSecretName" . | quote }}
+            - name: PAT_SECRET_KEY
+              value: "BORG_UI_ADMIN_PAT"
+            - name: PAT_NAME
+              value: {{ .Values.borgUI.bootstrap.patName | quote }}
+            - name: BOOTSTRAP_WAIT_SECONDS
+              value: {{ .Values.borgUI.bootstrap.waitSeconds | quote }}
+            {{- if .Values.borgUI.oidc.enabled }}
+            - name: OIDC_ENABLED
+              value: {{ .Values.borgUI.oidc.enabled | quote }}
+            - name: OIDC_DISCOVERY_URL
+              value: {{ required "borgUI.oidc.discoveryUrl is required when borgUI.oidc.enabled" .Values.borgUI.oidc.discoveryUrl | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.borgUI.oidc.clientId | quote }}
+            {{- if or .Values.borgUI.oidc.clientSecret.value .Values.borgUI.oidc.clientSecret.existingSecret }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.borgUI.oidc.clientSecret.existingSecret | default (include "k8s-borg.secretName" .) }}
+                  key: {{ .Values.borgUI.oidc.clientSecret.existingSecretKey | default "OIDC_CLIENT_SECRET" }}
+            {{- end }}
+            - name: OIDC_PROVIDER_NAME
+              value: {{ .Values.borgUI.oidc.providerName | quote }}
+            - name: OIDC_TOKEN_AUTH_METHOD
+              value: {{ .Values.borgUI.oidc.tokenAuthMethod | quote }}
+            - name: OIDC_SCOPES
+              value: {{ .Values.borgUI.oidc.scopes | quote }}
+            - name: OIDC_REDIRECT_URI_OVERRIDE
+              value: {{ .Values.borgUI.oidc.redirectUriOverride | quote }}
+            - name: OIDC_END_SESSION_OVERRIDE
+              value: {{ .Values.borgUI.oidc.endSessionEndpointOverride | quote }}
+            - name: OIDC_CLAIM_USERNAME
+              value: {{ .Values.borgUI.oidc.claimUsername | quote }}
+            - name: OIDC_CLAIM_EMAIL
+              value: {{ .Values.borgUI.oidc.claimEmail | quote }}
+            - name: OIDC_CLAIM_FULL_NAME
+              value: {{ .Values.borgUI.oidc.claimFullName | quote }}
+            - name: OIDC_GROUP_CLAIM
+              value: {{ .Values.borgUI.oidc.groupClaim | quote }}
+            - name: OIDC_ROLE_CLAIM
+              value: {{ .Values.borgUI.oidc.roleClaim | quote }}
+            - name: OIDC_ADMIN_GROUPS
+              value: {{ .Values.borgUI.oidc.adminGroups | quote }}
+            - name: OIDC_ALL_REPOS_ROLE_CLAIM
+              value: {{ .Values.borgUI.oidc.allRepositoriesRoleClaim | quote }}
+            - name: OIDC_NEW_USER_MODE
+              value: {{ .Values.borgUI.oidc.newUserMode | quote }}
+            - name: OIDC_NEW_USER_TEMPLATE_USERNAME
+              value: {{ .Values.borgUI.oidc.newUserTemplateUsername | quote }}
+            - name: OIDC_DEFAULT_ROLE
+              value: {{ .Values.borgUI.oidc.defaultRole | quote }}
+            - name: OIDC_DEFAULT_ALL_REPOS_ROLE
+              value: {{ .Values.borgUI.oidc.defaultAllRepositoriesRole | quote }}
+            - name: OIDC_DISABLE_LOCAL_AUTH
+              value: {{ .Values.borgUI.oidc.disableLocalAuth | quote }}
+            {{- end }}
+          {{- if .Values.borgUI.resources }}
+          resources: {{- toYaml .Values.borgUI.resources | nindent 12 }}
+          {{- end }}
+{{- end }}

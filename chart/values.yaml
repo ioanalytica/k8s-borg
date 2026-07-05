@@ -112,7 +112,8 @@ borg:
   ## and mounted at BORG_CHECK_SCHEDULE_DIR; at startup each agent pod applies its
   ## own schedule via `set-check-schedule`, selecting the key that matches its
   ## POD HOSTNAME (`<hostname>_check_schedule`) and falling back to `default`.
-  ## Requires borgUI.agent.enabled. Leave both empty to create no schedules.
+  ## Only used by components running as managed agents (node.backupMode=agent or
+  ## cluster.backupMode=plan). Leave both empty to create no schedules.
   ## Pod hostnames: DaemonSet nodes are "k8s-borg-<node>", the app/console pod is
   ## its app.nodeName.
   checkSchedule:
@@ -228,7 +229,13 @@ databases:
 node:
   ## @param node.enabled Deploy the node-backup DaemonSet
   enabled: true
-  ## @param node.backupIntervalSeconds Sleep between node backups
+  ## @param node.backupMode How node backups run: "interval" (legacy in-pod loop
+  ##   every backupIntervalSeconds) or "agent" (enroll each DaemonSet pod as a
+  ##   managed agent and register a per-node backup plan in Borg UI). "agent"
+  ##   requires a reachable server (borgUI.agentConnection.server or an in-cluster
+  ##   Borg UI). Node schedules then come from borg.backupSchedule/checkSchedule.
+  backupMode: interval
+  ## @param node.backupIntervalSeconds Sleep between node backups (backupMode=interval only)
   backupIntervalSeconds: 3600
   ## @param node.hostRootPath Host path mounted read-only at /node
   hostRootPath: /
@@ -248,9 +255,17 @@ node:
 ## @section Cluster backup (CronJob)
 ##
 cluster:
-  ## @param cluster.enabled Deploy the cluster-data CronJob
+  ## @param cluster.enabled Back up cluster-scope data at all (the S3/NFS/DB sources)
   enabled: true
-  ## @param cluster.schedule Cron schedule
+  ## @param cluster.backupMode Who runs the cluster backup: "cronjob" (a k8s
+  ##   CronJob runs the legacy flow on cluster.schedule) or "plan" (the console/app
+  ##   pod enrolls as a managed agent and registers a server-side backup plan in
+  ##   Borg UI). The two are mutually exclusive: in "cronjob" mode the app pod
+  ##   registers NO plan; in "plan" mode NO CronJob is installed (requires
+  ##   app.enabled and a reachable Borg UI). Plan schedules come from
+  ##   borg.backupSchedule/checkSchedule (keyed by the app pod hostname = app.nodeName).
+  backupMode: cronjob
+  ## @param cluster.schedule Cron schedule (backupMode=cronjob only)
   schedule: "0 */6 * * *"
   ## @param cluster.timeZone CronJob time zone (defaults to .timezone)
   timeZone: ""
@@ -268,11 +283,14 @@ cluster:
   resources: {}
 
 ## @section Console app (StatefulSet)
+## The long-lived console pod. It doubles as the "cluster node": when
+## cluster.backupMode=plan it enrolls as a managed agent and registers the
+## cluster backup plan. Otherwise it stays in inspection mode (kubectl exec in).
 ##
 app:
   ## @param app.enabled Deploy the console StatefulSet
   enabled: true
-  ## @param app.nodeName Logical NODE_NAME for the console pod
+  ## @param app.nodeName Logical NODE_NAME for the console pod (also the schedule/plan key when cluster.backupMode=plan)
   nodeName: "k8s-borg-mycluster"
   ## @param app.containerSecurityContext App container security context
   containerSecurityContext:
@@ -328,12 +346,73 @@ borgUI:
       secretName: "borgui-tls"
   ## @param borgUI.resources Borg UI server resources
   resources: {}
-  ## Managed-agent enrollment — makes the backup pods enroll at the server.
-  agent:
-    ## @param borgUI.agent.enabled Enroll backup pods as managed agents (DEV/TEST only)
-    enabled: false
-    ## @param borgUI.agent.server Borg UI server URL. Empty → derived from the in-cluster Service.
+  ## How managed agents reach the Borg UI server. Which components actually enrol
+  ## as agents is decided per component: node.backupMode=agent and
+  ## cluster.backupMode=plan. (The server itself is never an agent — hence the
+  ## name.) Enrolment still uses the admin user/password above; PAT-based agent
+  ## auth is a later phase.
+  agentConnection:
+    ## @param borgUI.agentConnection.server Borg UI server URL. Empty → derived from the in-cluster Service.
     server: ""
+  ## Bootstrap Job (Helm post-install/upgrade hook): waits for the server, mints
+  ## (and reuses) an admin PAT into a retained Secret, and reconciles OIDC/SSO
+  ## from borgUI.oidc below. Runs the k8s-borg agent image (ships bootstrap-borgui).
+  bootstrap:
+    ## @param borgUI.bootstrap.enabled Run the bootstrap Job (only meaningful with borgUI.enabled)
+    enabled: true
+    ## @param borgUI.bootstrap.patName Name of the PAT minted for admin/agent auth
+    patName: "k8s-borg-bootstrap"
+    ## @param borgUI.bootstrap.waitSeconds How long to wait for the server /health
+    waitSeconds: 300
+  ## OIDC / SSO. Reconciled declaratively by the bootstrap Job (all fields the Borg
+  ## UI settings dialog exposes). Only applied when oidc.enabled and the bootstrap
+  ## Job runs. Empty string = leave the server default.
+  oidc:
+    ## @param borgUI.oidc.enabled Enable OIDC login on the server
+    enabled: false
+    ## @param borgUI.oidc.discoveryUrl OIDC provider discovery URL (.well-known/openid-configuration)
+    discoveryUrl: ""
+    ## @param borgUI.oidc.clientId OIDC client ID
+    clientId: ""
+    ## OIDC client secret (sensitive): value or existingSecret[+existingSecretKey].
+    clientSecret:
+      value: ""
+      existingSecret: ""
+      existingSecretKey: ""
+    ## @param borgUI.oidc.providerName Display name of the provider (login button)
+    providerName: ""
+    ## @param borgUI.oidc.tokenAuthMethod Token endpoint auth: client_secret_post | client_secret_basic
+    tokenAuthMethod: "client_secret_post"
+    ## @param borgUI.oidc.scopes OAuth scopes to request
+    scopes: "openid profile email"
+    ## @param borgUI.oidc.redirectUriOverride Override the auto-derived redirect URI (empty = auto)
+    redirectUriOverride: ""
+    ## @param borgUI.oidc.endSessionEndpointOverride Override the provider logout endpoint (empty = auto)
+    endSessionEndpointOverride: ""
+    ## @param borgUI.oidc.claimUsername ID-token claim used for the username
+    claimUsername: "preferred_username"
+    ## @param borgUI.oidc.claimEmail ID-token claim used for the email
+    claimEmail: "email"
+    ## @param borgUI.oidc.claimFullName ID-token claim used for the full name
+    claimFullName: "name"
+    ## @param borgUI.oidc.groupClaim ID-token claim carrying the group list (e.g. Zitadel: urn:zitadel:iam:org:project:roles)
+    groupClaim: ""
+    ## @param borgUI.oidc.roleClaim ID-token claim carrying the role directly (empty = derive from groups)
+    roleClaim: ""
+    ## @param borgUI.oidc.adminGroups Comma-separated groups that receive the admin role
+    adminGroups: ""
+    ## @param borgUI.oidc.allRepositoriesRoleClaim Claim carrying the per-all-repositories role
+    allRepositoriesRoleClaim: ""
+    ## @param borgUI.oidc.newUserMode How to handle first-seen OIDC users: deny | viewer | pending | template
+    newUserMode: "viewer"
+    ## @param borgUI.oidc.newUserTemplateUsername Template user to copy permissions from (newUserMode=template)
+    newUserTemplateUsername: ""
+    ## @param borgUI.oidc.defaultRole Global role granted to new OIDC users
+    defaultRole: "viewer"
+    ## @param borgUI.oidc.defaultAllRepositoriesRole Per-all-repositories role granted to new OIDC users
+    defaultAllRepositoriesRole: "viewer"
+    ## @param borgUI.oidc.disableLocalAuth Disable local password login (OIDC-only). Guarded: kept ON until an OIDC admin can sign in.
+    disableLocalAuth: false
 
 ## @section Persistence
 ## Operational volumes only: the Borg client cache, the Borg UI server state, and

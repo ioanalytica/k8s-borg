@@ -105,15 +105,36 @@ with the right ownership/mode. Identical across all backup workloads.
 {{- end -}}
 
 {{/*
-Borg UI in-cluster Service URL (used for agent enrollment). Derived from the
-release unless borgUI.agent.server overrides it.
+Borg UI in-cluster Service URL (used for agent enrollment and the bootstrap Job).
+Derived from the release unless borgUI.agentConnection.server overrides it.
 */}}
 {{- define "k8s-borg.ui.serverUrl" -}}
-{{- if .Values.borgUI.agent.server -}}
-{{- .Values.borgUI.agent.server -}}
+{{- if .Values.borgUI.agentConnection.server -}}
+{{- .Values.borgUI.agentConnection.server -}}
 {{- else -}}
 {{- printf "http://%s-ui.%s.svc.cluster.local:%v" (include "common.names.fullname" .) .Release.Namespace .Values.borgUI.service.port -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Whether any backup workload runs as a managed agent — the console/app pod in
+cluster.backupMode=plan, or the DaemonSet in node.backupMode=agent. Gates the
+schedule ConfigMaps and the enrollment admin credentials. Emits "true" or "".
+*/}}
+{{- define "k8s-borg.anyAgent" -}}
+{{- if or (and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan")) (and .Values.node.enabled (eq .Values.node.backupMode "agent")) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Names for the bootstrap Job's PAT Secret, ServiceAccount and Role.
+*/}}
+{{- define "k8s-borg.ui.patSecretName" -}}
+{{- printf "%s-ui-pat" (include "common.names.fullname" .) -}}
+{{- end -}}
+{{- define "k8s-borg.bootstrapSAName" -}}
+{{- printf "%s-bootstrap" (include "common.names.fullname" .) -}}
 {{- end -}}
 
 {{/*
@@ -152,6 +173,8 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
   value: {{ .Values.borg.retention.weekly | quote }}
 - name: KEEP_MONTHLY
   value: {{ .Values.borg.retention.monthly | quote }}
+- name: S3_ENABLED
+  value: {{ .Values.s3.enabled | quote }}
 {{- if .Values.s3.enabled }}
 - name: S3_ENDPOINT
   value: {{ .Values.s3.endpoint | quote }}
@@ -171,9 +194,9 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
 {{- end -}}
 
 {{/*
-Managed-agent enrollment env (DEV/TEST). Rendered only when borgUI.agent.enabled.
-Username is fixed to "admin" server-side; the password matches the server's
-INITIAL_ADMIN_PASSWORD.
+Managed-agent enrollment env. Rendered per component when it runs as an agent
+(node.backupMode=agent, cluster.backupMode=plan). Username is fixed to "admin"
+server-side; the password matches the server's INITIAL_ADMIN_PASSWORD.
 */}}
 {{- define "k8s-borg.env.agent" -}}
 - name: BORG_UI_AGENT

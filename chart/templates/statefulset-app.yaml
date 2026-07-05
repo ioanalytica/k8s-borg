@@ -45,7 +45,7 @@ spec:
             - name: NODE_NAME
               value: {{ .Values.app.nodeName | quote }}
             {{- include "k8s-borg.env.common" . | nindent 12 }}
-            {{- if .Values.borgUI.agent.enabled }}
+            {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
             {{- end }}
           volumeMounts:

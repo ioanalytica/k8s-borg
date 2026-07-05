@@ -2,7 +2,7 @@
 Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */}}
-{{- if .Values.cluster.enabled }}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

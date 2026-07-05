@@ -5,22 +5,22 @@ Borg binary : borg {{ .Values.borg.version }}   (transport comes from the repo U
 
 Workloads:
 {{- if .Values.node.enabled }}
-  • DaemonSet  {{ include "common.names.fullname" . }}-node     — per-node backups (BORG_MODE=node)
+  • DaemonSet  {{ include "common.names.fullname" . }}-node     — per-node backups (mode: {{ .Values.node.backupMode }})
 {{- end }}
-{{- if .Values.cluster.enabled }}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
   • CronJob    {{ include "common.names.fullname" . }}-cluster  — cluster-data backups ({{ .Values.cluster.schedule }})
 {{- end }}
 {{- if .Values.app.enabled }}
-  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod (kubectl exec)
+  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod{{ if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }} + cluster agent (registers a backup plan){{ else }} (kubectl exec){{ end }}
 {{- end }}
 
 Mode:
-{{- if .Values.borgUI.agent.enabled }}
-  Borg UI managed-agent enrollment is ENABLED (DEV/TEST). Pods enroll at
-  {{ .Values.borgUI.agent.server }} and register their repository.
+{{- if include "k8s-borg.anyAgent" . }}
+  Managed-agent enrollment is ACTIVE ({{ if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}cluster→plan {{ end }}{{ if and .Values.node.enabled (eq .Values.node.backupMode "agent") }}node→agent{{ end }}).
+  Agents connect to {{ include "k8s-borg.ui.serverUrl" . }} and register their repository/plan.
 {{- else }}
-  Standalone (stable). Set borgUI.agent.enabled=true only in DEV/TEST to enroll
-  the pods at a Borg UI server.
+  Standalone. Set node.backupMode=agent or cluster.backupMode=plan to enroll the
+  respective workload as a managed agent at a Borg UI server.
 {{- end }}
 
 {{- if .Values.borgUI.enabled }}

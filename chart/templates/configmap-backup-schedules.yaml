@@ -8,7 +8,7 @@ BORG_BACKUP_SCHEDULE_DIR into every agent pod; `register-backup-plan` picks the
 key matching its own $(hostname). Rendered only when the managed agent is enabled
 and at least one schedule is configured.
 */}}
-{{- if and .Values.borgUI.agent.enabled (or .Values.borg.backupSchedule.default .Values.borg.backupSchedule.perHost) }}
+{{- if and (include "k8s-borg.anyAgent" .) (or .Values.borg.backupSchedule.default .Values.borg.backupSchedule.perHost) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -8,7 +8,7 @@ BORG_CHECK_SCHEDULE_DIR into every agent pod; `set-check-schedule` picks the key
 matching its own $(hostname). Rendered only when the managed agent is enabled and
 at least one schedule is configured.
 */}}
-{{- if and .Values.borgUI.agent.enabled (or .Values.borg.checkSchedule.default .Values.borg.checkSchedule.perHost) }}
+{{- if and (include "k8s-borg.anyAgent" .) (or .Values.borg.checkSchedule.default .Values.borg.checkSchedule.perHost) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

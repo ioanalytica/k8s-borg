@@ -59,7 +59,7 @@ spec:
             - name: BORG_MODE
               value: node
             {{- include "k8s-borg.env.common" . | nindent 12 }}
-            {{- if .Values.borgUI.agent.enabled }}
+            {{- if eq .Values.node.backupMode "agent" }}
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
             {{- end }}
           volumeMounts:

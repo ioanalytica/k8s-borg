@@ -1,0 +1,52 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+ServiceAccount + minimal Role for the bootstrap Job: it reads and PATCHes exactly
+one Secret (the PAT Secret) to persist the minted admin PAT. Scoped to that single
+resourceName — no broad secret access.
+*/}}
+{{- if and .Values.borgUI.enabled .Values.borgUI.bootstrap.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "k8s-borg.bootstrapSAName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "k8s-borg.bootstrapSAName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ include "k8s-borg.ui.patSecretName" . }}"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "k8s-borg.bootstrapSAName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "k8s-borg.bootstrapSAName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "k8s-borg.bootstrapSAName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}

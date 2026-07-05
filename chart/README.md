@@ -27,11 +27,22 @@ with SOPS, Sealed Secrets, or External Secrets) — see [`../examples`](../examp
 
 ## Modes
 
-- **Standalone (default, production):** unset `borgUI.agent.enabled`. Pods run the
-  stable backup flow (`/run.sh`) against `borg.repoBase`.
-- **Borg UI managed agent (DEV/TEST):** `borgUI.agent.enabled=true` enrolls the
-  pods at a Borg UI server. Optionally deploy the server itself with
-  `borgUI.enabled=true`.
+Backup execution is chosen **per component**, so the node fleet and the
+cluster-scope backup are independent:
+
+- **Node (DaemonSet)** — `node.backupMode`:
+  - `interval` (default): the stable in-pod loop runs `/run.sh` every
+    `node.backupIntervalSeconds` against `borg.repoBase`.
+  - `agent`: each node pod enrolls at a Borg UI server and registers a per-node
+    backup plan.
+- **Cluster (the S3/NFS/DB sources)** — `cluster.backupMode` (mutually exclusive):
+  - `cronjob` (default): a k8s CronJob runs the backup on `cluster.schedule`.
+  - `plan`: the console/app pod enrolls as a managed agent and registers a
+    server-side backup plan; **no** CronJob is created. Requires `app.enabled`.
+
+Managed-agent modes need a reachable server: set `borgUI.agentConnection.server`,
+or deploy one in-cluster with `borgUI.enabled=true` (which also runs a bootstrap
+Job that mints an admin PAT and reconciles `borgUI.oidc`).
 
 ## Borg 1 vs 2
 
@@ -52,8 +63,8 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `s3` | S3 sources mounted via s3fs |
 | `config` | include/exclude patterns + bucket list (→ ConfigMap) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
-| `node` / `cluster` / `app` | the three backup workloads (each toggleable) |
-| `borgUI` | optional server (Deployment/Service/Ingress) + agent enrollment |
+| `node` / `cluster` / `app` | the three backup workloads (each toggleable; `backupMode` per component) |
+| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `bootstrap` Job, `oidc` |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 
 ## Security posture

@@ -26,32 +26,36 @@ require_file() {
 
 S3_BUCKETS="/root/.borg/cluster-s3-buckets"
 BORG_MODE="${BORG_MODE:-cluster}"
+# Normalize the S3 toggle (chart sets S3_ENABLED=true|false; default off).
+S3_ENABLED="$(printf %s "${S3_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
 
 echo "Checking environment for required settings …"
-require_env S3_ENDPOINT \
-            S3_MOUNTPOINT \
-            AWS_KEY \
-            AWS_SECRET_KEY \
-            BORG_VERSION \
+require_env BORG_VERSION \
             BORG_REPO \
             NODE_NAME \
             BORG_PASSPHRASE \
             BORGBACKUP_ARCHIVE_PREFIX \
             BORG_ARCHIVE_GLOB \
             DB_BACKUP_LOCATION
+# S3 sources are optional — only validate/mount when enabled (s3.enabled in the chart).
+if [[ "${S3_ENABLED}" = "true" ]]; then
+  require_env S3_ENDPOINT S3_MOUNTPOINT AWS_KEY AWS_SECRET_KEY
+fi
 
 echo "Checking for required config files …"
 require_file /root/.borg/cluster-exclude.patterns /root/.borg/cluster-include.patterns \
-             /root/.borg/node-exclude.patterns /root/.borg/node-include.patterns "${S3_BUCKETS}"
+             /root/.borg/node-exclude.patterns /root/.borg/node-include.patterns
+[[ "${S3_ENABLED}" = "true" ]] && require_file "${S3_BUCKETS}"
 
 echo "Checking for required ssh files …"
 require_file /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub /root/.ssh/known_hosts
 
-echo "Creating mount points /mnt/borg and ${S3_MOUNTPOINT} …"
-mkdir -p /mnt/borg "${S3_MOUNTPOINT}"
+echo "Creating mount point /mnt/borg …"
+mkdir -p /mnt/borg
+[[ "${S3_ENABLED}" = "true" ]] && mkdir -p "${S3_MOUNTPOINT}"
 
 # Mount S3 buckets as read sources — app/cluster jobs only, never on node backups.
-if [[ "${BORG_MODE}" != "node" && -f "${S3_BUCKETS}" ]]; then
+if [[ "${S3_ENABLED}" = "true" && "${BORG_MODE}" != "node" && -f "${S3_BUCKETS}" ]]; then
   echo "Mounting S3 buckets listed in ${S3_BUCKETS} …"
   install -m 600 /dev/null /root/.s3fs
   printf '%s:%s\n' "${AWS_KEY}" "${AWS_SECRET_KEY}" > /root/.s3fs
