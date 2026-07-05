@@ -91,6 +91,28 @@ if m:
     print(str(m[0]["id"]) + "\t" + (str(aid) if aid not in (None, "") else ""))'
 }
 
+# --- agent lookup: newest queueable agent id for a name ----------------------
+# borgui_agent_id TOKEN NAME → echoes the id of the newest queueable AgentMachine
+# named NAME (empty if none). Duplicate records with the same name can linger from
+# earlier rollouts, so pick the newest that is NOT revoked/disabled/deleted. Warns
+# on the edge cases (all non-queueable / multiple queueable).
+borgui_agent_id() {
+  local token="$1" name="$2"
+  borgui_api "$token" GET /api/managed-machines/agents \
+    | AGENT_NAME="$name" python3 -c '
+import sys, json, os
+agents = json.load(sys.stdin)
+name = os.environ["AGENT_NAME"]
+BAD = {"disabled", "revoked", "deleted"}
+named = [a for a in agents if a.get("name") == name]
+ok = [a for a in named if a.get("status") not in BAD]
+if named and not ok:
+    sys.stderr.write("all agents named %r are non-queueable (revoked/disabled)\n" % name)
+elif len(ok) > 1:
+    sys.stderr.write("multiple queueable agents named %r; using newest\n" % name)
+print(max(ok, key=lambda a: a["id"])["id"] if ok else "")'
+}
+
 # --- cron resolution from a projected-ConfigMap directory --------------------
 # borgui_resolve_cron OVERRIDE DIR SUFFIX → echoes the trimmed cron (may be empty).
 # First match wins: OVERRIDE, then <REPO_NAME><SUFFIX>, then default<SUFFIX>.

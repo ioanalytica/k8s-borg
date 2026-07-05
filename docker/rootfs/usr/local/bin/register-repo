@@ -42,23 +42,10 @@ if [ -n "${repo_row%%$'\t'*}" ]; then
   exit 0
 fi
 
-# resolve this node's agent id. Duplicate records with the same name can linger
-# from earlier rollouts, so pick the NEWEST queueable one (highest id, not
-# revoked/disabled/deleted) — a stale revoked duplicate would fail the import 409.
-agent_id=$(borgui_api "$jwt" GET /api/managed-machines/agents \
-           | REPO_NAME="${REPO_NAME}" python3 -c '
-import sys, json, os
-agents = json.load(sys.stdin)
-name = os.environ["REPO_NAME"]
-BAD = {"disabled", "revoked", "deleted"}
-named = [a for a in agents if a.get("name") == name]
-ok = [a for a in named if a.get("status") not in BAD]
-if named and not ok:
-    sys.stderr.write("all agents named %r are non-queueable (revoked/disabled)\n" % name)
-elif len(ok) > 1:
-    sys.stderr.write("multiple queueable agents named %r; using newest\n" % name)
-print(max(ok, key=lambda a: a["id"])["id"] if ok else "")') \
-  || borgui_die "could not list agents"
+# resolve this node's agent id (newest queueable; borgui-common.sh handles the
+# duplicate/revoked edge cases). A missing/non-queueable agent means the node
+# isn't enrolled server-side.
+agent_id=$(borgui_agent_id "$jwt" "$REPO_NAME") || borgui_die "could not list agents"
 
 if [ -z "$agent_id" ]; then
   borgui_die "no queueable agent named '${REPO_NAME}' — enroll the node first."
