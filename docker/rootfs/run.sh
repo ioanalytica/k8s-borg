@@ -28,6 +28,10 @@ S3_BUCKETS="/root/.borg/cluster-s3-buckets"
 BORG_MODE="${BORG_MODE:-cluster}"
 # Normalize the S3 toggle (chart sets S3_ENABLED=true|false; default off).
 S3_ENABLED="$(printf %s "${S3_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
+# S3 sources are cluster/app scope only — never mounted on node backups. This one
+# flag drives every S3 step below (validate, mkdir, mount).
+s3_active=false
+[[ "${S3_ENABLED}" = "true" && "${BORG_MODE}" != "node" ]] && s3_active=true
 
 echo "Checking environment for required settings …"
 require_env BORG_VERSION \
@@ -37,25 +41,24 @@ require_env BORG_VERSION \
             BORGBACKUP_ARCHIVE_PREFIX \
             BORG_ARCHIVE_GLOB \
             DB_BACKUP_LOCATION
-# S3 sources are optional — only validate/mount when enabled (s3.enabled in the chart).
-if [[ "${S3_ENABLED}" = "true" ]]; then
+if [[ "${s3_active}" = "true" ]]; then
   require_env S3_ENDPOINT S3_MOUNTPOINT AWS_KEY AWS_SECRET_KEY
 fi
 
 echo "Checking for required config files …"
 require_file /root/.borg/cluster-exclude.patterns /root/.borg/cluster-include.patterns \
              /root/.borg/node-exclude.patterns /root/.borg/node-include.patterns
-[[ "${S3_ENABLED}" = "true" ]] && require_file "${S3_BUCKETS}"
+[[ "${s3_active}" = "true" ]] && require_file "${S3_BUCKETS}"
 
 echo "Checking for required ssh files …"
 require_file /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub /root/.ssh/known_hosts
 
 echo "Creating mount point /mnt/borg …"
 mkdir -p /mnt/borg
-[[ "${S3_ENABLED}" = "true" ]] && mkdir -p "${S3_MOUNTPOINT}"
+[[ "${s3_active}" = "true" ]] && mkdir -p "${S3_MOUNTPOINT}"
 
 # Mount S3 buckets as read sources — app/cluster jobs only, never on node backups.
-if [[ "${S3_ENABLED}" = "true" && "${BORG_MODE}" != "node" && -f "${S3_BUCKETS}" ]]; then
+if [[ "${s3_active}" = "true" && -f "${S3_BUCKETS}" ]]; then
   echo "Mounting S3 buckets listed in ${S3_BUCKETS} …"
   install -m 600 /dev/null /root/.s3fs
   printf '%s:%s\n' "${AWS_KEY}" "${AWS_SECRET_KEY}" > /root/.s3fs
@@ -84,14 +87,14 @@ if [[ "${1:-}" != "run" ]]; then
   exec tail -F /var/log/borg-backup.log
 fi
 
-# Database dumps before the filesystem backup.
-shopt -s nullglob
-backup-cluster-mariadb
-backup-cluster-postgres
-
+# Database dumps before the filesystem backup — cluster/app scope only. Node
+# backups capture the node filesystem, not logical DB dumps.
 if [[ "${BORG_MODE}" = "node" ]]; then
   echo "Running borg-backup for node ${NODE_NAME} …"
 else
+  shopt -s nullglob
+  backup-cluster-mariadb
+  backup-cluster-postgres
   echo "Running borg-backup for cluster …"
 fi
 exec borg-backup
