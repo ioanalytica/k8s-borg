@@ -22,7 +22,9 @@ metadata:
     {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
     {{- end }}
 spec:
-  backoffLimit: 3
+  # Single-shot: one attempt only. A failed bootstrap must fail the Helm hook (and
+  # thus the release) immediately — never spin up retry pods.
+  backoffLimit: 0
   template:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "bootstrap") | nindent 8 }}
