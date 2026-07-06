@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
+# Repo-level info for BORG_REPO. borg2 renamed the repo-level command to
+# `repo-info` (`borg info` there reports a single archive). `borg` itself
+# dispatches to the right binary via BORG_VERSION.
 
-borg info
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  borg repo-info "$@"
+else
+  borg info "$@"
+fi
 
 # end

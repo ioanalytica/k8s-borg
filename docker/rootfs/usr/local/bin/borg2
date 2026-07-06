@@ -16,6 +16,13 @@
 #
 # NB: run (not exec) so we can remap the exit code; borg2 shares this process
 # group, so the agent's process-group SIGTERM still cancels it cleanly.
+#
+# STREAM INVARIANT — do NOT merge stdout/stderr here (no `2>&1`). BorgUI is a
+# managed-agent caller that relies on the two streams staying separate (it
+# parses borg's stdout, e.g. `--json`, and reads stderr for warnings/errors).
+# borg's own streams pass through untouched below; any wrapper diagnostics go
+# to stderr (>&2) so they never contaminate stdout. Only *other* scripts here
+# (never called by BorgUI) may fold stderr into stdout for kubectl/Loki logs.
 
 /opt/borg-ui-agent/borg2-venv/bin/borg ${BORG2_DEFAULT_PARAMS:-} "$@"
 rc=$?

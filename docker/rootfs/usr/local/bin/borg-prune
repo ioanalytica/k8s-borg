@@ -12,8 +12,10 @@ KEEP_DAILY=${KEEP_DAILY:-7}
 KEEP_WEEKLY=${KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${KEEP_MONTHLY:-6}
 
+# prune/compact are named the same in borg1 and borg2; the repo comes from the
+# BORG_REPO env in both (borg2 rejects a positional repo), so no version branch
+# is needed — just don't pass BORG_REPO positionally.
 borg prune                     \
-    ${BORG_REPO}               \
     --verbose                  \
     --list                     \
     --show-rc                  \
@@ -27,7 +29,6 @@ prune_exit=$?
 info "Compacting repository ..."
 
 borg compact                   \
-    ${BORG_REPO}               \
     --verbose                  \
     --show-rc                  \
 

@@ -1,17 +1,37 @@
 #!/usr/bin/env bash
+#
+# Ensure BORG_REPO exists. Idempotent and self-contained: after this script
+# returns 0, the repository is guaranteed to exist — whether it was just
+# created or already present. Callers may therefore rely on a plain
+# `borg-init` without any exit-code decoding of their own.
+#
+# Exit status:
+#   0  repository exists (created now, or already there)
+#   1  real failure (auth, network, unreachable storage, …) → caller must abort
+#
+# NB: no `set -e` — we inspect borg's status ourselves and normalise it.
+set -uo pipefail
 
-set -euo pipefail
+# borg2 renamed `init` to `repo-create` and uses different encryption-mode names
+# (repokey-blake2 is borg1-only; borg2's recommended default is repokey-aes-ocb).
+# Pick both by BORG_VERSION; `borg` itself dispatches to the right binary.
+# BORG_ENCRYPTION overrides the per-version default (see register-repo).
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  init_cmd=(repo-create --encryption "${BORG_ENCRYPTION:-repokey-aes-ocb}")
+else
+  init_cmd=(init --encryption="${BORG_ENCRYPTION:-repokey-blake2}")
+fi
 
-
-# Idempotent: an already-existing repository is NOT an error here — only real
-# failures (auth, network, …) should abort the caller.
-if out=$(borg init --encryption=repokey-blake2 2>&1); then
-  printf '%s\n' "$out"
+if out=$(borg "${init_cmd[@]}" 2>&1); then
+  echo "Repository didn't exist and has been created."
+  exit 0
 elif printf '%s' "$out" | grep -qi 'already exist'; then
-  echo "BORG_REPO already exists — skipping init."
+  echo "Repository already exists — skipping init."
+  exit 0
 else
   printf '%s\n' "$out" >&2
-  exit 2
+  echo "Repository cannot be accessed!" >&2
+  exit 1
 fi
 
 # end

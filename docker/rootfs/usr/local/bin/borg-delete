@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
+# Delete the whole repository (BORG_REPO). borg2 split this out into
+# `repo-delete` — in borg2 `borg delete` removes a single archive instead.
+# `borg` dispatches to the right binary via BORG_VERSION.
 
-borg delete
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  borg repo-delete "$@"
+else
+  borg delete "$@"
+fi
 
 # end

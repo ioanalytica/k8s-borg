@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
+# List the archives in BORG_REPO. Borg 2 renamed the repo-level listing from
+# `borg list` (that now lists archive *contents*) to `borg repo-list`, so pick
+# the subcommand by BORG_VERSION. `borg` itself dispatches to the right binary.
 
-borg list
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  borg repo-list "$@"
+else
+  borg list "$@"
+fi
 
 # end

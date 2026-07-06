@@ -28,16 +28,16 @@ else
     BACKUP_EXCLUDES=${BORG_EXCLUDES}
 fi
 
-borg-init >/dev/null 2>&1
-init_exit=$?
+# Idempotent; guarantees the repo exists (or exits non-zero on real failure).
+borg-init || exit $?
 
-if [ ${init_exit} -eq 0 ]; then
-    info "Repository didn't exist and has been created!"
-elif [ ${init_exit} -eq 2 ]; then
-   info "Repository exists and can be accessed!"
+# borg2 dropped the REPO::ARCHIVE syntax: the archive is a bare name and the
+# repo comes from the BORG_REPO env. borg1 still wants REPO::ARCHIVE.
+ARCHIVE_NAME="${BORGBACKUP_ARCHIVE_PREFIX}-{now:%Y-%m-%d-%s}"
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+    ARCHIVE_TARGET="${ARCHIVE_NAME}"
 else
-    info "Repository cannot be accessed!"
-    exit ${init_exit}
+    ARCHIVE_TARGET="${BORG_REPO}::${ARCHIVE_NAME}"
 fi
 
 borg create \
@@ -51,14 +51,15 @@ borg create \
     --exclude-from=${BACKUP_EXCLUDES}  \
     --patterns-from=${BACKUP_PATTERNS}  \
     "$@" \
-    ${BORG_REPO}::${BORGBACKUP_ARCHIVE_PREFIX}'-{now:%Y-%m-%d-%s}'
+    "${ARCHIVE_TARGET}"
 
 backup_exit=$?
 
 info "Pruning repository ..."
 
+# prune/compact: same command name in borg1/borg2; repo from BORG_REPO env in
+# both (borg2 rejects a positional repo), so no version branch — just omit it.
 borg prune                     \
-    ${BORG_REPO}               \
     --verbose                  \
     --list                     \
     --show-rc                  \
@@ -72,7 +73,6 @@ prune_exit=$?
 info "Compacting repository ..."
 
 borg compact                   \
-    ${BORG_REPO}               \
     --verbose                  \
     --show-rc                  \
 

@@ -74,7 +74,9 @@ fi
 echo "Configuration successfully completed."
 
 echo "Checking BORG_REPO and creating it if necessary."
-borg-init >/dev/null
+# borg-init is idempotent and returns 0 whenever the repo exists afterwards;
+# a non-zero exit is a real failure, so let `set -e` abort startup.
+borg-init
 
 # --- Managed-agent mode: enroll (once) and run the agent ---------------------
 if [[ "${BORG_UI_AGENT:-}" = "true" ]]; then

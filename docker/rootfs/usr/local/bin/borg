@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
-# Borg 1 wrapper / gateway.
+# Borg gateway — dispatches to Borg 1 or Borg 2 based on BORG_VERSION.
+#
+# The idea: inside a pod you can always call `borg` and get the version this
+# repo actually uses, decided by the BORG_VERSION env (1 = default, 2 = Borg 2).
+# The sibling `borg2` wrapper ALWAYS runs Borg 2, regardless of BORG_VERSION.
+#
+#   BORG_VERSION=2 → hand off to `borg2`, which owns the Borg 2 binary path,
+#                    BORG2_DEFAULT_PARAMS and the shared warning handling.
+#   otherwise      → run the real Borg 1 at /usr/bin/borg (this script), below.
+#
+# NB: one BORG_VERSION per pod — an agent/pod is bound to repos of a single borg
+# version, so a single env value is enough.
+#
+# --- Borg 1 path (BORG_VERSION != 2) -----------------------------------------
 #
 # Sits in front of the real /usr/bin/borg on PATH (/usr/local/bin before
 # /usr/bin) and does two things:
@@ -19,6 +32,19 @@
 #
 # NB: we run borg (not exec) so we can remap its exit code; borg shares this
 # process group, so the agent's process-group SIGTERM still cancels it cleanly.
+#
+# STREAM INVARIANT — do NOT merge stdout/stderr here (no `2>&1`). BorgUI is a
+# managed-agent caller that relies on the two streams staying separate (it
+# parses borg's stdout, e.g. `--json`, and reads stderr for warnings/errors).
+# borg's own streams pass through untouched below; any wrapper diagnostics go
+# to stderr (>&2) so they never contaminate stdout. Only *other* scripts here
+# (never called by BorgUI) may fold stderr into stdout for kubectl/Loki logs.
+
+# Delegate to the Borg 2 wrapper when this repo is Borg 2. exec (not run): borg2
+# does its own exit-code remap and SIGTERM handling, so nothing is left to do.
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  exec /usr/local/bin/borg2 "$@"
+fi
 
 /usr/bin/borg ${BORG1_DEFAULT_PARAMS:-} "$@"
 rc=$?
