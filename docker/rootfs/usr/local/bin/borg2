@@ -24,7 +24,13 @@
 # to stderr (>&2) so they never contaminate stdout. Only *other* scripts here
 # (never called by BorgUI) may fold stderr into stdout for kubectl/Loki logs.
 
-/opt/borg-ui-agent/borg2-venv/bin/borg ${BORG2_DEFAULT_PARAMS:-} "$@"
+# --remote-path: path to the borg executable on an ssh:// server. Injected when
+# BORG_REMOTE_PATH is set (from the chart's borg.remotePath). An explicit
+# --remote-path later in the command still wins (argparse: last occurrence).
+remote_args=()
+[ -n "${BORG_REMOTE_PATH:-}" ] && remote_args=(--remote-path="${BORG_REMOTE_PATH}")
+
+/opt/borg-ui-agent/borg2-venv/bin/borg "${remote_args[@]}" ${BORG1_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
 if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then

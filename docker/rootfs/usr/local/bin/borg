@@ -46,7 +46,13 @@ if [ "${BORG_VERSION:-1}" = "2" ]; then
   exec /usr/local/bin/borg2 "$@"
 fi
 
-/usr/bin/borg ${BORG1_DEFAULT_PARAMS:-} "$@"
+# --remote-path: path to the borg executable on an ssh:// server. Injected when
+# BORG_REMOTE_PATH is set (from the chart's borg.remotePath). An explicit
+# --remote-path later in the command still wins (argparse: last occurrence).
+remote_args=()
+[ -n "${BORG_REMOTE_PATH:-}" ] && remote_args=(--remote-path="${BORG_REMOTE_PATH}")
+
+/usr/bin/borg "${remote_args[@]}" ${BORG1_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
 if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Break a stale lock on BORG_REPO. Same subcommand name in borg1 and borg2, and
-# the repo comes from the BORG_REPO env in both — so no version branch needed.
-# (`borg` still dispatches to the right binary via BORG_VERSION.)
+# Break a stale lock on BORG_REPO. Same subcommand name in borg1 and borg2; the
+# repo comes from the env for borg1 and from the borg2 wrapper's injected
+# `-r $BORG_REPO` for borg2 — so no version branch needed here. `borg` dispatches
+# to the right binary via BORG_VERSION.
 
 borg break-lock "$@"
 

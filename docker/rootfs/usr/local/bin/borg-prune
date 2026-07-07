@@ -13,8 +13,8 @@ KEEP_WEEKLY=${KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${KEEP_MONTHLY:-6}
 
 # prune/compact are named the same in borg1 and borg2; the repo comes from the
-# BORG_REPO env in both (borg2 rejects a positional repo), so no version branch
-# is needed — just don't pass BORG_REPO positionally.
+# env for borg1 and from the borg2 wrapper's injected `-r $BORG_REPO` for borg2,
+# so no version branch and no positional repo are needed.
 borg prune                     \
     --verbose                  \
     --list                     \

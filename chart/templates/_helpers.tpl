@@ -275,6 +275,19 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
   value: {{ .Values.borg.version | quote }}
 - name: BORG_TREAT_WARNINGS_AS_ERRORS
   value: {{ .Values.borg.treatWarningsAsErrors | quote }}
+{{- if .Values.borg.remotePath }}
+- name: BORG_REMOTE_PATH
+  value: {{ .Values.borg.remotePath | quote }}
+{{- end }}
+{{- if .Values.borg.defaultParams }}
+{{- if eq (toString .Values.borg.version) "2" }}
+- name: BORG2_DEFAULT_PARAMS
+  value: {{ .Values.borg.defaultParams | quote }}
+{{- else }}
+- name: BORG1_DEFAULT_PARAMS
+  value: {{ .Values.borg.defaultParams | quote }}
+{{- end }}
+{{- end }}
 - name: BORG_PASSPHRASE
   valueFrom:
     secretKeyRef:

@@ -69,6 +69,13 @@ borg:
   ## borg wrapper downgrades rc=1 (missing path, file changed mid-backup) to success so managed-agent
   ## backup jobs aren't marked "failed" on routine warnings.
   treatWarningsAsErrors: false
+  ## @param borg.defaultParams Extra params injected into every borg call by the borg/borg2 wrapper.
+  ## Mapped to BORG1_DEFAULT_PARAMS or BORG2_DEFAULT_PARAMS depending on borg.version above. Empty = none.
+  defaultParams: ""
+  ## @param borg.remotePath Path to the borg executable on the remote (ssh:// server). When set, the
+  ## borg/borg2 wrapper injects `--remote-path=<value>` into every call (both versions). Empty = none.
+  ## e.g. "borg-1.4" or "borg2" when the server's borg isn't the default `borg` on PATH.
+  remotePath: ""
   ## Repository base, e.g. ssh://user@host:22/./cluster. Each pod appends its node name.
   ## Sensitive: provide `value`, or reference an existing Secret via existingSecret[+existingSecretKey].
   repoBase:

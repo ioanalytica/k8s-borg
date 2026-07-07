@@ -14,8 +14,8 @@ set -uo pipefail
 
 # borg2 renamed `init` to `repo-create` and uses different encryption-mode names
 # (repokey-blake2 is borg1-only; borg2's recommended default is repokey-aes-ocb).
-# Pick both by BORG_VERSION; `borg` itself dispatches to the right binary.
-# BORG_ENCRYPTION overrides the per-version default (see register-repo).
+# Pick both by BORG_VERSION; `borg` dispatches to the right binary (and the borg2
+# wrapper injects `-r $BORG_REPO`). BORG_ENCRYPTION overrides the default.
 if [ "${BORG_VERSION:-1}" = "2" ]; then
   init_cmd=(repo-create --encryption "${BORG_ENCRYPTION:-repokey-aes-ocb}")
 else

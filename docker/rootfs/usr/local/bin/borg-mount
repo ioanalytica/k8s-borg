@@ -18,10 +18,11 @@ fi
 echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} ..."
 
 mkdir -p /mnt/borg
-# borg2 dropped the REPO::ARCHIVE syntax — address the repo with -r and pass a
-# bare archive name. `borg` dispatches to the right binary via BORG_VERSION.
+# borg2 dropped the REPO::ARCHIVE syntax — pass a bare archive name; the repo
+# comes from the borg2 wrapper's injected `-r $BORG_REPO`. borg1 wants
+# REPO::ARCHIVE. `borg` dispatches to the right binary via BORG_VERSION.
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  borg mount -r "${BORG_REPO}" "${BORG_BACKUP_SET}" /mnt/borg
+  borg mount "${BORG_BACKUP_SET}" /mnt/borg
 else
   borg mount ${BORG_REPO}::${BORG_BACKUP_SET} /mnt/borg
 fi
