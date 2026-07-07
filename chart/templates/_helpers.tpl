@@ -280,10 +280,10 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
     secretKeyRef:
       name: {{ .Values.borg.passphrase.existingSecret | default (include "k8s-borg.secretName" .) }}
       key: {{ .Values.borg.passphrase.existingSecretKey | default "BORG_PASSPHRASE" }}
-- name: BORGBACKUP_ARCHIVE_PREFIX
-  value: {{ .Values.borg.archivePrefix | quote }}
-- name: BORG_ARCHIVE_GLOB
-  value: {{ .Values.borg.archiveGlob | quote }}
+{{- if .Values.borg.archiveNameTemplate }}
+- name: BORG_ARCHIVE_NAME_TEMPLATE
+  value: {{ .Values.borg.archiveNameTemplate | quote }}
+{{- end }}
 - name: DB_BACKUP_LOCATION
   value: {{ .Values.borg.dbBackupLocation | quote }}
 - name: KEEP_DAILY

@@ -61,7 +61,6 @@ Core settings (standalone mode), supplied via env / mounted secrets:
 | `NODE_NAME` | Node identity (archive naming; injected from the Downward API) |
 | `BORG_REPO` | The Borg repository this pod owns |
 | `BORG_PASSPHRASE` | Repository passphrase |
-| `BORGBACKUP_ARCHIVE_PREFIX`, `BORG_ARCHIVE_GLOB` | Archive naming / selection |
 | `DB_BACKUP_LOCATION` | Where logical DB dumps are written before archiving |
 | `S3_ENDPOINT`, `S3_MOUNTPOINT`, `AWS_KEY`, `AWS_SECRET_KEY` | S3 sources (cluster/app jobs; never mounted for node backups) |
 

@@ -50,7 +50,6 @@ spec:
       passphrase:
         existingSecret: k8s-borg-secret
         existingSecretKey: BORG_PASSPHRASE
-      archivePrefix: "k8s-borg-mycluster"
 
     s3:
       enabled: true

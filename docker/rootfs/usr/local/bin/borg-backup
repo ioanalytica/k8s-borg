@@ -22,7 +22,6 @@ if [[ "${BORG_MODE}" = "node" ]]; then
     info "Running in DaemonSet mode."
     BACKUP_PATTERNS=${BORG_NODE_PATTERNS}
     BACKUP_EXCLUDES=${BORG_NODE_EXCLUDES}
-    BORGBACKUP_ARCHIVE_PREFIX=${NODE_NAME}
 else
     BACKUP_PATTERNS=${BORG_PATTERNS}
     BACKUP_EXCLUDES=${BORG_EXCLUDES}
@@ -31,9 +30,19 @@ fi
 # Idempotent; guarantees the repo exists (or exits non-zero on real failure).
 borg-init || exit $?
 
+# Archive name: an explicit BORG_ARCHIVE_NAME_TEMPLATE (e.g. from the chart's
+# borg.archiveNameTemplate — same knob register-backup-plan honours) wins;
+# otherwise fall back to the prefix-based default. borg expands {now:FMT}.
+# NB: plain if-assignment, not ${VAR:-default} — the literal "}" in "{now:…}"
+# would prematurely close the brace expansion.
+if [ -n "${BORG_ARCHIVE_NAME_TEMPLATE:-}" ]; then
+    ARCHIVE_NAME="${BORG_ARCHIVE_NAME_TEMPLATE}"
+else
+    ARCHIVE_NAME="${NODE_NAME}-{now:%Y-%m-%d-%s}"
+fi
+
 # borg2 dropped the REPO::ARCHIVE syntax: the archive is a bare name and the
 # repo comes from the BORG_REPO env. borg1 still wants REPO::ARCHIVE.
-ARCHIVE_NAME="${BORGBACKUP_ARCHIVE_PREFIX}-{now:%Y-%m-%d-%s}"
 if [ "${BORG_VERSION:-1}" = "2" ]; then
     ARCHIVE_TARGET="${ARCHIVE_NAME}"
 else

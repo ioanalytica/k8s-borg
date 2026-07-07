@@ -83,10 +83,12 @@ borg:
     value: ""
     existingSecret: ""
     existingSecretKey: ""
-  ## @param borg.archivePrefix Archive name prefix
-  archivePrefix: "k8s-borg-mycluster"
-  ## @param borg.archiveGlob Archive selection glob
-  archiveGlob: "k8s-borg-*"
+  ## @param borg.archiveNameTemplate Managed-agent archive name template (register-backup-plan).
+  ## Empty = the agent's built-in default `$(NODE_NAME)-{now:%Y-%m-%d-%s}` (with a REPO_NAME
+  ## fallback). borg expands `{now:FMT}`/`{now}`; borg-ui expands `{date}/{time}/{timestamp}`.
+  ## To include the node name, use the k8s env-ref form `$(NODE_NAME)` (NOT `${NODE_NAME}`) —
+  ## e.g. "$(NODE_NAME)-{now:%s}" restores the old timestamp-only naming.
+  archiveNameTemplate: ""
   ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving
   dbBackupLocation: "/mnt/nfs/data/db-backup"
   ## @param borg.retention Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)

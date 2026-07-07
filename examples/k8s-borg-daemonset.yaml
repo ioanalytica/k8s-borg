@@ -139,16 +139,6 @@ spec:
                 secretKeyRef:
                   name: k8s-borg-secret
                   key: BORG_PASSPHRASE
-            - name: BORGBACKUP_ARCHIVE_PREFIX
-              valueFrom:
-                secretKeyRef:
-                  name: k8s-borg-secret
-                  key: BORGBACKUP_ARCHIVE_PREFIX
-            - name: BORG_ARCHIVE_GLOB
-              valueFrom:
-                secretKeyRef:
-                  name: k8s-borg-secret
-                  key: BORG_ARCHIVE_GLOB
             - name: AWS_KEY
               valueFrom:
                 secretKeyRef:

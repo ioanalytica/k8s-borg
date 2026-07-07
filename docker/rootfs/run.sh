@@ -38,8 +38,6 @@ require_env BORG_VERSION \
             BORG_REPO \
             NODE_NAME \
             BORG_PASSPHRASE \
-            BORGBACKUP_ARCHIVE_PREFIX \
-            BORG_ARCHIVE_GLOB \
             DB_BACKUP_LOCATION
 if [[ "${s3_active}" = "true" ]]; then
   require_env S3_ENDPOINT S3_MOUNTPOINT AWS_KEY AWS_SECRET_KEY
