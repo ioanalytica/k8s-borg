@@ -27,11 +27,23 @@ spec:
         spec:
           restartPolicy: OnFailure
           {{- include "k8s-borg.imagePullSecrets" . | nindent 10 }}
+          {{- if .Values.cluster.nodeSelector }}
+          nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.nodeSelector "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.cluster.affinity }}
+          affinity: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.affinity "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.cluster.tolerations }}
+          tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.tolerations "context" $) | nindent 12 }}
+          {{- end }}
           volumes:
             {{- include "k8s-borg.volumes.common" . | nindent 12 }}
             {{- include "k8s-borg.volumes.db" . | nindent 12 }}
             {{- if .Values.extraVolumes }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 12 }}
+            {{- end }}
+            {{- if .Values.cluster.extraVolumes }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.cluster.extraVolumes "context" $) | nindent 12 }}
             {{- end }}
           initContainers:
             {{- include "k8s-borg.sshInitContainer" . | nindent 12 }}
@@ -52,6 +64,9 @@ spec:
                 {{- include "k8s-borg.volumeMounts.db" . | nindent 16 }}
                 {{- if .Values.extraVolumeMounts }}
                 {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 16 }}
+                {{- end }}
+                {{- if .Values.cluster.extraVolumeMounts }}
+                {{- include "common.tplvalues.render" (dict "value" .Values.cluster.extraVolumeMounts "context" $) | nindent 16 }}
                 {{- end }}
               {{- if .Values.cluster.resources }}
               resources: {{- toYaml .Values.cluster.resources | nindent 16 }}

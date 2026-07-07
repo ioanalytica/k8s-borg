@@ -25,11 +25,23 @@ spec:
       serviceAccountName: {{ include "k8s-borg.agentSAName" . }}
       {{- end }}
       {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.app.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.app.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.app.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.app.affinity "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.app.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.app.tolerations "context" $) | nindent 8 }}
+      {{- end }}
       volumes:
         {{- include "k8s-borg.volumes.common" . | nindent 8 }}
         {{- include "k8s-borg.volumes.db" . | nindent 8 }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
+        {{- end }}
+        {{- if .Values.app.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.app.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
       initContainers:
         {{- include "k8s-borg.sshInitContainer" . | nindent 8 }}
@@ -67,6 +79,9 @@ spec:
             {{- include "k8s-borg.volumeMounts.db" . | nindent 12 }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- end }}
+            {{- if .Values.app.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.app.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}
           {{- if .Values.app.resources }}
           resources: {{- toYaml .Values.app.resources | nindent 12 }}

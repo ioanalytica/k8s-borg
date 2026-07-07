@@ -289,6 +289,24 @@ cluster:
         - SYS_ADMIN
   ## @param cluster.resources Cluster container resources
   resources: {}
+  ## Scheduling — pin the cluster backup to the node that holds its backup-source
+  ## storage. A node-local PVC (see cluster.extraVolumes) is only mountable on its
+  ## own node, and that node is typically tainted, so nodeSelector/affinity select
+  ## it and tolerations let the pod land there.
+  ## @param cluster.nodeSelector Node selector for the cluster CronJob pod
+  nodeSelector: {}
+  ## @param cluster.affinity Affinity for the cluster CronJob pod
+  affinity: {}
+  ## @param cluster.tolerations Tolerations for the cluster CronJob pod
+  tolerations: []
+  ## Volumes scoped to the cluster CronJob ONLY (in addition to the global
+  ## .extraVolumes). Use for the cluster backup source/cache, e.g. a node-local
+  ## PVC that gives borg a stable mount so file attributes survive between runs
+  ## (a re-mounted NFS changes them and forces a full, hours-long re-backup).
+  ## @param cluster.extraVolumes Extra volumes for the cluster CronJob only
+  extraVolumes: []
+  ## @param cluster.extraVolumeMounts Extra volume mounts for the cluster CronJob only
+  extraVolumeMounts: []
 
 ## @section Console app (StatefulSet)
 ## The long-lived console pod = the "cluster node" that represents the cluster
@@ -315,6 +333,22 @@ app:
         - SYS_ADMIN
   ## @param app.resources App container resources
   resources: {}
+  ## Scheduling — the console/app pod represents the cluster repository and needs
+  ## access to the same cluster-backup storage as the CronJob, so it is pinned the
+  ## same way (node-local PVC → nodeSelector/affinity + tolerations for the taint).
+  ## @param app.nodeSelector Node selector for the console StatefulSet pod
+  nodeSelector: {}
+  ## @param app.affinity Affinity for the console StatefulSet pod
+  affinity: {}
+  ## @param app.tolerations Tolerations for the console StatefulSet pod
+  tolerations: []
+  ## Volumes scoped to the console/app pod ONLY (in addition to the global
+  ## .extraVolumes). Typically the same node-local PVC as cluster.extraVolumes so
+  ## the app can read the cluster backup source/cache.
+  ## @param app.extraVolumes Extra volumes for the console StatefulSet only
+  extraVolumes: []
+  ## @param app.extraVolumeMounts Extra volume mounts for the console StatefulSet only
+  extraVolumeMounts: []
 
 ## @section Borg UI (optional; DEV/TEST)
 ##
