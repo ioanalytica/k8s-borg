@@ -1,0 +1,138 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Dedicated Redis pod for the Borg UI server's archive-listing cache
+(borgUI.redis.mode=internal). Its own Deployment/Service — NOT a sidecar — so it
+survives UI-pod rolls. Cache-tuned (maxmemory + LRU); persistence is optional
+because a cache just re-fills.
+*/}}
+{{- if and .Values.borgUI.enabled (eq .Values.borgUI.redis.mode "internal") }}
+{{- $r := .Values.borgUI.redis }}
+{{- $auth := or $r.auth.value $r.auth.existingSecret }}
+{{- if and $r.internal.persistence.enabled (not $r.internal.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-data" (include "k8s-borg.redis.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "redis") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with $r.internal.persistence.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $r.internal.persistence.size | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s-borg.redis.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "redis") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "k8s-borg.redis.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: redis
+      protocol: TCP
+      port: 6379
+      targetPort: redis
+---
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "k8s-borg.redis.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "redis") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # A single writer on the (optional) data volume — never two at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "k8s-borg.redis.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "redis") | nindent 8 }}
+    spec:
+      {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      {{- with $r.internal.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.internal.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.internal.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: redis
+          image: {{ include "k8s-borg.redis.image" . | quote }}
+          imagePullPolicy: {{ $r.internal.image.pullPolicy | quote }}
+          command:
+            - redis-server
+            - --maxmemory
+            - {{ $r.internal.maxmemory | quote }}
+            - --maxmemory-policy
+            - {{ $r.internal.maxmemoryPolicy | quote }}
+            {{- if $auth }}
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            {{- end }}
+            {{- if $r.internal.persistence.enabled }}
+            - --appendonly
+            - "yes"
+            - --dir
+            - /data
+            {{- else }}
+            - --save
+            - ""
+            {{- end }}
+          {{- if $auth }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $r.auth.existingSecret | default (include "k8s-borg.secretName" .) }}
+                  key: {{ $r.auth.existingSecretKey | default "REDIS_PASSWORD" }}
+          {{- end }}
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 30
+          {{- if $r.internal.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+          {{- with $r.internal.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if $r.internal.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $r.internal.persistence.existingClaim | default (printf "%s-data" (include "k8s-borg.redis.fullname" .)) }}
+      {{- end }}
+{{- end }}

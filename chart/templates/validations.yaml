@@ -18,3 +18,9 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- fail "cluster.backupMode=plan registers a server-side BackupPlan via the console pod — it requires app.enabled=true and app.mode=agent (or use cluster.backupMode=cronjob)" }}
 {{- end }}
 {{- end }}
+{{- if not (has .Values.borgUI.redis.mode (list "disabled" "internal" "external")) }}
+{{- fail (printf "borgUI.redis.mode must be \"disabled\", \"internal\" or \"external\" (got %q)" .Values.borgUI.redis.mode) }}
+{{- end }}
+{{- if and (eq .Values.borgUI.redis.mode "external") (not .Values.borgUI.redis.external.url) (not .Values.borgUI.redis.external.host) }}
+{{- fail "borgUI.redis.mode=external requires borgUI.redis.external.url or borgUI.redis.external.host" }}
+{{- end }}

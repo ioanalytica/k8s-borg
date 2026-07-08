@@ -64,6 +64,7 @@ spec:
                   name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
                   key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
             {{- end }}
+            {{- include "k8s-borg.env.redis" . | nindent 12 }}
           volumeMounts:
             - name: ui
               mountPath: /data

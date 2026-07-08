@@ -27,6 +27,68 @@ Image pull secrets for all images in this chart.
 {{- end -}}
 
 {{/*
+Internal Redis pod name/image (borgUI.redis.mode=internal).
+*/}}
+{{- define "k8s-borg.redis.fullname" -}}
+{{- printf "%s-redis" (include "common.names.fullname" .) -}}
+{{- end -}}
+
+{{- define "k8s-borg.redis.image" -}}
+{{- include "common.images.image" (dict "imageRoot" .Values.borgUI.redis.internal.image "global" .Values.global) -}}
+{{- end -}}
+
+{{/*
+Redis selector labels. Unlike the shared backup workloads we KEEP the component
+in the selector: the dedicated Redis Deployment/Service must not overlap the
+UI/app/node workloads, which all select on name+instance alone.
+*/}}
+{{- define "k8s-borg.redis.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "common.names.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: redis
+{{- end -}}
+
+{{/*
+Cache/Redis env for the Borg UI server. Emits REDIS_* (+ optional CACHE_TTL_SECONDS)
+so the server auto-selects Redis over its in-memory fallback. Nothing when
+borgUI.redis.mode=disabled.
+*/}}
+{{- define "k8s-borg.env.redis" -}}
+{{- $r := .Values.borgUI.redis -}}
+{{- if eq $r.mode "internal" }}
+- name: REDIS_HOST
+  value: {{ include "k8s-borg.redis.fullname" . | quote }}
+- name: REDIS_PORT
+  value: "6379"
+- name: REDIS_DB
+  value: "0"
+{{- else if eq $r.mode "external" }}
+{{- if $r.external.url }}
+- name: REDIS_URL
+  value: {{ $r.external.url | quote }}
+{{- else }}
+- name: REDIS_HOST
+  value: {{ required "borgUI.redis.external.host (or .url) is required for mode=external" $r.external.host | quote }}
+- name: REDIS_PORT
+  value: {{ $r.external.port | quote }}
+- name: REDIS_DB
+  value: {{ $r.external.db | quote }}
+{{- end }}
+{{- end }}
+{{- if and (ne $r.mode "disabled") (or $r.auth.value $r.auth.existingSecret) }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $r.auth.existingSecret | default (include "k8s-borg.secretName" .) }}
+      key: {{ $r.auth.existingSecretKey | default "REDIS_PASSWORD" }}
+{{- end }}
+{{- if and (ne $r.mode "disabled") $r.cacheTtlSeconds }}
+- name: CACHE_TTL_SECONDS
+  value: {{ $r.cacheTtlSeconds | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Secret names (support existing secrets).
 */}}
 {{- define "k8s-borg.secretName" -}}

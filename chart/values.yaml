@@ -395,6 +395,60 @@ borgUI:
       secretName: "borgui-tls"
   ## @param borgUI.resources Borg UI server resources
   resources: {}
+  ## Archive-listing cache backend for the Borg UI server.
+  ##   disabled → the server keeps its in-memory cache (lost on every UI-pod roll).
+  ##   internal → deploy a dedicated Redis pod (its OWN Deployment, NOT a sidecar —
+  ##              survives UI-pod rolls and, if scaled, is shared across workers).
+  ##   external → point the server at an existing Redis instance.
+  ## The server auto-selects Redis over in-memory when REDIS_URL/REDIS_HOST is set.
+  redis:
+    ## @param borgUI.redis.mode Cache backend: disabled | internal | external
+    mode: disabled
+    ## Password shared by the server and (for internal) the Redis pod. Empty → no
+    ## auth. Sensitive: value or existingSecret[+existingSecretKey] (key REDIS_PASSWORD).
+    auth:
+      value: ""
+      existingSecret: ""
+      existingSecretKey: ""
+    ## @param borgUI.redis.cacheTtlSeconds Cached-listing TTL (seconds). Empty → server default (7200)
+    cacheTtlSeconds: ""
+    ## Internal Redis pod (mode=internal).
+    internal:
+      image:
+        registry: docker.io
+        repository: redis
+        tag: "7.4-alpine"
+        pullPolicy: IfNotPresent
+      ## @param borgUI.redis.internal.maxmemory Redis maxmemory cap (cache size)
+      maxmemory: "256mb"
+      ## @param borgUI.redis.internal.maxmemoryPolicy Eviction policy when full
+      maxmemoryPolicy: "allkeys-lru"
+      ## Persistence for the Redis pod. A cache survives a Redis-pod restart if
+      ## enabled; otherwise it just re-fills. Off by default — the win here is
+      ## surviving UI-pod rolls, which needs only a separate pod, not a PVC.
+      persistence:
+        enabled: false
+        existingClaim: ""
+        storageClassName: ""
+        size: 1Gi
+      ## @param borgUI.redis.internal.resources Redis pod resources
+      resources: {}
+      ## @param borgUI.redis.internal.nodeSelector Redis pod nodeSelector
+      nodeSelector: {}
+      ## @param borgUI.redis.internal.tolerations Redis pod tolerations
+      tolerations: []
+      ## @param borgUI.redis.internal.affinity Redis pod affinity
+      affinity: {}
+    ## External Redis (mode=external).
+    external:
+      ## @param borgUI.redis.external.url Full URL redis://[:password@]host:port/db — takes precedence if set
+      url: ""
+      ## @param borgUI.redis.external.host Host (used when url is empty; password from redis.auth)
+      host: ""
+      ## @param borgUI.redis.external.port Port
+      port: 6379
+      ## @param borgUI.redis.external.db Database number
+      db: 0
   ## How managed agents reach the Borg UI server. Which components actually enrol
   ## as agents is decided per component: node.backupMode=agent and
   ## cluster.backupMode=plan. (The server itself is never an agent — hence the

@@ -70,7 +70,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `config` | include/exclude patterns + bucket list (→ ConfigMap) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
 | `node` / `cluster` / `app` | the three backup workloads (each toggleable; `backupMode` per component). `cluster`/`app` also take their own `extraVolumes`/`extraVolumeMounts` (scoped to just those pods, e.g. a node-local PVC for a stable cluster-backup mount) plus `nodeSelector`/`affinity`/`tolerations` to pin them to that storage node |
-| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines` |
+| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines`, `redis` (archive-listing cache: `mode: internal` deploys a dedicated Redis pod that survives UI-pod rolls, or `external` points at an existing instance) |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 
 ## Security posture
