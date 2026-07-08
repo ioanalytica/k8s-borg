@@ -34,6 +34,11 @@
 #                             (default false; separate from the check-schedule)
 #   BORG_PLAN_CHECK_MAX_DURATION  optional; post-backup check budget in s (default 3600)
 #   BORG_PLAN_CHECK_EXTRA_FLAGS   optional; extra flags for the post-backup check
+#   BORG_PLAN_PRE_AGENT_SCRIPTS   optional; space-separated agent-script NAMES to
+#                             attach as pre-backup hooks (agent repos only). The
+#                             agent resolves each name against its own allow-list
+#                             (/etc/borg-ui-agent-scripts). Used for cluster DB
+#                             dumps (backup-cluster-mariadb / -postgres).
 #   BORG_UI_AGENT_NAME        optional; repo/agent name. Default: pod hostname.
 #   BORG_PATTERNS_DIR         optional; default /root/.borg
 #   BORG_BACKUP_SCHEDULE_DIR  optional; default /etc/borg-backup-schedules
@@ -133,6 +138,7 @@ if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              CHECK_MAX_DURATION="${BORG_PLAN_CHECK_MAX_DURATION:-3600}" \
              CHECK_EXTRA_FLAGS="${BORG_PLAN_CHECK_EXTRA_FLAGS:-}" \
              PLAN_CUSTOM_FLAGS="$plan_custom_flags" \
+             PRE_AGENT_SCRIPTS="${BORG_PLAN_PRE_AGENT_SCRIPTS:-}" \
              python3 -c '
 import sys, json, os
 
@@ -214,6 +220,19 @@ if agent_mid:
         "agent_machine_id": int(agent_mid),
         "paths": sources,
     }]
+    # Pre-backup hooks: agent scripts (resolved on the agent against its
+    # allow-list) run before the borg create — e.g. cluster DB dumps.
+    pre_scripts = (os.environ.get("PRE_AGENT_SCRIPTS") or "").split()
+    if pre_scripts:
+        plan["script_hooks"] = [
+            {
+                "agent_script_name": name,
+                "hook_type": "pre-backup",
+                "execution_order": i + 1,
+                "enabled": True,
+            }
+            for i, name in enumerate(pre_scripts)
+        ]
 print(json.dumps(plan))'); then
   :
 else

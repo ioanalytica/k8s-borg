@@ -85,6 +85,15 @@ spec:
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
+            {{- /* DB dump scripts get attached to the cluster plan as pre-backup
+                   hooks (plan mode; register-backup-plan honours this). */}}
+            {{- $preScripts := list }}
+            {{- if .Values.databases.mariadb.enabled }}{{- $preScripts = append $preScripts "backup-cluster-mariadb" }}{{- end }}
+            {{- if .Values.databases.postgres.enabled }}{{- $preScripts = append $preScripts "backup-cluster-postgres" }}{{- end }}
+            {{- if $preScripts }}
+            - name: BORG_PLAN_PRE_AGENT_SCRIPTS
+              value: {{ join " " $preScripts | quote }}
+            {{- end }}
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
