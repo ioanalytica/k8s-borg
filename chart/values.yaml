@@ -142,7 +142,7 @@ borg:
     perHost: {}
 
 ## @section S3 sources (cluster/app jobs)
-## Buckets (config.s3Buckets) are mounted via s3fs under s3.mountPath. The init
+## Buckets (cluster.s3Buckets) are mounted via s3fs under s3.mountPath. The init
 ## container pre-creates that directory in the shared /mnt volume.
 ##
 s3:
@@ -162,37 +162,6 @@ s3:
     value: ""
     existingSecret: ""
     existingSecretKey: ""
-
-## @section Backup patterns (ConfigMap, mounted at /root/.borg)
-## Only the elementary "P fm" style line is a default — everything else is
-## site-specific, so add your own roots/excludes. The commented lines are examples.
-##
-config:
-  ## @param config.clusterInclude Borg include patterns for cluster/app backups
-  clusterInclude:
-    - "P fm"
-    # - "R /mnt/s3"
-    # - "R /mnt/nfs/users"
-    # - "R /mnt/nfs/data/static"
-    # - "R /mnt/nfs/data/db-backup"
-  ## @param config.clusterExclude Borg exclude patterns for cluster/app backups
-  clusterExclude: []
-    # - "/mnt/nfs/data/static/some-recreatable-app"
-  ## @param config.nodeInclude Borg include patterns for node backups (prepend the /node mount)
-  nodeInclude:
-    - "P fm"
-    # - "R /node/etc"
-    # - "R /node/home"
-    # - "R /node/root"
-    # - "R /node/var/lib/rancher/rke2/server/db/snapshots"
-  ## @param config.nodeExclude Borg exclude patterns for node backups
-  nodeExclude: []
-    # - "/node/storage"
-    # - "/node/data"
-  ## @param config.s3Buckets Buckets to mount and back up (one per line → cluster-s3-buckets)
-  s3Buckets: []
-    # - "my-bucket-1"
-    # - "my-bucket-2"
 
 ## @section SSH credentials (Secret, staged into /root/.ssh)
 ##
@@ -272,6 +241,19 @@ node:
   ##       # borg-ui: Dump the local database before backup
   ##       pg_dumpall > /var/backups/db.sql
   agentScripts: {}
+  ## Borg patterns for node backups (ConfigMap -> /root/.borg, node-*.patterns).
+  ## Only the elementary "P fm" line is a default; add your own roots/excludes.
+  ## @param node.include Borg include patterns for node backups (prepend the /node mount)
+  include:
+    - "P fm"
+    # - "R /node/etc"
+    # - "R /node/home"
+    # - "R /node/root"
+    # - "R /node/var/lib/rancher/rke2/server/db/snapshots"
+  ## @param node.exclude Borg exclude patterns for node backups
+  exclude: []
+    # - "/node/storage"
+    # - "/node/data"
 
 ## @section Cluster backup (CronJob or console/agent pod)
 ## The cluster covers the cluster-scope data (S3/NFS/DB sources) AND the long-lived
@@ -345,6 +327,22 @@ cluster:
   ##       # borg-ui: Dump the cluster Postgres before backup
   ##       pg_dumpall > /mnt/cluster/db.sql
   agentScripts: {}
+  ## Borg patterns + S3 buckets for cluster backups (ConfigMap -> /root/.borg,
+  ## cluster-*.patterns / cluster-s3-buckets). Only "P fm" is a default.
+  ## @param cluster.include Borg include patterns for cluster backups
+  include:
+    - "P fm"
+    # - "R /mnt/s3"
+    # - "R /mnt/nfs/users"
+    # - "R /mnt/nfs/data/static"
+    # - "R /mnt/nfs/data/db-backup"
+  ## @param cluster.exclude Borg exclude patterns for cluster backups
+  exclude: []
+    # - "/mnt/nfs/data/static/some-recreatable-app"
+  ## @param cluster.s3Buckets Buckets to mount and back up (one per line -> cluster-s3-buckets)
+  s3Buckets: []
+    # - "my-bucket-1"
+    # - "my-bucket-2"
 
 ## @section Borg UI (optional; DEV/TEST)
 ##

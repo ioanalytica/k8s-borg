@@ -95,15 +95,17 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `image`, `initImage` | agent image (defaults to appVersion) |
 | `borg` | `version`, `repoBase`, `passphrase`, retention, archive naming |
 | `s3` | S3 sources mounted via s3fs |
-| `config` | include/exclude patterns + bucket list (→ ConfigMap) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
-| `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling |
+| `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude` |
 
-> **Upgrade note (1.0.21):** the former `app` section was merged into `cluster`.
-> Rename `app.mode`→`cluster.mode` and `app.agentScripts`→`cluster.agentScripts`,
-> and drop `app.enabled`/`app.nodeName`/`app.resources`/… — the console pod now
-> shares the `cluster.*` pod settings with the CronJob. The chart fails fast if an
-> `app:` block is still set.
+> **Upgrade note (1.0.21):** two breaking value renames — the chart fails fast if
+> the old sections are still set.
+> - `app` merged into `cluster`: `app.mode`→`cluster.mode`,
+>   `app.agentScripts`→`cluster.agentScripts`, drop `app.enabled`/`app.nodeName`/… —
+>   the console pod now shares the `cluster.*` pod settings with the CronJob.
+> - `config` split into `node`/`cluster`: `config.clusterInclude`→`cluster.include`,
+>   `config.clusterExclude`→`cluster.exclude`, `config.s3Buckets`→`cluster.s3Buckets`,
+>   `config.nodeInclude`→`node.include`, `config.nodeExclude`→`node.exclude`.
 | `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines`, `redis` (archive-listing cache: `mode: internal` deploys a dedicated Redis pod that survives UI-pod rolls, or `external` points at an existing instance) |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 

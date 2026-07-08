@@ -13,22 +13,22 @@ metadata:
   {{- end }}
 data:
   cluster-s3-buckets: |
-    {{- range .Values.config.s3Buckets }}
+    {{- range .Values.cluster.s3Buckets }}
     {{ . }}
     {{- end }}
   cluster-include.patterns: |
-    {{- range .Values.config.clusterInclude }}
+    {{- range .Values.cluster.include }}
     {{ . }}
     {{- end }}
   cluster-exclude.patterns: |
-    {{- range .Values.config.clusterExclude }}
+    {{- range .Values.cluster.exclude }}
     {{ . }}
     {{- end }}
   node-include.patterns: |
-    {{- range .Values.config.nodeInclude }}
+    {{- range .Values.node.include }}
     {{ . }}
     {{- end }}
   node-exclude.patterns: |
-    {{- range .Values.config.nodeExclude }}
+    {{- range .Values.node.exclude }}
     {{ . }}
     {{- end }}

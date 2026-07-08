@@ -13,6 +13,9 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- if .Values.app }}
 {{- fail "The `app` section has moved into `cluster` (chart 1.0.21): rename app.mode->cluster.mode, app.agentScripts->cluster.agentScripts, and drop app.enabled/app.nodeName/app.resources/app.* (the console pod now shares cluster.nodeName/resources/extraVolumes/etc. with the CronJob). See chart/README.md." }}
 {{- end }}
+{{- if .Values.config }}
+{{- fail "The `config` section has moved into `node`/`cluster` (chart 1.0.21): config.clusterInclude->cluster.include, config.clusterExclude->cluster.exclude, config.s3Buckets->cluster.s3Buckets, config.nodeInclude->node.include, config.nodeExclude->node.exclude. See chart/README.md." }}
+{{- end }}
 {{- if not (has .Values.cluster.mode (list "legacy" "agent")) }}
 {{- fail (printf "cluster.mode must be \"legacy\" or \"agent\" (got %q)" .Values.cluster.mode) }}
 {{- end }}
