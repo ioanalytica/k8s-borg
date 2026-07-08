@@ -115,6 +115,13 @@ print(m[0]["id"] if m else "")') \
   || borgui_die "could not list backup plans"
 
 # --- build the payload (parse pattern files -> source_directories/excludes) ---
+# Match on mtime+size for the agent's create when an S3 bucket is actually mounted
+# (s3fs inodes are unstable → borg's default re-downloads the whole bucket each
+# run). Empty otherwise → borg's default. See borg-files-cache-flag.
+plan_custom_flags=""
+fc_mode="$(borg-files-cache-flag)"
+[ -n "$fc_mode" ] && plan_custom_flags="--files-cache=$fc_mode"
+
 if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              ARCHIVE_TEMPLATE="$BORG_ARCHIVE_NAME_TEMPLATE" SKIP_MISSING="$BORG_PLAN_SKIP_MISSING_SOURCES" \
              REPO_ID="$repo_id" AGENT_MID="$agent_mid" CRON="$cron" \
@@ -125,6 +132,7 @@ if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              RUN_CHECK="${BORG_PLAN_RUN_CHECK:-false}" \
              CHECK_MAX_DURATION="${BORG_PLAN_CHECK_MAX_DURATION:-3600}" \
              CHECK_EXTRA_FLAGS="${BORG_PLAN_CHECK_EXTRA_FLAGS:-}" \
+             PLAN_CUSTOM_FLAGS="$plan_custom_flags" \
              python3 -c '
 import sys, json, os
 
@@ -197,6 +205,9 @@ plan = {
 _cef = (os.environ.get("CHECK_EXTRA_FLAGS") or "").strip()
 if _cef:
     plan["check_extra_flags"] = _cef
+_cf = (os.environ.get("PLAN_CUSTOM_FLAGS") or "").strip()
+if _cf:
+    plan["custom_flags"] = _cf
 if agent_mid:
     plan["source_locations"] = [{
         "source_type": "agent",

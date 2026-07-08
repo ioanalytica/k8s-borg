@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# Print borg's files-cache mode ("mtime,size") when an S3 bucket is actually
+# mounted, otherwise print nothing.
+#
+# borg's default files-cache keys on the inode. s3fs does NOT keep inodes stable
+# across mounts, so every mounted object looks "changed" and borg re-reads (=
+# re-downloads) the whole bucket on every run — expensive S3 egress for data that
+# is already deduplicated in the repo. Matching on mtime+size instead lets borg
+# skip unchanged objects. s3fs reports a stable mtime (object Last-Modified /
+# x-amz-meta-mtime), so this is safe there.
+#
+# Gated on "S3 enabled AND a bucket really mounted": node backups never mount S3,
+# and a failed/absent mount keeps borg's strict default (ctime,size,inode) on the
+# local filesystem, where inodes ARE stable.
+if [ "${S3_ENABLED:-false}" = "true" ] && grep -q ' fuse.s3fs ' /proc/mounts 2>/dev/null; then
+  printf 'mtime,size'
+fi

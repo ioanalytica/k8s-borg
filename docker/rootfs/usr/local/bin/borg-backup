@@ -49,13 +49,21 @@ else
     ARCHIVE_TARGET="${BORG_REPO}::${ARCHIVE_NAME}"
 fi
 
+# Only match on mtime+size when an S3 bucket is actually mounted (s3fs inodes are
+# unstable → borg's default would re-download the whole bucket every run). On a
+# local FS this stays empty and borg keeps its strict default. See
+# borg-files-cache-flag.
+files_cache_args=()
+fc_mode="$(borg-files-cache-flag)"
+[ -n "$fc_mode" ] && files_cache_args=(--files-cache="$fc_mode")
+
 borg create \
     --verbose \
     --filter AME \
     --list \
     --stats \
     --show-rc \
-    --files-cache=mtime,size \
+    "${files_cache_args[@]}" \
     --compression auto,lz4 \
     --exclude-caches \
     --exclude-from=${BACKUP_EXCLUDES}  \
