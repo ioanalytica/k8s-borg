@@ -260,6 +260,16 @@ node:
         - SYS_ADMIN
   ## @param node.resources Node container resources
   resources: {}
+  ## @param node.agentScripts Pre/post-backup scripts published to the managed agent (backupMode=agent).
+  ##   Map of filename -> script body. Each entry is mounted read-only and executable at
+  ##   /etc/borg-ui-agent-scripts and becomes selectable as a pre/post-backup hook in Borg UI.
+  ##   The agent only ever runs scripts from this allow-list. Example:
+  ##   agentScripts:
+  ##     pre-db-dump.sh: |
+  ##       #!/bin/sh
+  ##       # borg-ui: Dump the local database before backup
+  ##       pg_dumpall > /var/backups/db.sql
+  agentScripts: {}
 
 ## @section Cluster backup (CronJob)
 ##

@@ -36,6 +36,13 @@ spec:
           hostPath:
             path: {{ .Values.node.hostRootPath | quote }}
             type: Directory
+        {{- if and (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
+        - name: agent-scripts
+          configMap:
+            name: {{ include "k8s-borg.agentScriptsConfigMapName" . }}
+            # 0555: readable + executable for the agent's allow-list.
+            defaultMode: 365
+        {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
@@ -73,12 +80,21 @@ spec:
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
             - name: BORG_REGISTER_PLAN
               value: "true"
+            {{- if .Values.node.agentScripts }}
+            - name: BORG_UI_AGENT_SCRIPTS_DIR
+              value: /etc/borg-ui-agent-scripts
+            {{- end }}
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             - name: rootfs
               mountPath: /node
               readOnly: true
+            {{- if and (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
+            - name: agent-scripts
+              mountPath: /etc/borg-ui-agent-scripts
+              readOnly: true
+            {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}

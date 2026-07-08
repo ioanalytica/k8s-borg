@@ -50,6 +50,26 @@ Managed-agent modes need a reachable server: set `borgUI.agentConnection.server`
 or deploy one in-cluster with `borgUI.enabled=true` (which also runs a reconcile
 Job that mints an admin PAT and reconciles `borgUI.oidc`).
 
+### Agent pre/post-backup scripts
+
+With `node.backupMode=agent` you can publish pre/post-backup scripts to each node
+agent via `node.agentScripts` (a map of filename → script body). They are mounted
+read-only and executable at `/etc/borg-ui-agent-scripts` and become selectable as
+pre/post-backup hooks in a Borg UI backup plan. The agent only ever runs scripts
+from this allow-list — the server sends a script *name*, never a path. Scripts run
+on the node with `stdout`/`stderr` kept separate; exit code `0` = success, `1` =
+warning (the backup still runs), `>1` = failure.
+
+```yaml
+node:
+  backupMode: agent
+  agentScripts:
+    pre-db-dump.sh: |
+      #!/bin/sh
+      # borg-ui: Dump the local database before backup
+      pg_dumpall > /var/backups/db.sql
+```
+
 ## Borg 1 vs 2
 
 `borg.version` (`1` or `2`) selects the borg **binary** used by the scripts. The

@@ -121,6 +121,10 @@ Secret names (support existing secrets).
 {{- printf "%s-backup-schedules" (include "common.names.fullname" .) -}}
 {{- end -}}
 
+{{- define "k8s-borg.agentScriptsConfigMapName" -}}
+{{- printf "%s-agent-scripts" (include "common.names.fullname" .) -}}
+{{- end -}}
+
 {{/*
 Per-component standard labels. Usage: include "k8s-borg.labels" (dict "context" $ "component" "node")
 */}}

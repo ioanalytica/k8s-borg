@@ -1,0 +1,24 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Pre/post-backup scripts published to the managed agent's allow-list. Mounted
+read-only and executable at /etc/borg-ui-agent-scripts; the agent only runs
+scripts it finds there (see node.agentScripts in values.yaml).
+*/}}
+{{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-borg.agentScriptsConfigMapName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+  {{- range $name, $body := .Values.node.agentScripts }}
+  {{ $name }}: |
+{{ $body | indent 4 }}
+  {{- end }}
+{{- end }}
