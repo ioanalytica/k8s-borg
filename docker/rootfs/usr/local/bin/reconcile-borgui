@@ -222,6 +222,36 @@ print(json.dumps(p))')
   echo "OIDC reconciled — enabled; local login ${ll}."
 fi
 
+# --- 4b) optional cache (Redis + TTL) reconciliation -------------------------
+# borg-ui's cache config lives in the DB (SystemSettings): it's what the UI shows
+# AND it reconfigures the live cache. Env vars only seed the server's startup
+# defaults, so push the desired Redis URL + TTL here so the HR is the source of
+# truth and a stray UI Save can't silently drop the cache back to in-memory. The
+# redis_url is assembled from the same REDIS_* the server gets (REDIS_URL wins;
+# else built from host/port/db + optional password).
+cache_qs=$(python3 -c '
+import os, urllib.parse
+url = os.environ.get("REDIS_URL", "")
+if not url and os.environ.get("REDIS_HOST"):
+    pw = os.environ.get("REDIS_PASSWORD", "")
+    auth_part = ":%s@" % urllib.parse.quote(pw, safe="") if pw else ""
+    url = "redis://%s%s:%s/%s" % (
+        auth_part, os.environ["REDIS_HOST"],
+        os.environ.get("REDIS_PORT", "6379"), os.environ.get("REDIS_DB", "0"))
+params = {}
+if url:
+    params["redis_url"] = url
+ttl = os.environ.get("CACHE_TTL_MINUTES", "")
+if ttl:
+    params["cache_ttl_minutes"] = ttl
+print(urllib.parse.urlencode(params))')
+if [ -n "$cache_qs" ]; then
+  echo "Reconciling cache settings …"
+  curl -fsS -X PUT "$(api settings/cache/settings)?${cache_qs}" "${auth[@]}" >/dev/null \
+    || { echo "FATAL: cache settings reconciliation failed" >&2; exit 1; }
+  echo "Cache settings reconciled."
+fi
+
 # --- 5) optional system SSH key import (the pods' key, staged on the server) --
 # borg-ui uses the singleton SYSTEM key for all SSH ops (ssh:// repos, remote
 # machines), so import the pods' key once. The private key path is read by the

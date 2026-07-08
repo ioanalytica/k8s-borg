@@ -122,6 +122,14 @@ spec:
             - name: OIDC_DISABLE_LOCAL_AUTH
               value: {{ .Values.borgUI.oidc.disableLocalAuth | quote }}
             {{- end }}
+            # Cache backend (Redis + TTL): reconciled into the DB SystemSettings so
+            # the HR is the source of truth and a UI Save can't drop back to
+            # in-memory. REDIS_* let the reconciler assemble the redis_url.
+            {{- include "k8s-borg.env.redis" . | nindent 12 }}
+            {{- if .Values.borgUI.redis.cacheTtlMinutes }}
+            - name: CACHE_TTL_MINUTES
+              value: {{ .Values.borgUI.redis.cacheTtlMinutes | quote }}
+            {{- end }}
             {{- if include "k8s-borg.ui.systemKeyActive" . }}
             # System SSH key import (path is read by the SERVER, staged there by its
             # init container) + remote machines to reconcile.

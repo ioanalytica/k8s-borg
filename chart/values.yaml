@@ -410,8 +410,8 @@ borgUI:
       value: ""
       existingSecret: ""
       existingSecretKey: ""
-    ## @param borgUI.redis.cacheTtlSeconds Cached-listing TTL (seconds). Empty → server default (7200)
-    cacheTtlSeconds: ""
+    ## @param borgUI.redis.cacheTtlMinutes Cached-listing TTL in minutes (matches the UI). Empty → server default (120). Reconciled into the DB by the reconcile Job.
+    cacheTtlMinutes: ""
     ## Internal Redis pod (mode=internal).
     internal:
       image:

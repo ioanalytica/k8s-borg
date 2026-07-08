@@ -49,9 +49,15 @@ app.kubernetes.io/component: redis
 {{- end -}}
 
 {{/*
-Cache/Redis env for the Borg UI server. Emits REDIS_* (+ optional CACHE_TTL_SECONDS)
-so the server auto-selects Redis over its in-memory fallback. Nothing when
-borgUI.redis.mode=disabled.
+Redis connection env, used both by the Borg UI server (a working startup default
+before the reconcile Job runs) and by the reconcile Job (to assemble the redis_url
+it persists into the DB). Emits REDIS_* so the server auto-selects Redis over its
+in-memory fallback. Nothing when borgUI.redis.mode=disabled.
+
+NB: the cache TTL is NOT an env knob — borg-ui's env CACHE_TTL_SECONDS is only a
+startup default that the DB/UI setting shadows (and a UI Save would clobber). The
+authoritative TTL (cache_ttl_minutes) is reconciled into the DB instead — see the
+reconcile Job.
 */}}
 {{- define "k8s-borg.env.redis" -}}
 {{- $r := .Values.borgUI.redis -}}
@@ -81,10 +87,6 @@ borgUI.redis.mode=disabled.
     secretKeyRef:
       name: {{ $r.auth.existingSecret | default (include "k8s-borg.secretName" .) }}
       key: {{ $r.auth.existingSecretKey | default "REDIS_PASSWORD" }}
-{{- end }}
-{{- if and (ne $r.mode "disabled") $r.cacheTtlSeconds }}
-- name: CACHE_TTL_SECONDS
-  value: {{ $r.cacheTtlSeconds | quote }}
 {{- end }}
 {{- end -}}
 
