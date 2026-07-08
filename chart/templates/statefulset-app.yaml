@@ -2,7 +2,7 @@
 Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */}}
-{{- if .Values.app.enabled }}
+{{- if .Values.cluster.enabled }}
 apiVersion: {{ include "common.capabilities.statefulset.apiVersion" . }}
 kind: StatefulSet
 metadata:
@@ -21,38 +21,38 @@ spec:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "app") | nindent 8 }}
     spec:
-      {{- if and (eq .Values.app.mode "agent") (include "k8s-borg.ui.reconcileGate" .) }}
+      {{- if and (eq .Values.cluster.mode "agent") (include "k8s-borg.ui.reconcileGate" .) }}
       serviceAccountName: {{ include "k8s-borg.agentSAName" . }}
       {{- end }}
       {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
-      {{- if .Values.app.nodeSelector }}
-      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.app.nodeSelector "context" $) | nindent 8 }}
+      {{- if .Values.cluster.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.nodeSelector "context" $) | nindent 8 }}
       {{- end }}
-      {{- if .Values.app.affinity }}
-      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.app.affinity "context" $) | nindent 8 }}
+      {{- if .Values.cluster.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.affinity "context" $) | nindent 8 }}
       {{- end }}
-      {{- if .Values.app.tolerations }}
-      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.app.tolerations "context" $) | nindent 8 }}
+      {{- if .Values.cluster.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.tolerations "context" $) | nindent 8 }}
       {{- end }}
       volumes:
         {{- include "k8s-borg.volumes.common" . | nindent 8 }}
         {{- include "k8s-borg.volumes.db" . | nindent 8 }}
-        {{- if and (eq .Values.app.mode "agent") .Values.app.agentScripts }}
+        {{- if and (eq .Values.cluster.mode "agent") .Values.cluster.agentScripts }}
         - name: agent-scripts
           configMap:
-            name: {{ include "k8s-borg.appAgentScriptsConfigMapName" . }}
+            name: {{ include "k8s-borg.clusterAgentScriptsConfigMapName" . }}
             # 0555: readable + executable for the agent's allow-list.
             defaultMode: 365
         {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
-        {{- if .Values.app.extraVolumes }}
-        {{- include "common.tplvalues.render" (dict "value" .Values.app.extraVolumes "context" $) | nindent 8 }}
+        {{- if .Values.cluster.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.cluster.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
       initContainers:
         {{- include "k8s-borg.sshInitContainer" . | nindent 8 }}
-        {{- if eq .Values.app.mode "agent" }}
+        {{- if eq .Values.cluster.mode "agent" }}
         {{- if include "k8s-borg.ui.reconcileGate" . }}
         {{- include "k8s-borg.waitForReconcileInitContainer" . | nindent 8 }}
         {{- else }}
@@ -69,18 +69,18 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - hostname "${NODE_NAME}" 2>/dev/null || printf '%s' "${NODE_NAME}" > /proc/sys/kernel/hostname; exec /run.sh
-          securityContext: {{- toYaml .Values.app.containerSecurityContext | nindent 12 }}
+          securityContext: {{- toYaml .Values.cluster.containerSecurityContext | nindent 12 }}
           env:
             - name: NODE_NAME
-              value: {{ .Values.app.nodeName | quote }}
+              value: {{ .Values.cluster.nodeName | quote }}
             {{- include "k8s-borg.env.common" . | nindent 12 }}
-            {{- if eq .Values.app.mode "agent" }}
+            {{- if eq .Values.cluster.mode "agent" }}
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
             # Register a BackupPlan only when the cluster backup is plan-driven;
             # in cronjob mode the agent just makes the repo visible in Borg UI.
             - name: BORG_REGISTER_PLAN
               value: {{ and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") | ternary "true" "false" | quote }}
-            {{- if .Values.app.agentScripts }}
+            {{- if .Values.cluster.agentScripts }}
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
@@ -88,7 +88,7 @@ spec:
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             {{- include "k8s-borg.volumeMounts.db" . | nindent 12 }}
-            {{- if and (eq .Values.app.mode "agent") .Values.app.agentScripts }}
+            {{- if and (eq .Values.cluster.mode "agent") .Values.cluster.agentScripts }}
             - name: agent-scripts
               mountPath: /etc/borg-ui-agent-scripts
               readOnly: true
@@ -96,10 +96,10 @@ spec:
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}
-            {{- if .Values.app.extraVolumeMounts }}
-            {{- include "common.tplvalues.render" (dict "value" .Values.app.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- if .Values.cluster.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.cluster.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}
-          {{- if .Values.app.resources }}
-          resources: {{- toYaml .Values.app.resources | nindent 12 }}
+          {{- if .Values.cluster.resources }}
+          resources: {{- toYaml .Values.cluster.resources | nindent 12 }}
           {{- end }}
 {{- end }}

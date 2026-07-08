@@ -3,18 +3,18 @@ Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
 Pre/post-backup scripts published to a managed agent's allow-list. Each scope
-(node DaemonSet, app/console StatefulSet) gets its own ConfigMap, mounted
-read-only + executable at /etc/borg-ui-agent-scripts. The agent only runs
-scripts it finds there. Cluster-backup scripts (which need the cluster secrets
-in the app pod) belong under app.agentScripts; node.agentScripts is for
+(node DaemonSet, cluster console/agent StatefulSet) gets its own ConfigMap,
+mounted read-only + executable at /etc/borg-ui-agent-scripts. The agent only runs
+scripts it finds there. Cluster-backup scripts (which need the cluster secrets in
+the console/agent pod) belong under cluster.agentScripts; node.agentScripts is for
 node-local scripts. See values.yaml.
 */}}
 {{- $scopes := list -}}
 {{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") .Values.node.agentScripts -}}
 {{- $scopes = append $scopes (dict "name" (include "k8s-borg.nodeAgentScriptsConfigMapName" .) "component" "node" "scripts" .Values.node.agentScripts) -}}
 {{- end -}}
-{{- if and .Values.app.enabled (eq .Values.app.mode "agent") .Values.app.agentScripts -}}
-{{- $scopes = append $scopes (dict "name" (include "k8s-borg.appAgentScriptsConfigMapName" .) "component" "app" "scripts" .Values.app.agentScripts) -}}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.mode "agent") .Values.cluster.agentScripts -}}
+{{- $scopes = append $scopes (dict "name" (include "k8s-borg.clusterAgentScriptsConfigMapName" .) "component" "cluster" "scripts" .Values.cluster.agentScripts) -}}
 {{- end -}}
 {{- range $i, $scope := $scopes }}
 {{- if $i }}

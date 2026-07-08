@@ -125,8 +125,8 @@ Secret names (support existing secrets).
 {{- printf "%s-node-agent-scripts" (include "common.names.fullname" .) -}}
 {{- end -}}
 
-{{- define "k8s-borg.appAgentScriptsConfigMapName" -}}
-{{- printf "%s-app-agent-scripts" (include "common.names.fullname" .) -}}
+{{- define "k8s-borg.clusterAgentScriptsConfigMapName" -}}
+{{- printf "%s-cluster-agent-scripts" (include "common.names.fullname" .) -}}
 {{- end -}}
 
 {{/*
@@ -189,12 +189,12 @@ Derived from the release unless borgUI.agentConnection.server overrides it.
 {{- end -}}
 
 {{/*
-Whether any backup workload enrols at Borg UI as a managed agent — the console/app
-pod (app.mode=agent) or the DaemonSet (node.backupMode=agent). Gates the schedule
+Whether any backup workload enrols at Borg UI as a managed agent — the console
+pod (cluster.mode=agent) or the DaemonSet (node.backupMode=agent). Gates the schedule
 ConfigMaps and the enrollment admin credentials. Emits "true" or "".
 */}}
 {{- define "k8s-borg.anyAgent" -}}
-{{- if or (and .Values.app.enabled (eq .Values.app.mode "agent")) (and .Values.node.enabled (eq .Values.node.backupMode "agent")) -}}
+{{- if or (and .Values.cluster.enabled (eq .Values.cluster.mode "agent")) (and .Values.node.enabled (eq .Values.node.backupMode "agent")) -}}
 true
 {{- end -}}
 {{- end -}}

@@ -34,17 +34,16 @@ Backup execution is chosen **per component**, along two independent axes:
   - `interval` (default): the stable in-pod loop runs `/run.sh` every
     `node.backupIntervalSeconds` against `borg.repoBase`.
   - `agent`: each node pod enrolls at Borg UI and registers a per-node backup plan.
-- **Cluster backup mechanism** — `cluster.backupMode` (only when `cluster.enabled`,
-  mutually exclusive): this picks *how the backup is scheduled*, nothing else.
-  - `cronjob` (default): a k8s CronJob runs the backup on `cluster.schedule`.
-  - `plan`: a server-side BackupPlan in Borg UI runs it (registered by the app
-    pod, so it needs `app.mode=agent`); **no** CronJob is created.
-- **Console/app enrollment** — `app.mode`:
-  - `legacy` (default): inspection only (tails the log, `kubectl exec` in).
-  - `agent`: fully enroll at Borg UI — register the cluster repository +
-    check-schedule so it is **browsable in the UI regardless of who backs it up**,
-    and run the agent. It registers a BackupPlan only when `cluster.backupMode=plan`;
-    with `cronjob` the CronJob backs up and the agent just makes the repo visible.
+- **Cluster (CronJob + console/agent pod)** — the `cluster` section covers the
+  cluster-scope data **and** the long-lived console pod (deployed when
+  `cluster.enabled`). Two independent axes:
+  - `cluster.backupMode` — *how the backup is scheduled*: `cronjob` (default, a k8s
+    CronJob on `cluster.schedule`) or `plan` (a server-side BackupPlan run by the
+    console/agent pod; needs `cluster.mode=agent`; no CronJob).
+  - `cluster.mode` — *whether the console pod is enrolled in Borg UI*: `legacy`
+    (default, inspection only — tails the log, `kubectl exec` in) or `agent` (enroll
+    at Borg UI: register the cluster repository + check-schedule so it is browsable,
+    and run the agent). In `cronjob` mode the agent just makes the repo visible.
 
 Managed-agent modes need a reachable server: set `borgUI.agentConnection.server`,
 or deploy one in-cluster with `borgUI.enabled=true` (which also runs a reconcile
@@ -63,14 +62,14 @@ backup still runs), `>1` = failure.
 Scope matters — publish scripts to the agent that actually has the data and
 secrets they need:
 
-- **`app.agentScripts`** (needs `app.mode=agent`) → the **cluster** agent, in the
-  console/app pod. Use this for cluster-backup scripts (DB dumps etc.) — that pod
-  is where the cluster source/DB secrets live.
+- **`cluster.agentScripts`** (needs `cluster.mode=agent`) → the **cluster** agent, in
+  the console pod. Use this for cluster-backup scripts (DB dumps etc.) — that pod is
+  where the cluster source/DB secrets live.
 - **`node.agentScripts`** (needs `node.backupMode=agent`) → each **node** agent.
   Use this for node-local scripts. Node pods do not have the cluster secrets.
 
 ```yaml
-app:
+cluster:
   mode: agent
   agentScripts:
     backup-cluster-postgres: |
@@ -98,7 +97,13 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `s3` | S3 sources mounted via s3fs |
 | `config` | include/exclude patterns + bucket list (→ ConfigMap) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
-| `node` / `cluster` / `app` | the three backup workloads (each toggleable; `backupMode` per component). `cluster`/`app` also take their own `extraVolumes`/`extraVolumeMounts` (scoped to just those pods, e.g. a node-local PVC for a stable cluster-backup mount) plus `nodeSelector`/`affinity`/`tolerations` to pin them to that storage node |
+| `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling |
+
+> **Upgrade note (1.0.21):** the former `app` section was merged into `cluster`.
+> Rename `app.mode`→`cluster.mode` and `app.agentScripts`→`cluster.agentScripts`,
+> and drop `app.enabled`/`app.nodeName`/`app.resources`/… — the console pod now
+> shares the `cluster.*` pod settings with the CronJob. The chart fails fast if an
+> `app:` block is still set.
 | `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines`, `redis` (archive-listing cache: `mode: internal` deploys a dedicated Redis pod that survives UI-pod rolls, or `external` points at an existing instance) |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 

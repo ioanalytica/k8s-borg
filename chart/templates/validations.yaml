@@ -10,12 +10,15 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- if not (has .Values.cluster.backupMode (list "cronjob" "plan")) }}
 {{- fail (printf "cluster.backupMode must be \"cronjob\" or \"plan\" (got %q)" .Values.cluster.backupMode) }}
 {{- end }}
-{{- if not (has .Values.app.mode (list "legacy" "agent")) }}
-{{- fail (printf "app.mode must be \"legacy\" or \"agent\" (got %q)" .Values.app.mode) }}
+{{- if .Values.app }}
+{{- fail "The `app` section has moved into `cluster` (chart 1.0.21): rename app.mode->cluster.mode, app.agentScripts->cluster.agentScripts, and drop app.enabled/app.nodeName/app.resources/app.* (the console pod now shares cluster.nodeName/resources/extraVolumes/etc. with the CronJob). See chart/README.md." }}
+{{- end }}
+{{- if not (has .Values.cluster.mode (list "legacy" "agent")) }}
+{{- fail (printf "cluster.mode must be \"legacy\" or \"agent\" (got %q)" .Values.cluster.mode) }}
 {{- end }}
 {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}
-{{- if not (and .Values.app.enabled (eq .Values.app.mode "agent")) }}
-{{- fail "cluster.backupMode=plan registers a server-side BackupPlan via the console pod — it requires app.enabled=true and app.mode=agent (or use cluster.backupMode=cronjob)" }}
+{{- if ne .Values.cluster.mode "agent" }}
+{{- fail "cluster.backupMode=plan registers a server-side BackupPlan via the console pod — it requires cluster.mode=agent (or use cluster.backupMode=cronjob)" }}
 {{- end }}
 {{- end }}
 {{- if not (has .Values.borgUI.redis.mode (list "disabled" "internal" "external")) }}

@@ -10,22 +10,22 @@ Workloads:
 {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
   • CronJob    {{ include "common.names.fullname" . }}-cluster  — cluster-data backups ({{ .Values.cluster.schedule }})
 {{- end }}
-{{- if .Values.app.enabled }}
-  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod ({{ .Values.app.mode }}{{ if eq .Values.app.mode "agent" }}: enrolled in Borg UI{{ if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}, registers a backup plan{{ else }}, repo visible only{{ end }}{{ end }})
+{{- if .Values.cluster.enabled }}
+  • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod ({{ .Values.cluster.mode }}{{ if eq .Values.cluster.mode "agent" }}: enrolled in Borg UI{{ if eq .Values.cluster.backupMode "plan" }}, registers a backup plan{{ else }}, repo visible only{{ end }}{{ end }})
 {{- end }}
 
 Mode:
 {{- if include "k8s-borg.anyAgent" . }}
-  Managed-agent enrollment is ACTIVE ({{ if and .Values.app.enabled (eq .Values.app.mode "agent") }}app→agent {{ end }}{{ if and .Values.node.enabled (eq .Values.node.backupMode "agent") }}node→agent{{ end }}).
+  Managed-agent enrollment is ACTIVE ({{ if and .Values.cluster.enabled (eq .Values.cluster.mode "agent") }}cluster→agent {{ end }}{{ if and .Values.node.enabled (eq .Values.node.backupMode "agent") }}node→agent{{ end }}).
   Agents connect to {{ include "k8s-borg.ui.serverUrl" . }} and register their repository.
 {{- end }}
 {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
   Cluster backup: k8s CronJob ({{ .Values.cluster.schedule }}).
 {{- else if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}
-  Cluster backup: Borg UI BackupPlan (registered by the app pod).
+  Cluster backup: Borg UI BackupPlan (registered by the console/agent pod).
 {{- end }}
 {{- if not (include "k8s-borg.anyAgent" .) }}
-  Standalone. Set app.mode=agent or node.backupMode=agent to enroll a workload at
+  Standalone. Set cluster.mode=agent or node.backupMode=agent to enroll a workload at
   a Borg UI server.
 {{- end }}
 

@@ -123,8 +123,8 @@ borg:
   ## POD HOSTNAME (`<hostname>_check_schedule`) and falling back to `default`.
   ## Only used by components running as managed agents (node.backupMode=agent or
   ## cluster.backupMode=plan). Leave both empty to create no schedules.
-  ## Pod hostnames: DaemonSet nodes are "k8s-borg-<node>", the app/console pod is
-  ## its app.nodeName.
+  ## Pod hostnames: DaemonSet nodes are "k8s-borg-<node>", the console/agent pod is
+  ## its cluster.nodeName.
   checkSchedule:
     ## @param borg.checkSchedule.default Fallback cron for pods without a perHost entry (empty = no default)
     default: ""
@@ -264,7 +264,7 @@ node:
   ##   Map of filename -> script body. Each entry is mounted read-only and executable at
   ##   /etc/borg-ui-agent-scripts and becomes selectable as a pre/post-backup hook in Borg UI.
   ##   The agent only ever runs scripts from this allow-list. Use this for node-local scripts;
-  ##   for CLUSTER-backup scripts (which need the cluster secrets) use app.agentScripts instead.
+  ##   for CLUSTER-backup scripts (which need the cluster secrets) use cluster.agentScripts instead.
   ##   Example:
   ##   agentScripts:
   ##     pre-db-dump.sh: |
@@ -273,23 +273,33 @@ node:
   ##       pg_dumpall > /var/backups/db.sql
   agentScripts: {}
 
-## @section Cluster backup (CronJob)
+## @section Cluster backup (CronJob or console/agent pod)
+## The cluster covers the cluster-scope data (S3/NFS/DB sources) AND the long-lived
+## console pod that represents the cluster repository in Borg UI and, in agent mode,
+## runs the cluster backup. The CronJob and the console pod are pinned the same way
+## (same node-local storage) and share the settings below.
 ##
 cluster:
-  ## @param cluster.enabled Back up cluster-scope data at all (the S3/NFS/DB sources)
+  ## @param cluster.enabled Back up cluster-scope data + deploy the console/agent pod
   enabled: true
-  ## @param cluster.backupMode ONLY selects HOW the cluster backup is scheduled
-  ##   (not who talks to Borg UI): "cronjob" → a k8s CronJob runs the backup on
-  ##   cluster.schedule; "plan" → a server-side BackupPlan in Borg UI runs it. The
-  ##   two are mutually exclusive. "plan" is registered by the console/app pod, so
-  ##   it requires app.enabled=true and app.mode=agent. Plan/check schedules come
-  ##   from borg.backupSchedule/checkSchedule (keyed by app.nodeName).
+  ## @param cluster.mode Console pod behaviour: "legacy" (inspection only — tails the
+  ##   log, kubectl exec in) or "agent" (enrol at Borg UI: register the cluster
+  ##   repository + check-schedule so it is browsable, and run the agent). Agent mode
+  ##   needs a reachable Borg UI (borgUI.agentConnection.server or an in-cluster
+  ##   borgUI.enabled server). cluster.backupMode=plan requires cluster.mode=agent.
+  mode: legacy
+  ## @param cluster.backupMode How the cluster backup is scheduled (not who talks to
+  ##   Borg UI): "cronjob" → a k8s CronJob runs it on cluster.schedule (the console
+  ##   pod, if agent, just makes the repo visible); "plan" → a server-side BackupPlan
+  ##   run by the console/agent pod (needs cluster.mode=agent). Plan/check schedules
+  ##   come from borg.backupSchedule/checkSchedule (keyed by cluster.nodeName).
   backupMode: cronjob
   ## @param cluster.schedule Cron schedule (backupMode=cronjob only)
   schedule: "0 */6 * * *"
   ## @param cluster.timeZone CronJob time zone (defaults to .timezone)
   timeZone: ""
-  ## @param cluster.nodeName Logical NODE_NAME for cluster archives
+  ## @param cluster.nodeName Logical NODE_NAME for the cluster repo — used by BOTH the
+  ##   CronJob and the console/agent pod (its Borg UI agent/repo/schedule key)
   nodeName: "k8s-borg-mycluster"
   ## @param cluster.concurrencyPolicy CronJob concurrency policy
   concurrencyPolicy: Forbid
@@ -315,57 +325,15 @@ cluster:
   ## .extraVolumes). Use for the cluster backup source/cache, e.g. a node-local
   ## PVC that gives borg a stable mount so file attributes survive between runs
   ## (a re-mounted NFS changes them and forces a full, hours-long re-backup).
-  ## @param cluster.extraVolumes Extra volumes for the cluster CronJob only
+  ## @param cluster.extraVolumes Extra volumes for the cluster CronJob + console pod
   extraVolumes: []
-  ## @param cluster.extraVolumeMounts Extra volume mounts for the cluster CronJob only
+  ## @param cluster.extraVolumeMounts Extra volume mounts for the cluster CronJob + console pod
   extraVolumeMounts: []
-
-## @section Console app (StatefulSet)
-## The long-lived console pod = the "cluster node" that represents the cluster
-## repository in Borg UI.
-##
-app:
-  ## @param app.enabled Deploy the console StatefulSet
-  enabled: true
-  ## @param app.mode Console pod behaviour: "legacy" (inspection only — tails the
-  ##   log, kubectl exec in) or "agent" (fully enrol at Borg UI: register the
-  ##   cluster repository + check-schedule so it is browsable in the UI, and run
-  ##   the agent). In "agent" mode it registers a BackupPlan ONLY when
-  ##   cluster.backupMode=plan — otherwise backups are driven elsewhere (CronJob)
-  ##   and the agent just makes the repo visible. Needs a reachable Borg UI
-  ##   (borgUI.agentConnection.server or an in-cluster borgUI.enabled server).
-  mode: legacy
-  ## @param app.nodeName Logical NODE_NAME for the console pod (also its Borg UI agent/repo/schedule key)
-  nodeName: "k8s-borg-mycluster"
-  ## @param app.containerSecurityContext App container security context
-  containerSecurityContext:
-    privileged: true
-    capabilities:
-      add:
-        - SYS_ADMIN
-  ## @param app.resources App container resources
-  resources: {}
-  ## Scheduling — the console/app pod represents the cluster repository and needs
-  ## access to the same cluster-backup storage as the CronJob, so it is pinned the
-  ## same way (node-local PVC → nodeSelector/affinity + tolerations for the taint).
-  ## @param app.nodeSelector Node selector for the console StatefulSet pod
-  nodeSelector: {}
-  ## @param app.affinity Affinity for the console StatefulSet pod
-  affinity: {}
-  ## @param app.tolerations Tolerations for the console StatefulSet pod
-  tolerations: []
-  ## Volumes scoped to the console/app pod ONLY (in addition to the global
-  ## .extraVolumes). Typically the same node-local PVC as cluster.extraVolumes so
-  ## the app can read the cluster backup source/cache.
-  ## @param app.extraVolumes Extra volumes for the console StatefulSet only
-  extraVolumes: []
-  ## @param app.extraVolumeMounts Extra volume mounts for the console StatefulSet only
-  extraVolumeMounts: []
-  ## @param app.agentScripts Pre/post-backup scripts published to the CLUSTER agent (app.mode=agent).
+  ## @param cluster.agentScripts Pre/post-backup scripts published to the CLUSTER agent (cluster.mode=agent).
   ##   Map of filename -> script body, mounted read-only + executable at
-  ##   /etc/borg-ui-agent-scripts on the console/app pod and selectable as a pre/post-backup
-  ##   hook in Borg UI. Put cluster-backup scripts HERE (not under node.agentScripts): the app
-  ##   pod is where the cluster DB/source secrets live; node pods do not have them. Example:
+  ##   /etc/borg-ui-agent-scripts on the console/agent pod and selectable as a pre/post-backup
+  ##   hook in Borg UI. Put cluster-backup scripts HERE (not under node.agentScripts): this pod
+  ##   is where the cluster DB/source secrets live; node pods do not have them. Example:
   ##   agentScripts:
   ##     backup-cluster-postgres: |
   ##       #!/bin/sh
