@@ -55,6 +55,7 @@ borg create \
     --list \
     --stats \
     --show-rc \
+    --files-cache=mtime,size \
     --compression auto,lz4 \
     --exclude-caches \
     --exclude-from=${BACKUP_EXCLUDES}  \
