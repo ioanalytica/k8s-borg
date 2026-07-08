@@ -61,7 +61,8 @@ if [[ "${s3_active}" = "true" && -f "${S3_BUCKETS}" ]]; then
   install -m 600 /dev/null /root/.s3fs
   printf '%s:%s\n' "${AWS_KEY}" "${AWS_SECRET_KEY}" > /root/.s3fs
   while read -r bucket || [[ -n "${bucket}" ]]; do
-    [[ -n "${bucket}" ]] || continue
+    # Skip blank lines and # comments (the file is never empty — see the ConfigMap).
+    [[ -n "${bucket}" && "${bucket}" != \#* ]] || continue
     echo "  mounting ${bucket} …"
     mkdir -p "${S3_MOUNTPOINT}/${bucket}"
     s3fs "${bucket}" "${S3_MOUNTPOINT}/${bucket}" \

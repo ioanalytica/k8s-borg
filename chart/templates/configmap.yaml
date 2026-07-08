@@ -12,23 +12,41 @@ metadata:
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 data:
+  # The borg pattern files ALWAYS exist and are never empty — borg's
+  # --patterns-from / --exclude-from abort if the file is missing, and an empty
+  # value can drop the mounted file. When a list is unset we emit a self-
+  # documenting comment (borg ignores blank lines and lines starting with #).
   cluster-s3-buckets: |
     {{- range .Values.cluster.s3Buckets }}
     {{ . }}
+    {{- else }}
+    # No S3 buckets configured (cluster.s3Buckets).
     {{- end }}
   cluster-include.patterns: |
     {{- range .Values.cluster.include }}
     {{ . }}
+    {{- else }}
+    # No cluster include patterns configured. Add source roots here as
+    # "R /absolute/path" lines via cluster.include in the chart values — borg
+    # has nothing to back up without at least one "R <root>".
     {{- end }}
   cluster-exclude.patterns: |
     {{- range .Values.cluster.exclude }}
     {{ . }}
+    {{- else }}
+    # No cluster exclude patterns configured (cluster.exclude).
     {{- end }}
   node-include.patterns: |
     {{- range .Values.node.include }}
     {{ . }}
+    {{- else }}
+    # No node include patterns configured. Add source roots here as
+    # "R /node/absolute/path" lines via node.include in the chart values — borg
+    # has nothing to back up without at least one "R <root>".
     {{- end }}
   node-exclude.patterns: |
     {{- range .Values.node.exclude }}
     {{ . }}
+    {{- else }}
+    # No node exclude patterns configured (node.exclude).
     {{- end }}

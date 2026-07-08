@@ -27,6 +27,15 @@ else
     BACKUP_EXCLUDES=${BORG_EXCLUDES}
 fi
 
+# The pattern files always exist (chart ConfigMap), but may hold only comments /
+# a "P …" style line and no actual source roots. borg would then abort with a
+# cryptic error, so skip cleanly with a message that points the operator at the
+# right knob instead of at the mounted file.
+if ! grep -qE '^[[:space:]]*[Rr][[:space:]]' "${BACKUP_PATTERNS}" 2>/dev/null; then
+    info "No source roots (\"R <path>\") in ${BACKUP_PATTERNS} — nothing to back up. Add roots via ${BORG_MODE}.include in the chart values. Skipping."
+    exit 0
+fi
+
 # Idempotent; guarantees the repo exists (or exits non-zero on real failure).
 borg-init || exit $?
 
