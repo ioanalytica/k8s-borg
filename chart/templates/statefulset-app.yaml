@@ -37,6 +37,13 @@ spec:
       volumes:
         {{- include "k8s-borg.volumes.common" . | nindent 8 }}
         {{- include "k8s-borg.volumes.db" . | nindent 8 }}
+        {{- if and (eq .Values.app.mode "agent") .Values.app.agentScripts }}
+        - name: agent-scripts
+          configMap:
+            name: {{ include "k8s-borg.appAgentScriptsConfigMapName" . }}
+            # 0555: readable + executable for the agent's allow-list.
+            defaultMode: 365
+        {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
@@ -73,10 +80,19 @@ spec:
             # in cronjob mode the agent just makes the repo visible in Borg UI.
             - name: BORG_REGISTER_PLAN
               value: {{ and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") | ternary "true" "false" | quote }}
+            {{- if .Values.app.agentScripts }}
+            - name: BORG_UI_AGENT_SCRIPTS_DIR
+              value: /etc/borg-ui-agent-scripts
+            {{- end }}
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             {{- include "k8s-borg.volumeMounts.db" . | nindent 12 }}
+            {{- if and (eq .Values.app.mode "agent") .Values.app.agentScripts }}
+            - name: agent-scripts
+              mountPath: /etc/borg-ui-agent-scripts
+              readOnly: true
+            {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}

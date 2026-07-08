@@ -39,7 +39,7 @@ spec:
         {{- if and (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
         - name: agent-scripts
           configMap:
-            name: {{ include "k8s-borg.agentScriptsConfigMapName" . }}
+            name: {{ include "k8s-borg.nodeAgentScriptsConfigMapName" . }}
             # 0555: readable + executable for the agent's allow-list.
             defaultMode: 365
         {{- end }}

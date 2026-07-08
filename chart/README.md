@@ -52,22 +52,31 @@ Job that mints an admin PAT and reconciles `borgUI.oidc`).
 
 ### Agent pre/post-backup scripts
 
-With `node.backupMode=agent` you can publish pre/post-backup scripts to each node
-agent via `node.agentScripts` (a map of filename → script body). They are mounted
-read-only and executable at `/etc/borg-ui-agent-scripts` and become selectable as
-pre/post-backup hooks in a Borg UI backup plan. The agent only ever runs scripts
-from this allow-list — the server sends a script *name*, never a path. Scripts run
-on the node with `stdout`/`stderr` kept separate; exit code `0` = success, `1` =
-warning (the backup still runs), `>1` = failure.
+You can publish pre/post-backup scripts to a managed agent as a map of
+filename → script body. They are mounted read-only and executable at
+`/etc/borg-ui-agent-scripts` and become selectable as pre/post-backup hooks in a
+Borg UI backup plan. The agent only ever runs scripts from this allow-list — the
+server sends a script *name*, never a path. Scripts run on the agent with
+`stdout`/`stderr` kept separate; exit code `0` = success, `1` = warning (the
+backup still runs), `>1` = failure.
+
+Scope matters — publish scripts to the agent that actually has the data and
+secrets they need:
+
+- **`app.agentScripts`** (needs `app.mode=agent`) → the **cluster** agent, in the
+  console/app pod. Use this for cluster-backup scripts (DB dumps etc.) — that pod
+  is where the cluster source/DB secrets live.
+- **`node.agentScripts`** (needs `node.backupMode=agent`) → each **node** agent.
+  Use this for node-local scripts. Node pods do not have the cluster secrets.
 
 ```yaml
-node:
-  backupMode: agent
+app:
+  mode: agent
   agentScripts:
-    pre-db-dump.sh: |
+    backup-cluster-postgres: |
       #!/bin/sh
-      # borg-ui: Dump the local database before backup
-      pg_dumpall > /var/backups/db.sql
+      # borg-ui: Dump the cluster Postgres before backup
+      pg_dumpall > /mnt/cluster/db.sql
 ```
 
 ## Borg 1 vs 2

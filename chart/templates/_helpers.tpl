@@ -121,8 +121,12 @@ Secret names (support existing secrets).
 {{- printf "%s-backup-schedules" (include "common.names.fullname" .) -}}
 {{- end -}}
 
-{{- define "k8s-borg.agentScriptsConfigMapName" -}}
-{{- printf "%s-agent-scripts" (include "common.names.fullname" .) -}}
+{{- define "k8s-borg.nodeAgentScriptsConfigMapName" -}}
+{{- printf "%s-node-agent-scripts" (include "common.names.fullname" .) -}}
+{{- end -}}
+
+{{- define "k8s-borg.appAgentScriptsConfigMapName" -}}
+{{- printf "%s-app-agent-scripts" (include "common.names.fullname" .) -}}
 {{- end -}}
 
 {{/*

@@ -2,22 +2,35 @@
 Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
-Pre/post-backup scripts published to the managed agent's allow-list. Mounted
-read-only and executable at /etc/borg-ui-agent-scripts; the agent only runs
-scripts it finds there (see node.agentScripts in values.yaml).
+Pre/post-backup scripts published to a managed agent's allow-list. Each scope
+(node DaemonSet, app/console StatefulSet) gets its own ConfigMap, mounted
+read-only + executable at /etc/borg-ui-agent-scripts. The agent only runs
+scripts it finds there. Cluster-backup scripts (which need the cluster secrets
+in the app pod) belong under app.agentScripts; node.agentScripts is for
+node-local scripts. See values.yaml.
 */}}
-{{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
+{{- $scopes := list -}}
+{{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") .Values.node.agentScripts -}}
+{{- $scopes = append $scopes (dict "name" (include "k8s-borg.nodeAgentScriptsConfigMapName" .) "component" "node" "scripts" .Values.node.agentScripts) -}}
+{{- end -}}
+{{- if and .Values.app.enabled (eq .Values.app.mode "agent") .Values.app.agentScripts -}}
+{{- $scopes = append $scopes (dict "name" (include "k8s-borg.appAgentScriptsConfigMapName" .) "component" "app" "scripts" .Values.app.agentScripts) -}}
+{{- end -}}
+{{- range $i, $scope := $scopes }}
+{{- if $i }}
+---
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "k8s-borg.agentScriptsConfigMapName" . }}
-  namespace: {{ .Release.Namespace | quote }}
-  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
-  {{- if .Values.commonAnnotations }}
-  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  name: {{ $scope.name }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" $scope.component) | nindent 4 }}
+  {{- if $.Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" $.Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 data:
-  {{- range $name, $body := .Values.node.agentScripts }}
+  {{- range $name, $body := $scope.scripts }}
   {{ $name }}: |
 {{ $body | indent 4 }}
   {{- end }}

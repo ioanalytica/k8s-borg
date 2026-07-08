@@ -260,10 +260,12 @@ node:
         - SYS_ADMIN
   ## @param node.resources Node container resources
   resources: {}
-  ## @param node.agentScripts Pre/post-backup scripts published to the managed agent (backupMode=agent).
+  ## @param node.agentScripts Pre/post-backup scripts published to each NODE agent (backupMode=agent).
   ##   Map of filename -> script body. Each entry is mounted read-only and executable at
   ##   /etc/borg-ui-agent-scripts and becomes selectable as a pre/post-backup hook in Borg UI.
-  ##   The agent only ever runs scripts from this allow-list. Example:
+  ##   The agent only ever runs scripts from this allow-list. Use this for node-local scripts;
+  ##   for CLUSTER-backup scripts (which need the cluster secrets) use app.agentScripts instead.
+  ##   Example:
   ##   agentScripts:
   ##     pre-db-dump.sh: |
   ##       #!/bin/sh
@@ -359,6 +361,17 @@ app:
   extraVolumes: []
   ## @param app.extraVolumeMounts Extra volume mounts for the console StatefulSet only
   extraVolumeMounts: []
+  ## @param app.agentScripts Pre/post-backup scripts published to the CLUSTER agent (app.mode=agent).
+  ##   Map of filename -> script body, mounted read-only + executable at
+  ##   /etc/borg-ui-agent-scripts on the console/app pod and selectable as a pre/post-backup
+  ##   hook in Borg UI. Put cluster-backup scripts HERE (not under node.agentScripts): the app
+  ##   pod is where the cluster DB/source secrets live; node pods do not have them. Example:
+  ##   agentScripts:
+  ##     backup-cluster-postgres: |
+  ##       #!/bin/sh
+  ##       # borg-ui: Dump the cluster Postgres before backup
+  ##       pg_dumpall > /mnt/cluster/db.sql
+  agentScripts: {}
 
 ## @section Borg UI (optional; DEV/TEST)
 ##
