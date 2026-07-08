@@ -13,8 +13,9 @@ node-local scripts. See values.yaml.
 {{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") .Values.node.agentScripts -}}
 {{- $scopes = append $scopes (dict "name" (include "k8s-borg.nodeAgentScriptsConfigMapName" .) "component" "node" "scripts" .Values.node.agentScripts) -}}
 {{- end -}}
-{{- if and .Values.cluster.enabled (eq .Values.cluster.mode "agent") .Values.cluster.agentScripts -}}
-{{- $scopes = append $scopes (dict "name" (include "k8s-borg.clusterAgentScriptsConfigMapName" .) "component" "cluster" "scripts" .Values.cluster.agentScripts) -}}
+{{- $clusterScripts := (include "k8s-borg.cluster.agentScripts" .) | fromYaml -}}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.mode "agent") $clusterScripts -}}
+{{- $scopes = append $scopes (dict "name" (include "k8s-borg.clusterAgentScriptsConfigMapName" .) "component" "cluster" "scripts" $clusterScripts) -}}
 {{- end -}}
 {{- range $i, $scope := $scopes }}
 {{- if $i }}

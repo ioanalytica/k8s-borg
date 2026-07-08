@@ -130,6 +130,27 @@ Secret names (support existing secrets).
 {{- end -}}
 
 {{/*
+Effective cluster agent scripts: default DB-dump wrappers for each enabled
+database, deep-merged with user-provided cluster.agentScripts (user keys win on
+collision). Returns a YAML map (consume with `| fromYaml`).
+*/}}
+{{- define "k8s-borg.defaultDbDumpScript" -}}
+#!/bin/sh
+exec /usr/local/bin/backup-cluster-{{ .engine }} "$@"
+{{- end -}}
+
+{{- define "k8s-borg.cluster.agentScripts" -}}
+{{- $scripts := .Values.cluster.agentScripts | default dict | deepCopy -}}
+{{- if .Values.databases.mariadb.enabled -}}
+{{- $scripts = merge $scripts (dict "backup-cluster-mariadb" (include "k8s-borg.defaultDbDumpScript" (dict "engine" "mariadb"))) -}}
+{{- end -}}
+{{- if .Values.databases.postgres.enabled -}}
+{{- $scripts = merge $scripts (dict "backup-cluster-postgres" (include "k8s-borg.defaultDbDumpScript" (dict "engine" "postgres"))) -}}
+{{- end -}}
+{{- toYaml $scripts -}}
+{{- end -}}
+
+{{/*
 Per-component standard labels. Usage: include "k8s-borg.labels" (dict "context" $ "component" "node")
 */}}
 {{- define "k8s-borg.labels" -}}

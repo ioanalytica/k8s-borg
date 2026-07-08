@@ -3,6 +3,7 @@ Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */}}
 {{- if .Values.cluster.enabled }}
+{{- $clusterScripts := (include "k8s-borg.cluster.agentScripts" .) | fromYaml }}
 apiVersion: {{ include "common.capabilities.statefulset.apiVersion" . }}
 kind: StatefulSet
 metadata:
@@ -37,7 +38,7 @@ spec:
       volumes:
         {{- include "k8s-borg.volumes.common" . | nindent 8 }}
         {{- include "k8s-borg.volumes.db" . | nindent 8 }}
-        {{- if and (eq .Values.cluster.mode "agent") .Values.cluster.agentScripts }}
+        {{- if and (eq .Values.cluster.mode "agent") $clusterScripts }}
         - name: agent-scripts
           configMap:
             name: {{ include "k8s-borg.clusterAgentScriptsConfigMapName" . }}
@@ -80,7 +81,7 @@ spec:
             # in cronjob mode the agent just makes the repo visible in Borg UI.
             - name: BORG_REGISTER_PLAN
               value: {{ and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") | ternary "true" "false" | quote }}
-            {{- if .Values.cluster.agentScripts }}
+            {{- if $clusterScripts }}
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
@@ -88,7 +89,7 @@ spec:
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             {{- include "k8s-borg.volumeMounts.db" . | nindent 12 }}
-            {{- if and (eq .Values.cluster.mode "agent") .Values.cluster.agentScripts }}
+            {{- if and (eq .Values.cluster.mode "agent") $clusterScripts }}
             - name: agent-scripts
               mountPath: /etc/borg-ui-agent-scripts
               readOnly: true

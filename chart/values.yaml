@@ -333,7 +333,12 @@ cluster:
   ##   Map of filename -> script body, mounted read-only + executable at
   ##   /etc/borg-ui-agent-scripts on the console/agent pod and selectable as a pre/post-backup
   ##   hook in Borg UI. Put cluster-backup scripts HERE (not under node.agentScripts): this pod
-  ##   is where the cluster DB/source secrets live; node pods do not have them. Example:
+  ##   is where the cluster DB/source secrets live; node pods do not have them.
+  ##   A wrapper for each enabled database is added automatically and DEEP-MERGED with the
+  ##   entries below (yours win on a name collision): databases.mariadb.enabled ->
+  ##   `backup-cluster-mariadb`, databases.postgres.enabled -> `backup-cluster-postgres`
+  ##   (each execs /usr/local/bin/backup-cluster-<engine>). Only add entries here for extra
+  ##   scripts or to override a default. Example:
   ##   agentScripts:
   ##     backup-cluster-postgres: |
   ##       #!/bin/sh
