@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+# Fail (rc>=2) as soon as any instance dump fails — without set -e the loop would
+# hide a mid-run failure behind the last config's exit code.
+set -e
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; exit "$ec"' ERR
+
 shopt -s nullglob
 for defaults_file in /root/.mariadb/*.conf; do
   echo "Running backup-mariadb using ${defaults_file} …"

@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 
-set -e
+# Any failure must FAIL the backup (rc>=2), never warn — a truncated or missing
+# dump would otherwise be archived silently. pipefail catches a failed dump in
+# "dump | gzip"; the ERR trap maps every failure to rc>=2 (in the borg-ui agent
+# script contract rc 1 is only a non-fatal warning, which a dump failure is not).
+set -eo pipefail
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: postgres backup failed (rc=$ec)" >&2; exit "$ec"' ERR
 
 credentials_file=$1
 
 if [ -z "$credentials_file" ]; then
   echo "Error: No psql credentials file specified!"
-  exit 1
+  exit 2
 fi
 
 if [ -z "$DB_BACKUP_LOCATION" ]; then
   echo "Error: environment variable DB_BACKUP_LOCATION not set!"
-  exit 1
+  exit 2
 fi
 
 xbase=${credentials_file##*/}
