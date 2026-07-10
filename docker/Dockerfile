@@ -34,10 +34,12 @@ RUN apk --update --no-cache add \
 # Borg 2 (beta): no Alpine/musl wheel exists for borgbackup itself, so compile
 # it into its own venv using a throwaway build toolchain. The `borg2` command is
 # exposed on PATH later by a wrapper (docker/rootfs/usr/local/bin/borg2).
-# The `borgstore[sftp]` extra adds the SFTP repository backend
-# (paramiko + cryptography, all prebuilt musllinux wheels — no compiler needed),
-# which lets borg2 use plain SFTP targets such as a Hetzner Storage Box without
-# any server-side Borg.
+# The borgstore extras add every Borg 2 repository backend so any repo scheme
+# works: sftp:// (paramiko + cryptography, prebuilt musllinux wheels — no
+# compiler), rclone:// and rest:// (requests), s3:// (boto3, pure Python).
+# posixfs (file://) is built in. sftp lets borg2 use plain SFTP targets such as
+# a Hetzner Storage Box without any server-side Borg; the rest are listed for
+# parity with the runtime base so agent and server cover the same schemes.
 # `borg2 mount` uses mfusepy (added to the venv below). Alpine's ctypes can't
 # locate libfuse automatically (no ldconfig), so point it at the FUSE 2 library.
 # This MUST be set before borg2 runs — borg2 imports the FUSE impl at startup,
@@ -60,7 +62,7 @@ RUN apk add --no-cache --virtual .borg2-build \
     && python -m venv "${BORG2_VENV}" \
     && "${BORG2_VENV}/bin/pip" install --no-cache-dir --upgrade pip wheel \
     && "${BORG2_VENV}/bin/pip" install --no-cache-dir --pre \
-        "borgbackup>=2.0.0b1,<3" "borgstore[sftp]" mfusepy \
+        "borgbackup>=2.0.0b1,<3" "borgstore[rclone,sftp,rest,s3]" mfusepy \
     && apk del .borg2-build \
     && "${BORG2_VENV}/bin/borg" --version
 
