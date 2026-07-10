@@ -5,6 +5,10 @@
 info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
 trap 'echo $( date ) Prune interrupted >&2; exit 2' INT TERM
 
+# Borg exit-code semantics (warning detection + combining), mode-agnostic.
+# shellcheck source=../lib/borg-rc.sh
+. /usr/local/lib/borg-rc.sh
+
 info "Pruning repository ..."
 
 # retention policy (overridable via ENV, safe defaults)
@@ -34,11 +38,16 @@ borg compact                   \
 
 compact_exit=$?
 
-# use highest exit code as global exit code
-global_exit=$(( prune_exit > compact_exit ? prune_exit : compact_exit ))
+# Combine with borg precedence (error > warning > ok), NOT numeric max — a
+# modern warning (100..127) outranks an error (2..99) numerically. See
+# borg-rc.sh. A routine warning is tolerated (downgraded to 0), same as
+# borg-backup.
+global_exit="$(borg_rc_worst "$prune_exit" "$compact_exit")"
 
-if [  ${global_exit} -gt 0 ];
-then
+if borg_rc_is_warning "${global_exit}"; then
+    info "Prune and/or Compact finished with a warning!"
+    global_exit=0
+elif [ "${global_exit}" -ne 0 ]; then
     info "Prune and/or Compact finished with an error!"
 fi
 

@@ -5,6 +5,10 @@
 info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
 trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
 
+# Borg exit-code semantics (warning detection + combining), mode-agnostic.
+# shellcheck source=../lib/borg-rc.sh
+. /usr/local/lib/borg-rc.sh
+
 info "Starting backup ..."
 
 BORG_PATTERNS="/root/.borg/cluster-include.patterns"
@@ -105,19 +109,15 @@ borg compact                   \
 
 compact_exit=$?
 
-info_exit=$?
+# Combine the borg exit codes with borg precedence (error > warning > ok), NOT
+# numeric max: under modern codes a warning (100..127) is numerically larger
+# than an error (2..99), so a max() would hide the error. See borg-rc.sh.
+global_exit="$(borg_rc_worst "$backup_exit" "$prune_exit" "$compact_exit")"
 
-# use highest exit code as global exit code
-global_exit=$(( backup_exit > prune_exit ? backup_exit : prune_exit ))
-global_exit=$(( global_exit > compact_exit ? global_exit : compact_exit ))
-global_exit=$(( global_exit > info_exit ? global_exit : info_exit ))
-
-if [ ${global_exit} -eq 1 ]; then
+if borg_rc_is_warning "${global_exit}"; then
     info "Backup, Prune and/or Compact finished with a warning!"
     global_exit=0
-fi
-
-if [ ${global_exit} -gt 1 ]; then
+elif [ "${global_exit}" -ne 0 ]; then
     info "Backup, Prune and/or Compact finished with an error!"
 fi
 

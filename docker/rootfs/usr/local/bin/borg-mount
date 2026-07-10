@@ -26,9 +26,13 @@ if [ "${BORG_VERSION:-1}" = "2" ]; then
 else
   borg mount ${BORG_REPO}::${BORG_BACKUP_SET} /mnt/borg
 fi
+mount_rc=$?
 
-if [ $? -gt 0 ];
-then
+# A borg warning still mounts fine, so treat it as success (mode-agnostic; see
+# /usr/local/lib/borg-rc.sh). Only a real error is a mount failure.
+# shellcheck source=../lib/borg-rc.sh
+. /usr/local/lib/borg-rc.sh
+if [ "$mount_rc" -ne 0 ] && ! borg_rc_is_warning "$mount_rc"; then
     echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} failed!"
 else
     echo "Backup set ${BORG_REPO}::${BORG_BACKUP_SET} successfully mounted on /mnt/borg"

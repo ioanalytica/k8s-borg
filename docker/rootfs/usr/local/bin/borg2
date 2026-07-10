@@ -8,11 +8,14 @@
 #    Storage Box over sftp:// and usually needs none. Server-provided flags in
 #    "$@" override the defaults (last occurrence wins).
 #
-# 2) Warning handling, identical to the borg1 wrapper. Borg uses legacy exit
-#    codes (0 = ok, 1 = warning, >=2 = error) unless BORG_EXIT_CODES=modern,
-#    which we don't set. By DEFAULT a warning (rc=1) is downgraded to 0 so a
-#    managed-agent backup job isn't marked "failed" on a routine warning; set
-#    BORG_TREAT_WARNINGS_AS_ERRORS=true to pass it through unchanged.
+# 2) Warning handling, identical to the borg1 wrapper. IMPORTANT: borg2 DEFAULTS
+#    to modern exit codes (borg's errors.py: BORG_EXIT_CODES defaults to
+#    "modern"), so a warning is 1 OR 100..127 — not just 1. We do NOT override
+#    the user's BORG_EXIT_CODES choice; instead borg_rc_is_warning
+#    (/usr/local/lib/borg-rc.sh) detects a warning mode-agnostically. By DEFAULT
+#    a warning is downgraded to 0 so a managed-agent job isn't marked "failed"
+#    on a routine warning; errors always pass through. Set
+#    BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate warnings unchanged.
 #
 # NB: run (not exec) so we can remap the exit code; borg2 shares this process
 # group, so the agent's process-group SIGTERM still cancels it cleanly.
@@ -33,8 +36,10 @@ remote_args=()
 /opt/borg-ui-agent/borg2-venv/bin/borg "${remote_args[@]}" ${BORG2_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
-if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
-  echo "borg2: warning (rc=1) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
+# shellcheck source=../lib/borg-rc.sh
+. /usr/local/lib/borg-rc.sh
+if borg_rc_is_warning "$rc" && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
+  echo "borg2: warning (rc=$rc) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
   rc=0
 fi
 exit "$rc"

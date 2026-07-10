@@ -22,13 +22,14 @@
 #    Server-provided flags in "$@" override the defaults: borg's argparse lets
 #    the last occurrence of an option win, and "$@" comes after the defaults.
 #
-# 2) Warning handling. Borg exit codes: 0 = ok, 1 = warning, >=2 = error. A
-#    warning (a listed path is missing, or a file changed/vanished mid-backup —
-#    on a live filesystem essentially routine) otherwise propagates as non-zero
-#    and makes a managed-agent backup job count as "failed". By DEFAULT this
-#    wrapper downgrades rc=1 to 0 for the caller — same spirit as borg-backup's
-#    exit-1 handling. Set BORG_TREAT_WARNINGS_AS_ERRORS=true to pass the warning
-#    through unchanged instead.
+# 2) Warning handling. A borg warning (a listed path is missing, or a file
+#    changed/vanished mid-backup — on a live filesystem essentially routine)
+#    otherwise propagates as non-zero and makes a managed-agent backup job count
+#    as "failed". By DEFAULT this wrapper downgrades a warning to 0 for the
+#    caller — same spirit as borg-backup. A warning is identified mode-agnostic
+#    via borg_rc_is_warning (see /usr/local/lib/borg-rc.sh): legacy warning = 1,
+#    modern warning = 100..127; errors always pass through. Set
+#    BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate warnings unchanged instead.
 #
 # NB: we run borg (not exec) so we can remap its exit code; borg shares this
 # process group, so the agent's process-group SIGTERM still cancels it cleanly.
@@ -55,8 +56,10 @@ remote_args=()
 /usr/bin/borg "${remote_args[@]}" ${BORG1_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
-if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
-  echo "borg: warning (rc=1) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
+# shellcheck source=../lib/borg-rc.sh
+. /usr/local/lib/borg-rc.sh
+if borg_rc_is_warning "$rc" && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
+  echo "borg: warning (rc=$rc) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
   rc=0
 fi
 exit "$rc"
