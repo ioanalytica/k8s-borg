@@ -30,7 +30,7 @@
 remote_args=()
 [ -n "${BORG_REMOTE_PATH:-}" ] && remote_args=(--remote-path="${BORG_REMOTE_PATH}")
 
-/opt/borg-ui-agent/borg2-venv/bin/borg "${remote_args[@]}" ${BORG1_DEFAULT_PARAMS:-} "$@"
+/opt/borg-ui-agent/borg2-venv/bin/borg "${remote_args[@]}" ${BORG2_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
 if [ "$rc" -eq 1 ] && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
