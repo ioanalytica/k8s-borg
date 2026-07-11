@@ -49,6 +49,9 @@ spec:
         - name: ui
           image: {{ include "k8s-borg.ui.image" . | quote }}
           imagePullPolicy: {{ .Values.borgUI.image.pullPolicy | quote }}
+          {{- if .Values.borgUI.containerSecurityContext }}
+          securityContext: {{- include "common.tplvalues.render" (dict "value" .Values.borgUI.containerSecurityContext "context" $) | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8081

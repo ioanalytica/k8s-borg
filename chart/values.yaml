@@ -215,8 +215,14 @@ node:
   backupMode: interval
   ## @param node.backupIntervalSeconds Sleep between node backups (backupMode=interval only)
   backupIntervalSeconds: 3600
-  ## @param node.hostRootPath Host path mounted read-only at /node
+  ## @param node.hostRootPath Host path mounted at /node
   hostRootPath: /
+  ## @param node.hostRootReadOnly Mount the host root at /node read-only
+  ## Backups only READ /node, so read-only is the safe default. Set to false to
+  ## allow restore-to-original-location on the node (the agent restore writes back
+  ## through /node). WARNING: false lets a restore write anywhere on the host FS —
+  ## the pod is already privileged, but this additionally grants host-write.
+  hostRootReadOnly: true
   ## @param node.tolerations Tolerations (backups run on every node by default)
   tolerations:
     - operator: Exists
@@ -389,6 +395,14 @@ borgUI:
       secretName: "borgui-tls"
   ## @param borgUI.resources Borg UI server resources
   resources: {}
+  ## @param borgUI.containerSecurityContext Borg UI server container security context
+  ## Server-side backups of SSH sources mount the remote FS via sshfs, which needs
+  ## /dev/fuse — the same requirement the node/cluster backup pods already have.
+  ## `privileged: true` passes the host's /dev/fuse through (simplest). A tighter
+  ## alternative is capabilities.add: [SYS_ADMIN] plus a hostPath mount of /dev/fuse.
+  ## Leave empty ({}) if you never back up SSH/remote sources server-side.
+  containerSecurityContext:
+    privileged: true
   ## Archive-listing cache backend for the Borg UI server.
   ##   disabled → the server keeps its in-memory cache (lost on every UI-pod roll).
   ##   internal → deploy a dedicated Redis pod (its OWN Deployment, NOT a sidecar —

@@ -89,7 +89,7 @@ spec:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             - name: rootfs
               mountPath: /node
-              readOnly: true
+              readOnly: {{ .Values.node.hostRootReadOnly }}
             {{- if and (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
             - name: agent-scripts
               mountPath: /etc/borg-ui-agent-scripts
