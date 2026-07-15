@@ -361,7 +361,7 @@ borgUI:
     ## @param borgUI.image.repository Borg UI server image repository
     repository: ioanalytica/k8s-borg-ui
     ## @param borgUI.image.tag Borg UI server image tag
-    tag: "2.2.5"
+    tag: "2.2.6"
     ## @param borgUI.image.pullPolicy Borg UI server image pull policy
     pullPolicy: IfNotPresent
   ## @param borgUI.publicBaseUrl Public base URL advertised by the server

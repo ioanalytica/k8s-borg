@@ -36,14 +36,8 @@ done
 
 [ -d "$SUB/frontend" ] || { echo "✗ borg-ui submodule not initialized at $SUB"; exit 1; }
 
-# Version = the borg-ui release line the submodule corresponds to. NOTE: main's
-# VERSION file is unbumped (2.2.3) and the v2.2.4/v2.2.5 release tags are NOT in
-# main's ancestry, so `git describe` misleadingly yields 2.2.3 — main is really
-# 2.2.5 + our merged fixes. So take the highest stable release tag + the commit.
-BASE_VER="$(git -C "$SUB" tag -l 'v*' | grep -vE '\-(alpha|beta|rc)' | sort -V | tail -1 | sed 's/^v//')"
-[ -n "$BASE_VER" ] || BASE_VER="$(cat "$SUB/VERSION")"
-# APP_VERSION="${BASE_VER}-io-g$(git -C "$SUB" rev-parse --short HEAD)"
-APP_VERSION=2.2.5
+APP_VERSION="$(git -C "$SUB" tag -l 'v*' | grep -vE '\-(alpha|beta|rc)' | sort -V | tail -1 | sed 's/^v//')"
+[ -n "$APP_VERSION" ] || APP_VERSION="$(cat "$SUB/VERSION")"
 TAG="${IMAGE}:${APP_VERSION}"
 
 echo "▶ k8s-borg-ui server build (hermetic)"

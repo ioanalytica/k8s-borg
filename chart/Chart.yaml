@@ -3,7 +3,7 @@
 
 apiVersion: v2
 name: k8s-borg
-version: 1.0.23-1
+version: 1.0.23-2
 appVersion: "1.0.23"
 
 description: >-
@@ -34,7 +34,7 @@ annotations:
     - name: k8s-borg
       image: ghcr.io/ioanalytica/k8s-borg:1.0.23
     - name: k8s-borg-ui
-      image: ghcr.io/ioanalytica/k8s-borg-ui:2.2.5
+      image: ghcr.io/ioanalytica/k8s-borg-ui:2.2.6
     - name: redis
       image: docker.io/redis:7.4-alpine
 
