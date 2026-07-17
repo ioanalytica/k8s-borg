@@ -38,14 +38,10 @@ Internal Redis pod name/image (borgUI.redis.mode=internal).
 {{- end -}}
 
 {{/*
-Redis selector labels. Unlike the shared backup workloads we KEEP the component
-in the selector: the dedicated Redis Deployment/Service must not overlap the
-UI/app/node workloads, which all select on name+instance alone.
+Redis selector labels. Equivalent to k8s-borg.matchLabels with component=redis.
 */}}
 {{- define "k8s-borg.redis.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "common.names.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: redis
+{{- include "k8s-borg.matchLabels" (dict "context" . "component" "redis") -}}
 {{- end -}}
 
 {{/*
@@ -157,8 +153,16 @@ Per-component standard labels. Usage: include "k8s-borg.labels" (dict "context" 
 {{- include "common.labels.standard" (dict "customLabels" (dict "app.kubernetes.io/component" .component) "context" .context) -}}
 {{- end -}}
 
+{{/*
+Per-component selector labels. NOT common.labels.matchLabels: that helper picks
+only name+instance out of customLabels, which would collapse every component's
+selector onto the same set and let the UI Deployment's selector match node/app
+pods. The component is what makes a selector identify one workload.
+*/}}
 {{- define "k8s-borg.matchLabels" -}}
-{{- include "common.labels.matchLabels" (dict "customLabels" (dict "app.kubernetes.io/component" .component) "context" .context) -}}
+app.kubernetes.io/name: {{ include "common.names.name" .context }}
+app.kubernetes.io/instance: {{ .context.Release.Name }}
+app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
