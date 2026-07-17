@@ -364,6 +364,15 @@ borgUI:
     tag: "2.2.6"
     ## @param borgUI.image.pullPolicy Borg UI server image pull policy
     pullPolicy: IfNotPresent
+  ## Startup budget for the database upgrade the entrypoint runs before serving.
+  ## Nothing listens until it finishes, and on a large database over NFS that is
+  ## minutes; liveness would otherwise kill it and restart the migration from the
+  ## beginning on every attempt. Default = 30 minutes.
+  startupProbe:
+    ## @param borgUI.startupProbe.periodSeconds Seconds between startup checks
+    periodSeconds: 10
+    ## @param borgUI.startupProbe.failureThreshold Checks allowed before the container is considered failed
+    failureThreshold: 180
   ## @param borgUI.publicBaseUrl Public base URL advertised by the server
   publicBaseUrl: "https://borgui.example.com"
   ## @param borgUI.adminUser Admin username (the Borg UI server hardcodes "admin"; kept for enrollment login)

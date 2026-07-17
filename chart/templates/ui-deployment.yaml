@@ -79,6 +79,17 @@ spec:
               mountPath: {{ include "k8s-borg.ui.sshKeyDir" . }}
               readOnly: true
             {{- end }}
+          # The entrypoint brings the database up to date before it starts
+          # serving, so nothing listens for as long as that takes. Without a
+          # startup probe the liveness probe applies from the first second and
+          # kills the container mid-migration -- which then restarts it from the
+          # beginning, forever. While this probe runs, liveness and readiness are
+          # suspended.
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: {{ .Values.borgUI.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.borgUI.startupProbe.failureThreshold }}
           readinessProbe:
             tcpSocket:
               port: http
