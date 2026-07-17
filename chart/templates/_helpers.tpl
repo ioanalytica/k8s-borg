@@ -87,6 +87,42 @@ reconcile Job.
 {{- end -}}
 
 {{/*
+Postgres connection env for the UI server. Emits DB_* parts that the server
+assembles into DATABASE_URL (quoting the password itself). Nothing here when
+disabled → the server falls back to its SQLite file.
+Credentials come from an existing Secret when one is named, else from the inline
+values; a Postgres operator's generated Secret is the intended case.
+*/}}
+{{- define "k8s-borg.env.postgres" -}}
+{{- $pg := .Values.borgUI.postgres -}}
+{{- if $pg.enabled }}
+- name: DB_HOST
+  value: {{ required "borgUI.postgres.host is required when borgUI.postgres.enabled" $pg.host | quote }}
+- name: DB_PORT
+  value: {{ $pg.port | quote }}
+- name: DB_NAME
+  value: {{ $pg.database | quote }}
+{{- if $pg.existingSecret }}
+- name: DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ $pg.existingSecret | quote }}
+      key: {{ $pg.userKey | default "username" | quote }}
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $pg.existingSecret | quote }}
+      key: {{ $pg.passwordKey | default "password" | quote }}
+{{- else }}
+- name: DB_USER
+  value: {{ required "borgUI.postgres.user (or existingSecret) is required when borgUI.postgres.enabled" $pg.user | quote }}
+- name: DB_PASSWORD
+  value: {{ required "borgUI.postgres.password (or existingSecret) is required when borgUI.postgres.enabled" $pg.password | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Secret names (support existing secrets).
 */}}
 {{- define "k8s-borg.secretName" -}}

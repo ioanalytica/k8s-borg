@@ -383,6 +383,35 @@ borgUI:
     value: ""
     existingSecret: ""
     existingSecretKey: ""
+  ## Postgres backend for the UI's own database. Off by default → the bundled
+  ## SQLite file under /data. When enabled, the server assembles its connection
+  ## from the parts below and, on first boot, upgrades the existing SQLite
+  ## database into Postgres (the SQLite file is kept alongside as borg_bak.db).
+  ## The Postgres server itself is not deployed here — this only points the UI at
+  ## an existing one.
+  postgres:
+    ## @param borgUI.postgres.enabled Store the UI database in Postgres instead of the SQLite file
+    enabled: false
+    ## @param borgUI.postgres.host Postgres host (required when enabled)
+    host: ""
+    ## @param borgUI.postgres.port Postgres port
+    port: 5432
+    ## @param borgUI.postgres.database Postgres database name
+    database: borg
+    ## Credentials. Either inline (user/password, plaintext in values) OR a
+    ## reference to an existing Secret with a username key and a password key —
+    ## e.g. the one a Postgres operator generates. existingSecret takes
+    ## precedence over the inline values.
+    ## @param borgUI.postgres.user Inline username (leave empty when using existingSecret)
+    user: ""
+    ## @param borgUI.postgres.password Inline password (leave empty when using existingSecret)
+    password: ""
+    ## @param borgUI.postgres.existingSecret Name of an existing Secret holding the credentials
+    existingSecret: ""
+    ## @param borgUI.postgres.userKey Key in existingSecret holding the username
+    userKey: username
+    ## @param borgUI.postgres.passwordKey Key in existingSecret holding the password
+    passwordKey: password
   service:
     ## @param borgUI.service.type Borg UI Service type
     type: ClusterIP
