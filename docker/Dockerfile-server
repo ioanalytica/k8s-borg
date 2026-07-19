@@ -28,6 +28,18 @@ COPY frontend/ ./
 RUN npm run build
 # vite.config.ts sets outDir 'build' -> /frontend/build
 
+# --- managed agent package — served to enrolling nodes ----------------------
+# An enrolling node installs the agent belonging to this server rather than
+# whatever upstream's default branch holds, which matters here because our
+# deployment runs ahead of it. The agent is pure Python, so one py3-none-any
+# wheel covers every target platform.
+FROM python:3.12-slim AS agent-builder
+WORKDIR /agent-src
+COPY pyproject.toml ./
+COPY agent/ ./agent/
+RUN pip install --no-cache-dir build && \
+    python -m build --wheel --outdir /agent-dist
+
 # --- backend python dependencies --------------------------------------------
 FROM python:3.10-slim AS backend-builder
 WORKDIR /app
@@ -58,6 +70,9 @@ COPY --from=backend-builder /usr/local/bin /usr/local/bin
 COPY app/ ./app/
 COPY VERSION ./VERSION
 COPY --from=frontend-builder /frontend/build ./app/static/
+
+# Agent wheel, served at /agent/package/<filename> to enrolling nodes.
+COPY --from=agent-builder /agent-dist/ /opt/borg-ui/agent-dist/
 
 RUN chown -R borg:borg /app /data /backups /var/log/borg /etc/borg && \
     chmod -R 755 /app /data /backups /var/log/borg /etc/borg
