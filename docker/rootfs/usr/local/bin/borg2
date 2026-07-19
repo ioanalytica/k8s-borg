@@ -2,7 +2,7 @@
 # Borg 2 wrapper / gateway.
 #
 # Provides the `borg2` command on PATH; the real Borg 2 binary lives in its own
-# venv (/opt/borg-ui-agent/borg2-venv/bin/borg). Does two things:
+# binary ($BORG2_BINARY). Does two things:
 #
 # 1) Injects default common params (BORG2_DEFAULT_PARAMS); Borg 2 reaches a
 #    Storage Box over sftp:// and usually needs none. Server-provided flags in
@@ -33,7 +33,7 @@
 remote_args=()
 [ -n "${BORG_REMOTE_PATH:-}" ] && remote_args=(--remote-path="${BORG_REMOTE_PATH}")
 
-/opt/borg-ui-agent/borg2-venv/bin/borg "${remote_args[@]}" ${BORG2_DEFAULT_PARAMS:-} "$@"
+"${BORG2_BINARY:-/opt/borg-ui-agent/borg2/current/borg}" "${remote_args[@]}" ${BORG2_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
 # shellcheck source=../lib/borg-rc.sh

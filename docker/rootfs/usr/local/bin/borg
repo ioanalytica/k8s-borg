@@ -7,14 +7,14 @@
 #
 #   BORG_VERSION=2 → hand off to `borg2`, which owns the Borg 2 binary path,
 #                    BORG2_DEFAULT_PARAMS and the shared warning handling.
-#   otherwise      → run the real Borg 1 at /usr/bin/borg (this script), below.
+#   otherwise      → run the real Borg 1 at $BORG1_BINARY (this script), below.
 #
 # NB: one BORG_VERSION per pod — an agent/pod is bound to repos of a single borg
 # version, so a single env value is enough.
 #
 # --- Borg 1 path (BORG_VERSION != 2) -----------------------------------------
 #
-# Sits in front of the real /usr/bin/borg on PATH (/usr/local/bin before
+# Sits in front of the real Borg 1 binary on PATH (/usr/local/bin before
 # /usr/bin) and does two things:
 #
 # 1) Injects default common params (BORG1_DEFAULT_PARAMS), e.g.
@@ -53,7 +53,7 @@ fi
 remote_args=()
 [ -n "${BORG_REMOTE_PATH:-}" ] && remote_args=(--remote-path="${BORG_REMOTE_PATH}")
 
-/usr/bin/borg "${remote_args[@]}" ${BORG1_DEFAULT_PARAMS:-} "$@"
+"${BORG1_BINARY:-/opt/borg-ui-agent/borg1/current/borg}" "${remote_args[@]}" ${BORG1_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
 # shellcheck source=../lib/borg-rc.sh
