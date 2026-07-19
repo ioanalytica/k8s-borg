@@ -22,6 +22,9 @@ borg-ui/.claude
 borg-ui/.codex
 borg-ui/.impeccable
 borg-ui/app
+# …except the Borg binary manifest: the image derives the Borg versions and
+# their checksums from it instead of repeating them here.
+!borg-ui/app/api/borg_binaries.json
 borg-ui/frontend
 borg-ui/docs
 borg-ui/tests
