@@ -11,79 +11,102 @@
 # (/etc/borg-ui-agent/config.toml) is written by `borg-ui-agent register` at
 # enrollment time, which is wired up in a later iteration — not baked here.
 #
-# Borg comes from the static binaries published with each upstream release, the
-# same ones the managed-agent installer puts on a node. A pod agent and a node
-# agent therefore run byte-identical Borg, which is what makes testing one tell
-# you anything about the other. That is also why this image is glibc-based:
-# those binaries are glibc builds, and there are none for musl.
-
-# --- Borg binaries: downloaded and verified in a stage of their own ----------
-# Versions and checksums both come from the borg-ui submodule's manifest, which
-# is generated from the version its runtime base builds. There is no version
-# literal and no digest in this file: a Borg bump happens in one place, in
-# borg-ui, and this image follows.
+# Borg is compiled from the sdists at the versions the borg-ui submodule pins,
+# because no musl build is published and the image is Alpine-based. The agent
+# therefore runs the same Borg *version* as the server and as a node agent,
+# though not the same build: nodes install the published static binaries, which
+# exist only for glibc.
 #
-# The checksums are committed there rather than fetched next to the download,
-# so a substituted file cannot authenticate itself.
-FROM python:3.12-slim AS borg-binaries
-ARG TARGETARCH
+# Compiling buys back what those binaries cost: the image is ~100 MB smaller and
+# Borg starts in about a third of the time, because a single-file binary unpacks
+# itself on every invocation. The build toolchain never reaches the final image.
 
-# hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# --- Borg: compiled in a stage of its own -------------------------------------
+# The venvs are built at the exact paths they will occupy in the final image: a
+# virtualenv records its own location, so building elsewhere and copying would
+# leave every console script pointing at a directory that does not exist.
+#
+# borg1 takes pyfuse3, a compiled extension; borg2 takes mfusepy, which loads
+# libfuse through ctypes at run time. The borgstore extras add every Borg 2
+# repository backend — sftp for targets like a Hetzner Storage Box with no
+# server-side Borg, plus rclone, rest and s3; posixfs is built in.
+#
+# The versions come from the borg-ui manifest, so a Borg bump still happens in
+# exactly one place, in borg-ui, and this image follows.
+FROM python:3.12-alpine AS borg-builder
 
-COPY borg-ui/app/api/borg_binaries.json docker/select-borg-binaries.py /build/
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+        build-base python3-dev pkgconf linux-headers \
+        acl-dev lz4-dev zstd-dev xxhash-dev openssl-dev libffi-dev fuse3-dev
 
+COPY borg-ui/app/api/borg_binaries.json docker/borg-versions.py /build/
+
+# hadolint ignore=DL3013
 RUN set -eu; \
-    mkdir -p /out; \
-    python /build/select-borg-binaries.py /build/borg_binaries.json "${TARGETARCH}" \
-      > /build/plan; \
-    cat /build/plan; \
-    while read -r name version sha url; do \
-      curl -fsSL --proto '=https' --tlsv1.2 -o "/out/${name}" "${url}"; \
-      printf '%s  /out/%s\n' "${sha}" "${name}" | sha256sum -c - >/dev/null; \
-      echo "verified ${name} ${version}"; \
-    done < /build/plan; \
-    chmod 0755 /out/borg1 /out/borg2
+    eval "$(python /build/borg-versions.py /build/borg_binaries.json)"; \
+    echo "compiling Borg ${BORG1_VERSION} and ${BORG2_VERSION}"; \
+    python -m venv /opt/borg-ui-agent/borg1/venv; \
+    /opt/borg-ui-agent/borg1/venv/bin/pip install --no-cache-dir -q \
+        pyfuse3 "borgbackup[fuse]==${BORG1_VERSION}"; \
+    python -m venv /opt/borg-ui-agent/borg2/venv; \
+    /opt/borg-ui-agent/borg2/venv/bin/pip install --no-cache-dir -q --pre \
+        "borgbackup==${BORG2_VERSION}" "borgstore[rclone,sftp,rest,s3]" mfusepy
 
 # --- agent image -------------------------------------------------------------
-FROM python:3.12-slim
-ARG BORG1_VERSION
-ARG BORG2_VERSION
+FROM python:3.12-alpine
 
-# s3fs pulls libfuse2 for the s3fs mounts used by some sources. Borg's own FUSE
-# support needs nothing here: the release binaries bundle libfuse3.
-# rclone is a separate Go program that no Borg release bundles, and borgstore
-# drives it over its rc API, so rclone: repositories need it present.
-# hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash \
-    s3fs \
-    rclone \
-    ca-certificates \
-    openssh-client \
-    tzdata \
-    postgresql-client \
-    mariadb-client \
-    rsync \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
+# `fuse` (the FUSE 2 library) is what mfusepy loads for `borg2 mount`; Alpine
+# already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs-fuse
+# covers the s3fs mounts some sources use. rclone is a separate Go program that
+# no Borg release bundles, and borgstore drives it over its rc API, so rclone:
+# repositories need it present.
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+        bash \
+        ca-certificates \
+        openssh-client \
+        tzdata \
+        rsync \
+        curl \
+        rclone \
+        postgresql-client \
+        mariadb-client \
+        s3fs-fuse \
+        fuse3 \
+        fuse \
+        acl \
+        lz4-libs \
+        zstd-libs \
+        libxxhash \
+        openssl \
+        libffi \
     && update-ca-certificates
 
-# Both Borg majors land under the same version-independent paths the wrappers
-# fall back to, so they resolve Borg even without this image's environment
-# (`env -i`, a cron with no environment, `su -`). An image is immutable, so
-# there is nothing to install beside anything: the node installer keeps its
-# version-scoped layout because it upgrades in place, this does not.
-#
-# The release binaries carry everything Borg needs: every borgstore backend
-# (sftp for targets like a Hetzner Storage Box with no server-side Borg, plus
-# rclone, rest, s3, and the built-in posixfs) and a bundled libfuse3 for
-# `borg mount`. None of that has to be assembled here any more.
+# The compiled virtualenvs, without the toolchain that produced them. Their
+# extensions link against acl, lz4, zstd, xxhash, openssl, libffi and libfuse3,
+# all of which the runtime packages above provide.
+COPY --from=borg-builder /opt/borg-ui-agent/borg1/venv /opt/borg-ui-agent/borg1/venv
+COPY --from=borg-builder /opt/borg-ui-agent/borg2/venv /opt/borg-ui-agent/borg2/venv
+
+# Version-independent paths, so the wrappers resolve Borg even without this
+# image's environment (`env -i`, a cron with no environment, `su -`).
 ENV BORG1_BINARY=/opt/borg-ui-agent/borg1/current/borg
 ENV BORG2_BINARY=/opt/borg-ui-agent/borg2/current/borg
-COPY --from=borg-binaries /out/borg1 ${BORG1_BINARY}
-COPY --from=borg-binaries /out/borg2 ${BORG2_BINARY}
+RUN install -d /opt/borg-ui-agent/borg1/current /opt/borg-ui-agent/borg2/current \
+    && ln -sfn /opt/borg-ui-agent/borg1/venv/bin/borg "${BORG1_BINARY}" \
+    && ln -sfn /opt/borg-ui-agent/borg2/venv/bin/borg "${BORG2_BINARY}"
+
+# mfusepy finds libfuse through ctypes, and Alpine has no ldconfig for it to
+# consult, so the path has to be handed over. Resolved at build time rather than
+# hardcoded: Alpine has already moved to libfuse3.so.4 while mfusepy wants the
+# FUSE 2 ABI, so a guessed path ages badly. Without this, borg2 raises
+# "Unable to find libfuse" on import — it cannot even print its version.
+RUN set -eu; \
+    lib="$(find /usr/lib -maxdepth 1 -name 'libfuse.so.2' | head -n 1)"; \
+    [ -n "${lib}" ] || { echo "no FUSE 2 library found for mfusepy" >&2; exit 1; }; \
+    printf 'FUSE_LIBRARY_PATH=%s\n' "${lib}" > /etc/borg-fuse.env; \
+    cat /etc/borg-fuse.env
 
 # Install the agent from the pinned submodule into an isolated virtualenv.
 # Only pyproject.toml + the agent package are copied (see .dockerignore); the

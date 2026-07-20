@@ -27,6 +27,13 @@
 # to stderr (>&2) so they never contaminate stdout. Only *other* scripts here
 # (never called by BorgUI) may fold stderr into stdout for kubectl/Loki logs.
 
+# Borg 2 loads its FUSE implementation at import time, through ctypes, and musl
+# has no ldconfig for it to consult — so without a library path borg2 raises
+# "Unable to find libfuse" and cannot even print its version. The path is
+# resolved when the image is built and recorded here, so borg2 works even when
+# invoked without this image's environment (`env -i`, cron, `su -`).
+[ -r /etc/borg-fuse.env ] && . /etc/borg-fuse.env && export FUSE_LIBRARY_PATH
+
 # --remote-path: path to the borg executable on an ssh:// server. Injected when
 # BORG_REMOTE_PATH is set (from the chart's borg.remotePath). An explicit
 # --remote-path later in the command still wins (argparse: last occurrence).
