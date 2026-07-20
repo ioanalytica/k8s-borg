@@ -67,6 +67,16 @@ spec:
                   name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
                   key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
             {{- end }}
+            # Always rendered: the image ships defaults for both, so an empty
+            # URL only takes effect if we set it explicitly.
+            - name: ENABLE_STARTUP_LICENSE_SYNC
+              value: {{ .Values.borgUI.licensing.startupSync | quote }}
+            - name: ACTIVATION_SERVICE_URL
+              value: {{ .Values.borgUI.licensing.activationServiceUrl | quote }}
+            {{- with .Values.borgUI.licensing.activationPublicKey }}
+            - name: ACTIVATION_PUBLIC_KEY
+              value: {{ . | quote }}
+            {{- end }}
             {{- include "k8s-borg.env.redis" . | nindent 12 }}
             {{- include "k8s-borg.env.postgres" . | nindent 12 }}
           volumeMounts:

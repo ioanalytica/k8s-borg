@@ -412,6 +412,25 @@ borgUI:
     userKey: username
     ## @param borgUI.postgres.passwordKey Key in existingSecret holding the password
     passwordKey: password
+  ## License activation. The server contacts the activation service on startup and
+  ## refreshes its entitlement periodically; the plan itself is then evaluated
+  ## locally from the signed entitlement stored in the database.
+  ##
+  ## Air-gapped: set startupSync=false and activationServiceUrl="" (both are always
+  ## rendered, so they override the image defaults). The instance then stays on the
+  ## community plan until an admin imports a signed entitlement document via
+  ## POST /api/system/licensing/import. Leaving sync on without egress costs every
+  ## pod start the activation timeout and logs a refresh warning every hour.
+  licensing:
+    ## @param borgUI.licensing.startupSync Contact the activation service on startup and refresh it periodically
+    startupSync: true
+    ## @param borgUI.licensing.activationServiceUrl Activation service URL. Empty disables all outbound license calls.
+    activationServiceUrl: "https://license.borgui.com"
+    ## Ed25519 public key the signed entitlement is verified against. Empty SKIPS
+    ## signature validation entirely, so leave this alone unless you run your own
+    ## activation service. Empty here = keep the key baked into the image.
+    ## @param borgUI.licensing.activationPublicKey Override the entitlement-signing public key
+    activationPublicKey: ""
   service:
     ## @param borgUI.service.type Borg UI Service type
     type: ClusterIP
