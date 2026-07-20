@@ -29,6 +29,10 @@
 #   PAT_SECRET_NAME            k8s Secret to write the PAT to (needs SA + patch RBAC)
 #   PAT_SECRET_KEY             key in that Secret (default "BORG_UI_ADMIN_PAT")
 #   OIDC_*                     optional; configured when OIDC_DISCOVERY_URL is set
+#   BORG_UI_ENTITLEMENT        optional; signed offline entitlement document (JSON)
+#                              to import — the air-gapped path, wins over the key
+#   BORG_UI_LICENSE_KEY        optional; license key to activate while the instance
+#                              carries no paid license (needs egress)
 #   BORG_UI_SSH_IMPORT_PRIVATE_PATH  optional; import this server-side key file as
 #                              the system SSH key (+ _PUBLIC_PATH, _NAME)
 #   BORG_UI_REMOTE_MACHINES    optional; JSON list [{host,username,port}] to register
@@ -250,6 +254,118 @@ if [ -n "$cache_qs" ]; then
   curl -fsS -X PUT "$(api settings/cache/settings)?${cache_qs}" "${auth[@]}" >/dev/null \
     || { echo "FATAL: cache settings reconciliation failed" >&2; exit 1; }
   echo "Cache settings reconciled."
+fi
+
+# --- 4c) optional license reconciliation -------------------------------------
+# The plan is evaluated from a signed entitlement stored in the server's DB, so a
+# license is applied through the API — either by importing an already-signed
+# document (air-gapped, no egress) or by activating a key against the activation
+# service. A document is bound to the instance_id the server generated on its
+# first boot, which lives only in the database: rebuild the instance and the
+# document no longer fits. So the document is used only while it matches, and a
+# license key, being instance-independent, is what recovers a rebuilt instance.
+if [ -n "${BORG_UI_ENTITLEMENT:-}" ] || [ -n "${BORG_UI_LICENSE_KEY:-}" ]; then
+  lic=$(curl -fsS "$(api system/info)" "${auth[@]}" \
+         | python3 -c '
+import sys, json
+e = (json.load(sys.stdin).get("entitlement") or {})
+print("%s\t%s\t%s\t%s\t%s" % (e.get("status") or "none", e.get("entitlement_id") or "",
+                              "trial" if e.get("is_full_access") else "paid",
+                              e.get("instance_id") or "", e.get("expires_at") or "")) ' 2>/dev/null) \
+    || { echo "FATAL: could not read the current licensing state" >&2; exit 1; }
+  lic_status=$(printf %s "$lic" | cut -f1)
+  lic_entitlement=$(printf %s "$lic" | cut -f2)
+  lic_kind=$(printf %s "$lic" | cut -f3)
+  lic_instance=$(printf %s "$lic" | cut -f4)
+  lic_expires=$(printf %s "$lic" | cut -f5)
+  lic_desc="$lic_status"; [ "$lic_status" = "active" ] && lic_desc="active (${lic_kind})"
+  echo "Licensing: status=${lic_desc}, instance_id=${lic_instance}"
+
+  # Does the configured document belong to THIS instance? Anything else (missing,
+  # malformed, issued for a different instance) falls through to the key.
+  use_document=0
+  if [ -n "${BORG_UI_ENTITLEMENT:-}" ]; then
+    want=$(python3 -c '
+import json, os, sys
+d = json.loads(os.environ["BORG_UI_ENTITLEMENT"])
+if not isinstance(d.get("payload"), dict) or not d.get("signature"):
+    sys.exit("entitlement document needs a payload object and a signature")
+print(json.dumps({k: d[k] for k in ("payload", "signature", "key_id") if d.get(k) is not None}))') \
+      || { echo "FATAL: BORG_UI_ENTITLEMENT is not a valid entitlement document" >&2; exit 1; }
+    want_id=$(printf %s "$want" | python3 -c 'import sys,json; print(json.load(sys.stdin)["payload"].get("entitlement_id") or "")')
+    want_instance=$(printf %s "$want" | python3 -c 'import sys,json; print(json.load(sys.stdin)["payload"].get("instance_id") or "")')
+    want_expires=$(printf %s "$want" | python3 -c 'import sys,json; print(json.load(sys.stdin)["payload"].get("expires_at") or "")')
+
+    if [ -z "$lic_instance" ] || [ "$want_instance" = "$lic_instance" ]; then
+      use_document=1
+    elif [ -n "${BORG_UI_LICENSE_KEY:-}" ]; then
+      echo "Entitlement was issued for instance ${want_instance}, this one is ${lic_instance}" \
+           "— stale after a rebuild; falling back to the license key." >&2
+    else
+      echo "FATAL: entitlement was issued for instance ${want_instance}, this one is ${lic_instance}." >&2
+      echo "       Have a document issued for this instance, or set borgUI.licensing.licenseKey." >&2
+      exit 1
+    fi
+  fi
+
+  if [ "$use_document" = 1 ]; then
+    # Only import when there is something to gain. A live instance refreshes its
+    # entitlement on its own (new entitlement_id, later expiry on a renewal), so
+    # re-asserting a document kept in the release would roll that back.
+    reason=import
+    if [ "$lic_status" = "active" ] && [ -n "$want_id" ] && [ "$want_id" = "$lic_entitlement" ]; then
+      reason=same
+    elif [ "$lic_status" = "active" ] \
+         && [ "$(LIC_EXP="$lic_expires" WANT_EXP="$want_expires" python3 -c '
+import os
+from datetime import datetime, timezone
+
+def at(v):  # empty = no expiry = perpetual
+    if not v:
+        return datetime.max.replace(tzinfo=timezone.utc)
+    d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+try:
+    print("yes" if at(os.environ["WANT_EXP"]) > at(os.environ["LIC_EXP"]) else "no")
+except ValueError:
+    print("no")  # unparsable: the live entitlement is working, keep it')" != "yes" ]; then
+      reason=older
+    fi
+
+    if [ "$reason" = "same" ]; then
+      echo "Entitlement ${want_id} already active — nothing to import."
+    elif [ "$reason" = "older" ]; then
+      echo "Instance holds entitlement ${lic_entitlement:-(none)} expiring ${lic_expires:-never}," \
+           "not older than the configured document (${want_expires:-never}) — leaving it alone."
+    else
+      # Purely local (the server checks signature and instance_id), so a failure
+      # here is a broken document — fail the release, don't warn.
+      echo "Importing offline entitlement ${want_id:-(unnamed)} …"
+      curl -fsS -X POST "$(api system/licensing/import)" "${auth[@]}" -H "Content-Type: application/json" \
+        -d "${want}" >/dev/null \
+        || { echo "FATAL: entitlement import rejected (signed with an unknown key?)" >&2; exit 1; }
+      echo "Entitlement imported."
+    fi
+  elif [ "$lic_status" = "active" ] && [ "$lic_kind" = "paid" ]; then
+    echo "Instance already carries a paid license — leaving it alone."
+  else
+    # Depends on a third-party service being reachable, so a failure must not
+    # fail the release: the instance keeps whatever plan it has and the next
+    # reconcile retries.
+    echo "Activating license key against the activation service …"
+    if curl -fsS -X POST "$(api system/licensing/activate)" "${auth[@]}" -H "Content-Type: application/json" \
+         -d "$(python3 -c 'import json,os; print(json.dumps({"license_key": os.environ["BORG_UI_LICENSE_KEY"]}))')" >/dev/null
+    then
+      echo "License activated."
+      # The freshly issued entitlement is bound to the CURRENT instance_id, so a
+      # document kept in the release no longer matches it.
+      [ -n "${BORG_UI_ENTITLEMENT:-}" ] && \
+        echo "Re-export the entitlement (scripts/dump-entitlement.py) — the configured document is now stale."
+    else
+      echo "WARNING: license activation failed — leaving the current plan in place." >&2
+    fi
+  fi
 fi
 
 # --- 5) optional system SSH key import (the pods' key, staged on the server) --

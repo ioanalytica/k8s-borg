@@ -431,6 +431,41 @@ borgUI:
     ## activation service. Empty here = keep the key baked into the image.
     ## @param borgUI.licensing.activationPublicKey Override the entitlement-signing public key
     activationPublicKey: ""
+    ## Applying a license from the HelmRelease. The reconcile Job does it on every
+    ## install/upgrade (it already holds the admin PAT), so the license travels with
+    ## the release instead of being clicked into the UI once. Two independent ways in:
+    ##
+    ##   licenseKey  -> POST /system/licensing/activate. Needs egress to the
+    ##                  activation service. Applied only while the instance is
+    ##                  unlicensed, so upgrades never re-activate and never burn a seat.
+    ##   entitlement -> POST /system/licensing/import of a signed offline document.
+    ##                  No egress — this is the air-gapped path.
+    ##
+    ## The offline document is bound to the instance_id the server generates on its
+    ## FIRST boot, so it is inherently a second step: install, read the instance_id
+    ## (Settings > Licensing, or the reconcile Job log, which prints it), have the
+    ## document issued, then set it here and upgrade.
+    ##
+    ## Set both and they cover each other: the document is used as long as it matches
+    ## this instance, and once it doesn't — the database was wiped and the instance
+    ## came back with a new id — the key takes over and gets a fresh entitlement
+    ## issued. A stale document alone (no key) fails the reconcile rather than
+    ## silently leaving the instance on the community plan.
+    ##
+    ## Neither is re-applied without cause: an instance that already holds a paid
+    ## license is never re-activated, and a document is imported only when the
+    ## instance is unlicensed or the document expires later than what it holds — a
+    ## live instance renews its own entitlement, and re-asserting an older copy kept
+    ## in the release would roll that back.
+    licenseKey:
+      value: ""
+      existingSecret: ""
+      existingSecretKey: ""
+    entitlement:
+      ## @param borgUI.licensing.entitlement.existingSecret Secret holding the signed offline entitlement document (JSON: payload/signature/key_id)
+      existingSecret: ""
+      ## @param borgUI.licensing.entitlement.existingSecretKey Key in that Secret
+      existingSecretKey: "entitlement.json"
   service:
     ## @param borgUI.service.type Borg UI Service type
     type: ClusterIP

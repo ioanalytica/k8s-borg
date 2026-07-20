@@ -122,6 +122,23 @@ spec:
             - name: OIDC_DISABLE_LOCAL_AUTH
               value: {{ .Values.borgUI.oidc.disableLocalAuth | quote }}
             {{- end }}
+            # License: applied declaratively from the release. The offline
+            # entitlement wins over the key — an air-gapped install has no
+            # activation service to hand the key to.
+            {{- if .Values.borgUI.licensing.entitlement.existingSecret }}
+            - name: BORG_UI_ENTITLEMENT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.borgUI.licensing.entitlement.existingSecret | quote }}
+                  key: {{ .Values.borgUI.licensing.entitlement.existingSecretKey | quote }}
+            {{- end }}
+            {{- if or .Values.borgUI.licensing.licenseKey.value .Values.borgUI.licensing.licenseKey.existingSecret }}
+            - name: BORG_UI_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.borgUI.licensing.licenseKey.existingSecret | default (include "k8s-borg.secretName" .) }}
+                  key: {{ .Values.borgUI.licensing.licenseKey.existingSecretKey | default "BORG_UI_LICENSE_KEY" }}
+            {{- end }}
             # Cache backend (Redis + TTL): reconciled into the DB SystemSettings so
             # the HR is the source of truth and a UI Save can't drop back to
             # in-memory. REDIS_* let the reconciler assemble the redis_url.

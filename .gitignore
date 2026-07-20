@@ -10,3 +10,6 @@
 /ssh/
 # Local, environment-specific Flux manifests (real values) — never commit.
 *.local.yaml
+# Exported Borg UI license documents (scripts/dump-entitlement.py) — a signed
+# entitlement activates the license on any instance carrying its instance_id.
+entitlement*.json

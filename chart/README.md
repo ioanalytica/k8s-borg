@@ -109,6 +109,64 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines`, `redis` (archive-listing cache: `mode: internal` deploys a dedicated Redis pod that survives UI-pod rolls, or `external` points at an existing instance) |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 
+### Licensing (`borgUI.licensing`)
+
+Borg UI evaluates its plan from a signed entitlement in its own database. By
+default the server contacts `https://license.borgui.com` on startup and refreshes
+every 24h; the plan itself is then checked locally.
+
+Air-gapped installs turn the phone-home off:
+
+```yaml
+borgUI:
+  licensing:
+    startupSync: false
+    activationServiceUrl: ""
+```
+
+The license can travel with the release instead of being clicked into the UI —
+the reconcile Job applies it on every install/upgrade:
+
+```yaml
+# online: activate a key (only while the instance carries no paid license)
+borgUI.licensing.licenseKey.value: "…"        # or .existingSecret/.existingSecretKey
+
+# air-gapped: import an already-signed entitlement document, no egress
+borgUI.licensing.entitlement.existingSecret: "borgui-entitlement"
+```
+
+```bash
+kubectl create secret generic borgui-entitlement -n borg \
+  --from-file=entitlement.json=/path/to/entitlement.json
+```
+
+`scripts/dump-entitlement.py` exports the entitlement an already-licensed instance
+holds, in exactly that file format — useful both as a license backup and to seed
+the Secret above.
+
+The offline document is issued for the `instance_id` the server generates on its
+first boot, so it is a two-step process: install, read the `instance_id` (Settings
+> Licensing, or the reconcile Job log, which prints it), get the document, then
+set the Secret and upgrade.
+
+That `instance_id` lives only in the database, so wiping the database gives the
+instance a new identity and the stored document stops applying to it. Setting
+**both** values covers that: the document is used while it matches, and once it
+doesn't, the key — which is instance-independent — takes over and has a fresh
+entitlement issued. Re-export the document afterwards; the old one is stale. A
+stale document with no key configured fails the reconcile rather than quietly
+dropping the instance to the community plan.
+
+Nothing is re-applied without cause. An instance already holding a paid license is
+never re-activated (no seat is burned on an upgrade), and a document is imported
+only when the instance is unlicensed or the document outlives what it currently
+holds — a live instance renews its entitlement by itself, and re-asserting an older
+copy from the release would roll that back.
+
+The activation service may still count the old instance as holding the license, so
+deactivate a paid license (Settings > Licensing) before deleting an instance you
+intend to rebuild.
+
 ## Security posture
 
 The backup pods run **privileged** with `SYS_ADMIN` (node backups also mount the
