@@ -31,11 +31,19 @@ annotation_image() {
   ' "$CHART" | sed 's/.*://'
 }
 
-# values_tag REPOSITORY — the `tag:` belonging to a given `repository:` in
-# values.yaml. The repository lines are unique, so the first tag after one of
-# them is the right one.
+# values_tag REPOSITORY [FILE] — the `tag:` belonging to a given `repository:`
+# in values.yaml.
+#
+# Tracking the current repository rather than reading forward to the next `tag:`
+# matters: a block that carries no tag of its own must yield nothing, not the
+# tag of whatever block comes next. Reading forward would make the "agent image
+# tag is left to appVersion" assertion pass on the initImage's tag the moment
+# someone deletes the empty `tag: ""` line.
 values_tag() {
-  sed -n "\#repository: $1\$#,/tag:/p" "$VALUES" | sed -n 's/.*tag:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+  awk -v repo="$1" '
+    $1 == "repository:" { cur = $2 }
+    $1 == "tag:" && cur == repo { gsub(/"/, "", $2); print $2; exit }
+  ' "${2:-$VALUES}"
 }
 
 build_workflow() { cat "$BUILD_WF"; }

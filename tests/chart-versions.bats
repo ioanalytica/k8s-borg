@@ -24,6 +24,21 @@ setup() { load helpers/versions; }
   [ -n "$(values_tag ioanalytica/k8s-borg-ui)" ] || fail "no borgUI image tag in values.yaml"
 }
 
+@test "values_tag does not read a tag out of the next block" {
+  # A block with no tag of its own must yield nothing. Reading forward to the
+  # next `tag:` would make the agent-image assertion below pass against the
+  # initImage tag as soon as the empty `tag: ""` line is removed.
+  cat >"$BATS_TEST_TMPDIR/values.yaml" <<'YAML'
+image:
+  repository: ioanalytica/k8s-borg
+initImage:
+  repository: busybox
+  tag: "1.37"
+YAML
+  [ -z "$(values_tag ioanalytica/k8s-borg "$BATS_TEST_TMPDIR/values.yaml")" ]
+  [ "$(values_tag busybox "$BATS_TEST_TMPDIR/values.yaml")" = "1.37" ]
+}
+
 # --- UI image -----------------------------------------------------------------
 
 @test "values.yaml pins the UI image to the submodule's app version" {

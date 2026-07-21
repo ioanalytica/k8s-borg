@@ -35,7 +35,7 @@ jobs:
             # The UI app version comes from the pinned submodule, never from a
             # literal here — a hardcoded copy silently drifts on a bump, and the
             # chart would then reference an image tag that was never built.
-            echo "app_version=$(cat borg-ui/VERSION)"
+            echo "app_version=$(tr -d '[:space:]' < borg-ui/VERSION)"
           } >> "$GITHUB_OUTPUT"
 
   agent:
