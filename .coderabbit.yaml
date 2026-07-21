@@ -1,4 +1,8 @@
-# CodeRabbit configuration.
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration. The $schema line above is not decoration: unknown
+# keys are ignored silently, so a setting at the wrong nesting level looks
+# exactly like a working one. base_branches belongs under reviews.auto_review.
 #
 # NB: CodeRabbit reads this file from the HEAD branch of a pull request — the
 # branch under review — not from the base branch. Keeping it on develop is what
@@ -9,9 +13,11 @@
 language: en-US
 
 reviews:
-  # develop is the integration branch: master lags well behind it, so nearly
-  # every pull request here targets develop. Without this, CodeRabbit reviews
-  # only the default branch and skips them with "reviews are disabled for this
-  # base branch". The default branch stays covered implicitly.
-  base_branches:
-    - develop
+  auto_review:
+    # develop is the integration branch: master lags well behind it, so nearly
+    # every pull request here targets develop. Without this, CodeRabbit reviews
+    # only the default branch and skips them with "Auto reviews are disabled on
+    # base/target branches other than the default branch". The default branch
+    # stays covered implicitly.
+    base_branches:
+      - develop
