@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
       - id: pins
         run: |
           . borg-ui/docker/runtime-base.env
@@ -101,6 +102,10 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          # The release step gets its token through the action, and helm gets
+          # its own registry login — neither needs one left in .git/config.
+          persist-credentials: false
       - uses: azure/setup-helm@v5
       - name: Lint & package
         run: |
