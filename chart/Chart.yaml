@@ -32,7 +32,7 @@ annotations:
   licenses: Apache-2.0
   images: |
     - name: k8s-borg
-      image: ghcr.io/ioanalytica/k8s-borg:1.0.23
+      image: ghcr.io/ioanalytica/k8s-borg:1.1.1
     - name: k8s-borg-ui
       image: ghcr.io/ioanalytica/k8s-borg-ui:2.2.6
     - name: redis
