@@ -22,6 +22,27 @@ bats tests/borg-rc.bats               # a single file
 | `borg-wrapper.bats` | the `borg` gateway: borg1/borg2 dispatch, default-param and `--remote-path` injection, warning downgrade, stdout/stderr separation |
 | `borg2-wrapper.bats` | the `borg2` wrapper: always-borg2, modern exit codes, missing `/etc/borg-fuse.env` |
 | `borg-files-cache-flag.bats` | the S3-mounted gate for `--files-cache=mtime,size` (negative cases only — the positive one needs a real fuse.s3fs mount) |
+| `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, and the chart version follows `appVersion[-N]` |
+
+`chart-versions.bats` reads `borg-ui/VERSION`, so the submodule has to be
+checked out. Its extractors are plain sed/awk rather than `yq`, so the check
+needs no setup; the first test pins the extractors themselves, because one that
+quietly stops finding its value would make every later assertion compare `""`
+with `""` and pass.
+
+## How the wrappers are put under test
+
+The wrappers run straight from `docker/rootfs/`, unmodified. Two seams make that
+possible without installing anything into `/usr/local`:
+
+- `BORG_LIB_DIR` / `BORG_BIN_DIR` — where a wrapper looks for `borg-rc.sh` and
+  for the sibling `borg2`. Unset in the image, so production uses `/usr/local`.
+- `BORG1_BINARY` / `BORG2_BINARY` — already part of the wrappers; the tests point
+  them at a stub that records its argv and returns a chosen exit code.
+
+`tests/helpers/common.bash` holds the setup, the stub generator and the argv
+assertions. Every test starts from a clean environment: the wrappers read a lot
+of `BORG_*` variables, and a leaked value would silently change behaviour.
 
 ## End-to-end tests (`tests/e2e/`)
 

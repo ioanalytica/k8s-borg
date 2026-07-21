@@ -85,6 +85,21 @@ cluster:
 version: `ssh://` (server has borg installed, works with 1 and 2) or `sftp://`
 (plain SFTP target with no server-side borg — borg 2 only).
 
+## Versioning
+
+`appVersion` is the agent image version, and `image.tag` defaults to it — the
+agent image tag is never written down a second time. `version` is `appVersion`
+for a new agent release, and gains a `-N` suffix for chart-only changes on top
+of it (`1.0.23-1`, `1.0.23-2`, …).
+
+The UI image is a different lifecycle: `borgUI.image.tag` follows the pinned
+`borg-ui` submodule, whose `VERSION` file is the single source of truth for it.
+The `annotations.images` block in `Chart.yaml` restates all of this for chart
+scanners, so it has to be updated along with any bump.
+
+`tests/chart-versions.bats` enforces the whole set — a mismatch fails CI rather
+than shipping a chart that points at an image tag nobody built.
+
 ## Parameters
 
 Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
