@@ -2,22 +2,20 @@
 #
 # CodeRabbit configuration. The $schema line above is not decoration: unknown
 # keys are ignored silently, so a setting at the wrong nesting level looks
-# exactly like a working one. base_branches belongs under reviews.auto_review.
+# exactly like a working one.
 #
 # NB: CodeRabbit reads this file from the HEAD branch of a pull request — the
 # branch under review — not from the base branch. Keeping it on develop is what
 # makes branches cut from develop inherit it; a branch that already existed
 # before this file has to pick it up, or CodeRabbit falls back to the settings
 # in the CodeRabbit UI and skips the review.
+#
+# There is deliberately no reviews.auto_review.base_branches here. The setting
+# can only ADD branches to the default one ("Base branches (other than the
+# default branch) to review") — there is no way to exclude a branch. Since
+# develop is the default branch, it is reviewed implicitly and the setting would
+# be a no-op. master needs nothing either: it only ever gets fast-forwarded from
+# develop, so no pull request targets it and CodeRabbit never runs there. Should
+# release pull requests into master become a thing, add it here explicitly.
 
 language: en-US
-
-reviews:
-  auto_review:
-    # develop is the integration branch: master lags well behind it, so nearly
-    # every pull request here targets develop. Without this, CodeRabbit reviews
-    # only the default branch and skips them with "Auto reviews are disabled on
-    # base/target branches other than the default branch". The default branch
-    # stays covered implicitly.
-    base_branches:
-      - develop
