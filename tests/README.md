@@ -7,6 +7,17 @@ pull request.
 
 ```sh
 brew install shellcheck bats-core     # or: apt-get install shellcheck bats
+
+./run-tests.sh                        # all three layers, with a summary
+./run-tests.sh --quick                # lint + unit tests only, ~3s
+```
+
+`run-tests.sh` keeps going after a failing layer and reports every result at the
+end, so one command tells you everything that is broken. It refuses to run
+quietly without docker: end-to-end is a hard failure then, and `--quick` is how
+you ask for less. To drive a single layer directly:
+
+```sh
 ./tests/shellcheck.sh                 # lint every shell script in the repo
 bats tests/                           # unit tests (no docker, ~1s)
 bats tests/borg-rc.bats               # a single file

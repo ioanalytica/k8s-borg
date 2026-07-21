@@ -133,6 +133,19 @@ The server and its runtime base build the same way via
 `docker/docker-build-server.sh` and `docker/docker-build-runtime-base.sh`
 (build the runtime base first — the server is `FROM` it).
 
+## Test
+
+```sh
+./run-tests.sh            # lint + unit tests + end-to-end (needs docker)
+./run-tests.sh --quick    # lint + unit tests only, ~3 s
+```
+
+Three layers: `shellcheck` over every shell script, bats unit tests for the
+wrapper logic, and an end-to-end suite that runs the full repository lifecycle
+against real Borg repositories inside the agent image, once for Borg 1 and once
+for Borg 2. The same three run in CI on every push and pull request. See
+[`tests/README.md`](tests/README.md) for what each layer covers.
+
 ## Submodule
 
 `borg-ui` provides the agent and server source, pinned to a specific commit
