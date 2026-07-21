@@ -7,7 +7,7 @@ trap 'echo $( date ) Prune interrupted >&2; exit 2' INT TERM
 
 # Borg exit-code semantics (warning detection + combining), mode-agnostic.
 # shellcheck source=../lib/borg-rc.sh
-. /usr/local/lib/borg-rc.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
 
 info "Pruning repository ..."
 
@@ -16,9 +16,9 @@ KEEP_DAILY=${KEEP_DAILY:-7}
 KEEP_WEEKLY=${KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${KEEP_MONTHLY:-6}
 
-# prune/compact are named the same in borg1 and borg2; the repo comes from the
-# env for borg1 and from the borg2 wrapper's injected `-r $BORG_REPO` for borg2,
-# so no version branch and no positional repo are needed.
+# prune/compact are named the same in borg1 and borg2, and both majors read the
+# repo from BORG_REPO in the environment, so no version branch and no positional
+# repo are needed.
 borg prune                     \
     --verbose                  \
     --list                     \

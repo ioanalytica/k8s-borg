@@ -35,7 +35,7 @@ mount_rc=$?
 # A borg warning still mounts fine, so treat it as success (mode-agnostic; see
 # /usr/local/lib/borg-rc.sh). Only a real error is a mount failure.
 # shellcheck source=../lib/borg-rc.sh
-. /usr/local/lib/borg-rc.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
 if [ "$mount_rc" -ne 0 ] && ! borg_rc_is_warning "$mount_rc"; then
     echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} failed!"
 else

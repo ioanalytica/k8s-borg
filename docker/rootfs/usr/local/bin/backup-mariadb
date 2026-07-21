@@ -5,6 +5,7 @@
 # "dump | gzip"; the ERR trap maps every failure to rc>=2 (in the borg-ui agent
 # script contract rc 1 is only a non-fatal warning, which a dump failure is not).
 set -eo pipefail
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
 trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mariadb backup failed (rc=$ec)" >&2; exit "$ec"' ERR
 
 defaults_file=$1

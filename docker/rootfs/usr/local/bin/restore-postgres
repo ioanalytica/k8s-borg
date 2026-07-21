@@ -32,6 +32,8 @@ if [ ! -f "$DB_BACKUP_FILE" ]; then
 fi
 
 
+# DB is a positional placeholder in the credentials line, not used here.
+# shellcheck disable=SC2034
 while IFS=':' read -r HOST PORT DB USER PASS; do
   echo "In case you are prompted: $PASS"
   echo "Dropping database: ${database_name} ..."

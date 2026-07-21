@@ -3,6 +3,9 @@
 # borg-rc.sh — shared Borg exit-code semantics for the `borg`/`borg2` wrappers
 # and the standalone `borg-backup` / `borg-prune` / `borg-mount` scripts.
 # Sourced (never executed); defines functions only — no side effects, no output.
+# Callers source it as "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"; BORG_LIB_DIR
+# (and BORG_BIN_DIR for the borg->borg2 hand-off) let the wrappers run from a
+# checkout, e.g. under tests/. Unset in the image = the paths below.
 # Keeps the "what is a borg warning?" rule in ONE place instead of copy-pasted
 # per script (same spirit as borgui-common.sh).
 #

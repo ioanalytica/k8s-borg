@@ -7,7 +7,7 @@ trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
 
 # Borg exit-code semantics (warning detection + combining), mode-agnostic.
 # shellcheck source=../lib/borg-rc.sh
-. /usr/local/lib/borg-rc.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
 
 info "Starting backup ..."
 

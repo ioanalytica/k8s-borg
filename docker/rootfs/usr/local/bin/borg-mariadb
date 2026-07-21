@@ -11,9 +11,6 @@ fi
 
 shift || true
 
-xbase=${defaults_file##*/}
-instance_name=${xbase%.*}
-
 mariadb --defaults-file=$defaults_file "$@"
 
 # end

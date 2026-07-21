@@ -29,7 +29,7 @@ for arg in "$@"; do
   case "$arg" in
     --push)        PUSH=1; SUB_ARGS+=(--push) ;;
     --no-push)     PUSH=0; SUB_ARGS+=(--no-push) ;;
-    -y|--yes)      ASSUME_YES=1 ;;
+    -y|--yes)      ;;   # accepted as a no-op: this script never prompts
     *) echo "WARN: unknown argument '$arg' ignored" >&2 ;;
   esac
 done

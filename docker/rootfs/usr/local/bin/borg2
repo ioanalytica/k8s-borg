@@ -44,7 +44,7 @@ remote_args=()
 rc=$?
 
 # shellcheck source=../lib/borg-rc.sh
-. /usr/local/lib/borg-rc.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
 if borg_rc_is_warning "$rc" && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
   echo "borg2: warning (rc=$rc) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
   rc=0

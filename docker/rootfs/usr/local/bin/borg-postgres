@@ -14,9 +14,8 @@ shift || true
 # Open credentials on FD 3 so STDIN remains free for an SQL stream
 exec 3<"$credentials_file"
 
-xbase=${credentials_file##*/}
-instance_name=${xbase%.*}
-
+# DB/PASS are positional placeholders in the credentials line, not used here.
+# shellcheck disable=SC2034
 while IFS=':' read -r HOST PORT DB USER PASS <&3; do
   echo "Connecting to ${HOST}:${PORT} as user ${USER} …"
   export PGPASSFILE=$credentials_file

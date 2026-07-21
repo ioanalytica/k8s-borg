@@ -44,7 +44,7 @@
 # Delegate to the Borg 2 wrapper when this repo is Borg 2. exec (not run): borg2
 # does its own exit-code remap and SIGTERM handling, so nothing is left to do.
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  exec /usr/local/bin/borg2 "$@"
+  exec "${BORG_BIN_DIR:-/usr/local/bin}/borg2" "$@"
 fi
 
 # --remote-path: path to the borg executable on an ssh:// server. Injected when
@@ -57,7 +57,7 @@ remote_args=()
 rc=$?
 
 # shellcheck source=../lib/borg-rc.sh
-. /usr/local/lib/borg-rc.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
 if borg_rc_is_warning "$rc" && [ "${BORG_TREAT_WARNINGS_AS_ERRORS:-false}" != "true" ]; then
   echo "borg: warning (rc=$rc) treated as success (set BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate)" >&2
   rc=0

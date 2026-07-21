@@ -3,6 +3,7 @@
 # Fail (rc>=2) as soon as any instance dump fails — without set -e the loop would
 # hide a mid-run failure behind the last config's exit code.
 set -e
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
 trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; exit "$ec"' ERR
 
 shopt -s nullglob

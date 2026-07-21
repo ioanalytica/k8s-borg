@@ -1,0 +1,53 @@
+name: Lint & test
+
+on:
+  push:
+    branches: [develop, master]
+    tags: ['*']
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: ./tests/shellcheck.sh
+
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: recursive   # chart-versions.bats reads borg-ui/VERSION
+      - name: Install bats
+        # The suite uses `run --separate-stderr`, so bats must be >= 1.5.
+        # ubuntu-latest ships 1.10; the version is printed to make a future
+        # runner-image downgrade obvious in the log.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bats
+          bats --version
+      - run: bats --print-output-on-failure tests/
+
+  # End-to-end against real Borg repositories, inside the agent image. Slower
+  # than the jobs above (it builds the image), so it runs alongside them rather
+  # than gating them.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: recursive   # the agent Dockerfile builds from borg-ui/
+      - uses: docker/setup-buildx-action@v3.10.0
+      - name: Build the agent image
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          tags: k8s-borg:test
+          load: true
+          cache-from: type=gha,scope=k8s-borg-e2e
+          cache-to: type=gha,mode=max,scope=k8s-borg-e2e
+      - name: Run the suite for Borg 1 and Borg 2
+        run: SKIP_BUILD=1 ./tests/e2e/run.sh
