@@ -1,9 +1,10 @@
 # CodeRabbit configuration.
 #
-# NB: CodeRabbit reads this file from the BASE branch of a pull request, not
-# from the branch under review. It therefore has to live on develop for pull
-# requests targeting develop to be reviewed at all — adding it inside such a
-# pull request has no effect on that pull request.
+# NB: CodeRabbit reads this file from the HEAD branch of a pull request — the
+# branch under review — not from the base branch. Keeping it on develop is what
+# makes branches cut from develop inherit it; a branch that already existed
+# before this file has to pick it up, or CodeRabbit falls back to the settings
+# in the CodeRabbit UI and skips the review.
 
 language: en-US
 
