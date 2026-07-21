@@ -26,6 +26,10 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      # Every image job needs this one, so failing here stops the whole release
+      # instead of publishing images under a tag the chart does not carry.
+      - name: Tag must match the chart version
+        run: ./tests/check-release-tag.sh "$GITHUB_REF_NAME"
       - id: pins
         run: |
           . borg-ui/docker/runtime-base.env
@@ -107,6 +111,12 @@ jobs:
           # its own registry login — neither needs one left in .git/config.
           persist-credentials: false
       - uses: azure/setup-helm@v5
+      # This job does not depend on prep, so it needs the check of its own —
+      # and it is the one that would do the damage: package the old version and
+      # overwrite it in the registry.
+      - name: Tag must match the chart version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: ./tests/check-release-tag.sh "$GITHUB_REF_NAME"
       - name: Lint & package
         run: |
           mkdir -p "$RUNNER_TEMP/chart"

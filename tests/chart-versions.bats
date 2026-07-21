@@ -85,6 +85,26 @@ YAML
 
 # --- chart version ------------------------------------------------------------
 
+# --- the release-tag guard ----------------------------------------------------
+
+@test "check-release-tag accepts a tag equal to the chart version" {
+  run ./tests/check-release-tag.sh "$(chart_version)"
+  [ "$status" -eq 0 ]
+}
+
+@test "check-release-tag rejects a tag the chart does not carry" {
+  # Exactly the 1.1.2 case: a release tag ahead of chart/Chart.yaml, which used
+  # to package and republish the older version instead of failing.
+  run ./tests/check-release-tag.sh "9.9.9-not-a-release"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"does not match"* ]]
+}
+
+@test "check-release-tag without an argument is a usage error" {
+  run ./tests/check-release-tag.sh
+  [ "$status" -eq 2 ]
+}
+
 @test "the chart version is the appVersion, optionally with a -N revision" {
   # Chart-only changes get a -N suffix (1.0.23-1, 1.0.23-2, …); a new appVersion
   # resets to the bare number.
