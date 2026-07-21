@@ -4,6 +4,7 @@
 !.gitmodules
 !.dockerignore
 !.github
+!.coderabbit.yaml
 *.retry
 # Local SSH test keys at the repo root only — must NOT shadow rootfs paths like
 # docker/rootfs/etc/ssh/, hence the leading slash.
