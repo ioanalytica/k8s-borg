@@ -498,6 +498,10 @@ server-side; the password matches the server's INITIAL_ADMIN_PASSWORD.
   value: {{ .Values.borg.backupMaintenance.checkMaxDuration | quote }}
 - name: BORG_PLAN_CHECK_EXTRA_FLAGS
   value: {{ .Values.borg.backupMaintenance.checkExtraFlags | quote }}
+{{- if .Values.borg.planCustomFlags }}
+- name: BORG_PLAN_CUSTOM_FLAGS
+  value: {{ .Values.borg.planCustomFlags | quote }}
+{{- end }}
 {{- end -}}
 
 {{/*

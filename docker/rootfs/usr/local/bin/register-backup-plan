@@ -34,6 +34,10 @@
 #                             (default false; separate from the check-schedule)
 #   BORG_PLAN_CHECK_MAX_DURATION  optional; post-backup check budget in s (default 3600)
 #   BORG_PLAN_CHECK_EXTRA_FLAGS   optional; extra flags for the post-backup check
+#   BORG_PLAN_CUSTOM_FLAGS    optional; extra `borg create` flags stored as the
+#                             plan's custom_flags (e.g. "--filter AME --list
+#                             --exclude-caches"). The files-cache flag below is
+#                             appended automatically.
 #   BORG_PLAN_PRE_AGENT_SCRIPTS   optional; space-separated agent-script NAMES to
 #                             attach as pre-backup hooks (agent repos only). The
 #                             agent resolves each name against its own allow-list
@@ -120,12 +124,13 @@ print(m[0]["id"] if m else "")') \
   || borgui_die "could not list backup plans"
 
 # --- build the payload (parse pattern files -> source_directories/excludes) ---
-# Match on mtime+size for the agent's create when an S3 bucket is actually mounted
+# Operator-provided create flags first, then the files-cache mode: match on
+# mtime+size for the agent's create when an S3 bucket is actually mounted
 # (s3fs inodes are unstable → borg's default re-downloads the whole bucket each
 # run). Empty otherwise → borg's default. See borg-files-cache-flag.
-plan_custom_flags=""
+plan_custom_flags="${BORG_PLAN_CUSTOM_FLAGS:-}"
 fc_mode="$(borg-files-cache-flag)"
-[ -n "$fc_mode" ] && plan_custom_flags="--files-cache=$fc_mode"
+[ -n "$fc_mode" ] && plan_custom_flags="${plan_custom_flags:+${plan_custom_flags} }--files-cache=$fc_mode"
 
 if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              ARCHIVE_TEMPLATE="$BORG_ARCHIVE_NAME_TEMPLATE" SKIP_MISSING="$BORG_PLAN_SKIP_MISSING_SOURCES" \

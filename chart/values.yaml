@@ -72,6 +72,11 @@ borg:
   ## @param borg.defaultParams Extra params injected into every borg call by the borg/borg2 wrapper.
   ## Mapped to BORG1_DEFAULT_PARAMS or BORG2_DEFAULT_PARAMS depending on borg.version above. Empty = none.
   defaultParams: ""
+  ## @param borg.planCustomFlags Extra `borg create` flags stored on every registered backup plan
+  ## (register-backup-plan writes them as the plan's custom_flags). Create-only — unlike defaultParams
+  ## these would be invalid on other subcommands. e.g. "--filter AME --list --exclude-caches".
+  ## NB: the agent's create already passes --stats; --list logs one line per file into the job log.
+  planCustomFlags: ""
   ## @param borg.remotePath Path to the borg executable on the remote (ssh:// server). When set, the
   ## borg/borg2 wrapper injects `--remote-path=<value>` into every call (both versions). Empty = none.
   ## e.g. "borg-1.4" or "borg2" when the server's borg isn't the default `borg` on PATH.
