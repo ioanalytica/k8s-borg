@@ -12,6 +12,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHART="$REPO_ROOT/chart/Chart.yaml"
 VALUES="$REPO_ROOT/chart/values.yaml"
 BUILD_WF="$REPO_ROOT/.github/workflows/build.yml"
+# The runtime-base image tag is computed from the version facts in the submodule's
+# env file (runtime-base-tag.sh) — both docker/docker-build-*.sh and build.yml call
+# it. The submodule's own Dockerfile repeats the result as the ARG BASE_IMAGE
+# default (for a script-less `docker build`), and that copy is what can drift.
+RUNTIME_TAG_SH="$REPO_ROOT/borg-ui/docker/runtime-base-tag.sh"
+RUNTIME_ENV="$REPO_ROOT/borg-ui/docker/runtime-base.env"
+SUBMODULE_DOCKERFILE="$REPO_ROOT/borg-ui/Dockerfile"
 
 # The version of the UI application, from the pinned submodule. This is the one
 # source of truth: the server image is built from this commit, so every place
@@ -47,5 +54,27 @@ values_tag() {
 }
 
 build_workflow() { cat "$BUILD_WF"; }
+
+# The authoritative runtime-base tag: computed from the version facts by the same
+# helper the build scripts and CI call.
+runtime_base_tag() {
+  bash "$RUNTIME_TAG_SH"
+}
+
+# The tag baked into the submodule Dockerfile's `ARG BASE_IMAGE=` default — the
+# part after the image name's colon.
+server_base_image_tag() {
+  sed -n 's/^ARG BASE_IMAGE=.*:\(runtime-[^"[:space:]]*\).*/\1/p' "$SUBMODULE_DOCKERFILE" | head -1
+}
+
+# The single-source Python version.
+python_version_truth() {
+  sed -n 's/^PYTHON_VERSION=\(.*\)/\1/p' "$RUNTIME_ENV" | head -1
+}
+
+# The ARG PYTHON_VERSION default baked into a Dockerfile (empty if none).
+dockerfile_python_arg() {
+  sed -n 's/^ARG PYTHON_VERSION=\(.*\)/\1/p' "$REPO_ROOT/$1" | head -1
+}
 
 fail() { printf '%s\n' "$*" >&2; return 1; }

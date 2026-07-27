@@ -33,7 +33,12 @@
 #
 # The versions come from the borg-ui manifest, so a Borg bump still happens in
 # exactly one place, in borg-ui, and this image follows.
-FROM python:3.12-alpine AS borg-builder
+#
+# Python tracks borg-ui/docker/runtime-base.env, same as the server image, kept
+# in step by a guard test.
+ARG PYTHON_VERSION=3.12
+
+FROM python:${PYTHON_VERSION}-alpine AS borg-builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
@@ -48,13 +53,13 @@ RUN set -eu; \
     echo "compiling Borg ${BORG1_VERSION} and ${BORG2_VERSION}"; \
     python -m venv /opt/borg-ui-agent/borg1/venv; \
     /opt/borg-ui-agent/borg1/venv/bin/pip install --no-cache-dir -q \
-        pyfuse3 "borgbackup[fuse]==${BORG1_VERSION}"; \
+        pyfuse3 "borgbackup==${BORG1_VERSION}"; \
     python -m venv /opt/borg-ui-agent/borg2/venv; \
     /opt/borg-ui-agent/borg2/venv/bin/pip install --no-cache-dir -q --pre \
         "borgbackup==${BORG2_VERSION}" "borgstore[rclone,sftp,rest,s3]" mfusepy
 
 # --- agent image -------------------------------------------------------------
-FROM python:3.12-alpine
+FROM python:${PYTHON_VERSION}-alpine
 
 # `fuse` (the FUSE 2 library) is what mfusepy loads for `borg2 mount`; Alpine
 # already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs-fuse

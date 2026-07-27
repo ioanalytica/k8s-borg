@@ -114,8 +114,7 @@ Server-provided flags override them (borg's argparse lets the last `--remote-pat
 | `borg-ui/` | Submodule → `karanhudia/borg-ui` (agent + server source; pinned commit) |
 | `docker/Dockerfile` | Agent/backup image (build context = repo root) |
 | `docker/rootfs/` | Files copied into the image: `run.sh` (mode dispatch), `run-agent.sh` (enroll + agent), and the `borg-*` / `backup-*` / `restore-*` tools |
-| `docker/Dockerfile-runtime-base`, `docker/Dockerfile-server` | Self-built slim runtime base + hermetic Borg UI **server** image |
-| `docker/docker-build.sh`, `docker-build-runtime-base.sh`, `docker-build-server.sh` | Build helpers (`--push` / multi-arch to GHCR) |
+| `docker/docker-build.sh`, `docker-build-runtime-base.sh`, `docker-build-server.sh` | Build helpers (`--push` / multi-arch to GHCR). The runtime-base and **server** images build directly from the submodule's `borg-ui/Dockerfile.runtime-base` and `borg-ui/Dockerfile` — no fork copy of the recipe — under our own tag/registry via `--build-arg` / `-t` / `--label` |
 | `.github/workflows/` | Tag-triggered multi-arch build → GHCR; daily Trivy scan |
 | `install.sh` | Upstream Borg UI VM/systemd installer (unused by the container build) |
 

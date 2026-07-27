@@ -8,7 +8,7 @@ place, in borg-ui, and the pod agent follows.
 
 Output is shell-eval'able:
 
-    BORG1_VERSION=1.4.4
+    BORG1_VERSION=1.4.5
     BORG2_VERSION=2.0.0b21
 """
 

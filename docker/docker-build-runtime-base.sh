@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# docker-build-runtime-base.sh — build our own Borg UI runtime base
-# (versions tracked from upstream's docker/runtime-base.env) from
-# Dockerfile-runtime-base.
+# docker-build-runtime-base.sh — build our runtime base from the submodule's
+# borg-ui/Dockerfile.runtime-base (no fork copy of the recipe), versions from
+# borg-ui/docker/runtime-base.env, published under our own tag.
 #   ->  ghcr.io/ioanalytica/k8s-borg-ui-runtime-base
 #
 # Usage:
@@ -16,12 +16,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUB="$(cd "$ROOT/.." && pwd)/borg-ui"   # submodule lives at the repo root, one level above docker/
 IMAGE="ghcr.io/ioanalytica/k8s-borg-ui-runtime-base"
-# Adopt upstream's EXACT pins (borg1/borg2 + tag) from the submodule, so we stay
-# in lockstep and a future upstream PR carries no version noise.
+# All version facts come from the submodule's runtime-base.env (single source);
+# the tag is computed from them by runtime-base-tag.sh, never stored.
 # shellcheck disable=SC1091
-source "$SUB/docker/runtime-base.env"   # BORG1_VERSION, BORG2_VERSION, BORG_RUNTIME_BASE_TAG
-BORGSTORE_VERSION="${BORGSTORE_VERSION:-0.4.1}"   # upstream hardcodes this in Dockerfile.runtime-base
-TAG="${IMAGE}:${BORG_RUNTIME_BASE_TAG}"
+source "$SUB/docker/runtime-base.env"   # BORG1/2_VERSION, BORGSTORE_VERSION, PYTHON_VERSION
+TAG="${IMAGE}:$("$SUB/docker/runtime-base-tag.sh")"
 PUSH="${PUSH:-0}"
 SUB_ARGS=()
 for arg in "$@"; do
@@ -37,24 +36,29 @@ echo "▶ runtime base build"
 echo "   borg1 : $BORG1_VERSION"
 echo "   borg2 : $BORG2_VERSION"
 echo "   store : $BORGSTORE_VERSION"
+echo "   python: $PYTHON_VERSION"
 echo "   tag   : $TAG"
 echo "   push  : $PUSH"
 
-# Dockerfile-runtime-base has no COPY — build with an empty context so nothing
-# is shipped to the daemon.
+# The runtime-base Dockerfile has no COPY — build with an empty context so
+# nothing is shipped to the daemon.
 CTX="$(mktemp -d)"
 trap 'rm -rf "$CTX"' EXIT
 
+# Version args from the truth file; the source label overrides the submodule's
+# upstream label so the published image is attributed to this fork.
 BUILD_ARGS=(
   --build-arg "BORG1_VERSION=${BORG1_VERSION}"
   --build-arg "BORG2_VERSION=${BORG2_VERSION}"
   --build-arg "BORGSTORE_VERSION=${BORGSTORE_VERSION}"
+  --build-arg "PYTHON_VERSION=${PYTHON_VERSION}"
+  --label "org.opencontainers.image.source=https://github.com/ioanalytica/k8s-borg"
 )
 
 if [ "$PUSH" = "1" ]; then
   echo "▶ multi-arch build + push …"
   docker buildx build --platform linux/amd64,linux/arm64 \
-    -f "$ROOT/Dockerfile-runtime-base" \
+    -f "$SUB/Dockerfile.runtime-base" \
     "${BUILD_ARGS[@]}" \
     -t "$TAG" --push \
     "$CTX"
@@ -64,7 +68,7 @@ fi
 
 echo "▶ local build (host arch, --load) …"
 docker buildx build \
-  -f "$ROOT/Dockerfile-runtime-base" \
+  -f "$SUB/Dockerfile.runtime-base" \
   "${BUILD_ARGS[@]}" \
   -t "$TAG" --load \
   "$CTX"

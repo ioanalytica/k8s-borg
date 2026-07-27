@@ -20,6 +20,8 @@ jobs:
       runtime_tag: ${{ steps.pins.outputs.tag }}
       borg1: ${{ steps.pins.outputs.borg1 }}
       borg2: ${{ steps.pins.outputs.borg2 }}
+      borgstore: ${{ steps.pins.outputs.borgstore }}
+      python: ${{ steps.pins.outputs.python }}
       app_version: ${{ steps.pins.outputs.app_version }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -34,9 +36,11 @@ jobs:
         run: |
           . borg-ui/docker/runtime-base.env
           {
-            echo "tag=$BORG_RUNTIME_BASE_TAG"
+            echo "tag=$(./borg-ui/docker/runtime-base-tag.sh)"
             echo "borg1=$BORG1_VERSION"
             echo "borg2=$BORG2_VERSION"
+            echo "borgstore=$BORGSTORE_VERSION"
+            echo "python=$PYTHON_VERSION"
             # The UI app version comes from the pinned submodule, never from a
             # literal here — a hardcoded copy silently drifts on a bump, and the
             # chart would then reference an image tag that was never built.
@@ -70,11 +74,12 @@ jobs:
     with:
       image: k8s-borg-ui-runtime-base
       context: EMPTY
-      file: ./docker/Dockerfile-runtime-base
+      file: ./borg-ui/Dockerfile.runtime-base
       build-args: |
         BORG1_VERSION=${{ needs.prep.outputs.borg1 }}
         BORG2_VERSION=${{ needs.prep.outputs.borg2 }}
-        BORGSTORE_VERSION=0.4.1
+        BORGSTORE_VERSION=${{ needs.prep.outputs.borgstore }}
+        PYTHON_VERSION=${{ needs.prep.outputs.python }}
       tags: |
         type=raw,value=${{ needs.prep.outputs.runtime_tag }}
         type=ref,event=branch
@@ -90,10 +95,11 @@ jobs:
     with:
       image: k8s-borg-ui
       context: borg-ui
-      file: ./docker/Dockerfile-server
+      file: ./borg-ui/Dockerfile
       build-args: |
         BASE_IMAGE=ghcr.io/ioanalytica/k8s-borg-ui-runtime-base:${{ needs.prep.outputs.runtime_tag }}
         APP_VERSION=${{ needs.prep.outputs.app_version }}
+        PYTHON_VERSION=${{ needs.prep.outputs.python }}
       tags: |
         type=raw,value=${{ needs.prep.outputs.app_version }}
         type=ref,event=branch

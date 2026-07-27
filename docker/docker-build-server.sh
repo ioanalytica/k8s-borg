@@ -4,8 +4,9 @@
 # pinned borg-ui submodule (same commit as the agent → server/agent lockstep).
 #   ->  ghcr.io/ioanalytica/k8s-borg-ui
 #
-# The frontend is built INSIDE Dockerfile-server (no host npm, no staged
-# artifact). FROM our own runtime base — build that first:
+# Built from the submodule's borg-ui/Dockerfile (no fork copy of the recipe),
+# under our own tag. The frontend is built INSIDE that Dockerfile (no host npm,
+# no staged artifact). FROM our own runtime base — build that first:
 #   ./docker-build-runtime-base.sh
 #
 # Usage:
@@ -19,10 +20,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUB="$(cd "$ROOT/.." && pwd)/borg-ui"   # submodule lives at the repo root, one level above docker/
 IMAGE="ghcr.io/ioanalytica/k8s-borg-ui"
-# Base tag tracks upstream's EXACT pin from the submodule (server+base lockstep).
+# The base tag is computed from the submodule's runtime-base.env (single source),
+# so server and base stay in lockstep without a stored tag to drift.
 # shellcheck disable=SC1091
-source "$SUB/docker/runtime-base.env"   # BORG_RUNTIME_BASE_TAG
-BASE_IMAGE="${BASE_IMAGE:-ghcr.io/ioanalytica/k8s-borg-ui-runtime-base:${BORG_RUNTIME_BASE_TAG}}"
+source "$SUB/docker/runtime-base.env"   # PYTHON_VERSION (+ versions for the tag helper)
+BASE_IMAGE="${BASE_IMAGE:-ghcr.io/ioanalytica/k8s-borg-ui-runtime-base:$("$SUB/docker/runtime-base-tag.sh")}"
 PUSH="${PUSH:-0}"
 SUB_ARGS=()
 for arg in "$@"; do
@@ -48,9 +50,13 @@ echo "   image tag        : $TAG"
 echo "   push             : $PUSH"
 
 COMMON=(
-  -f "$ROOT/Dockerfile-server"
+  -f "$SUB/Dockerfile"
   --build-arg "BASE_IMAGE=${BASE_IMAGE}"
   --build-arg "APP_VERSION=${APP_VERSION}"
+  --build-arg "PYTHON_VERSION=${PYTHON_VERSION}"
+  # Override the submodule's upstream labels so the published image is ours.
+  --label "org.opencontainers.image.source=https://github.com/ioanalytica/k8s-borg"
+  --label "org.opencontainers.image.title=k8s-borg-ui"
   -t "$TAG"
 )
 
