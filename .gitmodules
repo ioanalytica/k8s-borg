@@ -1,4 +1,4 @@
 [submodule "borg-ui"]
 	path = borg-ui
 	url = git@github.com:ioanalytica/borg-ui.git
-	branch = io/integration
+	branch = feat/agent-install-version-parity
