@@ -1,8 +1,8 @@
 # Version Single Source of Truth
 
-Status: target picture. Concerns the k8s-borg build pipeline (`docker/`) and how
-it consumes the `borg-ui` submodule. Some steps land as upstream-bound changes in
-`borg-ui`; those are marked.
+Status: implemented (2026-07-27). Concerns the k8s-borg build pipeline (`docker/`)
+and how it consumes the `borg-ui` submodule. Some steps landed as upstream-bound
+changes in `borg-ui`; those are marked.
 
 ## Problem
 
@@ -153,26 +153,28 @@ agreement. Extending the guards already in place:
 
 ## Migration order
 
-Each step leaves the tree buildable; nothing is a flag day.
+Each step left the tree buildable; nothing was a flag day. All are done:
 
-1. **Python 3.12 fix** in `borg-ui/Dockerfile` (done — the submodule recipe would
-   not otherwise build) so the copies can be dropped without regressing.
-2. **Drop the copies**; rewire `docker/docker-build-*.sh` onto the submodule
-   Dockerfiles with `--build-arg` / `-t` / `--label`. Solves the acute tag/recipe
-   sprawl first.
-3. **Versions file + computed tag**: add `PYTHON_VERSION` / `RUNTIME_BASE_REVISION`,
-   remove the stored tag, compute it in the shared helper.
-4. **Parametrize** the Dockerfile ARGs and flip the refresh script to read the file.
-5. **Tests** derive from the file; add the two new guards.
+1. **Python 3.12 fix** in `borg-ui/Dockerfile` — the submodule recipe would not
+   otherwise build.
+2. **Dropped the copies**; rewired `docker/docker-build-*.sh` and `build.yml` onto
+   the submodule Dockerfiles with `--build-arg` / `-t` / `--label`.
+3. **Versions file + computed tag**: added `PYTHON_VERSION` / `RUNTIME_BASE_REVISION`,
+   removed the stored tag, compute it in the shared helper.
+4. **Parametrized** the Dockerfile ARGs and flipped the refresh script to read the
+   file (it also resets the revision to 1 on a version bump).
+5. **Tests** derive from the file; the guards are in place.
 
-## Open decisions
+## Decisions
 
-- **Where the shared tag helper lives.** `docker/borg-versions.py` already reads the
-  manifest and emits shell; extending it to emit the tag keeps one implementation,
-  but the build scripts are bash and could compute it inline from the sourced file.
-- **Whether upstream wants `PYTHON_VERSION` parametrized.** The 3.12 literal fix is
-  unarguable; the ARG indirection is a fork convenience that may or may not suit an
-  upstream PR.
+- **The shared tag helper lives in `borg-ui/docker/runtime-base-tag.sh`** — beside
+  the versions file it reads, callable by the build scripts, `build.yml`, the
+  submodule's own workflows, and the guard tests. `borg-versions.py` was not
+  extended: it reads the manifest, not the env, and the revision is not in the
+  manifest.
+- **`PYTHON_VERSION` is parametrized.** The 3.12 literal fix and the ARG
+  indirection both landed; whether an eventual upstream PR keeps the indirection
+  is for that PR to weigh.
 
 ## Non-goals
 
