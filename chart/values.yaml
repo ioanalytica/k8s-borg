@@ -366,7 +366,7 @@ borgUI:
     ## @param borgUI.image.repository Borg UI server image repository
     repository: ioanalytica/k8s-borg-ui
     ## @param borgUI.image.tag Borg UI server image tag
-    tag: "2.2.6"
+    tag: "2.3.0-alpha.1"
     ## @param borgUI.image.pullPolicy Borg UI server image pull policy
     pullPolicy: IfNotPresent
   ## Startup budget for the database upgrade the entrypoint runs before serving.
