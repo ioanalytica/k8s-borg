@@ -10,10 +10,22 @@ env:
   OWNER: ioanalytica
 
 jobs:
+  # Green tests are a precondition for publishing, not a race against it. These
+  # used to be two parallel workflows on the same trigger, and Build & push is
+  # the faster one — on 2026-08-19 a tag push published images while the e2e
+  # suite was busy failing that same commit, and pullPolicy Always pulls such
+  # an image into a cluster on the next pod restart. Everything below that
+  # publishes now sits downstream of this job.
+  gate:
+    uses: ./.github/workflows/lint-test.yml
+    permissions:
+      contents: read
+
   # Read the borg version pins once and expose them to the image builds.
   # Images are built on TAG pushes only (branch pushes just lint/package the
   # chart below); gate prep and every image job on refs/tags/*.
   prep:
+    needs: gate
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     outputs:
@@ -106,6 +118,9 @@ jobs:
         type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
   chart:
+    # Publishes on master/tags and would overwrite the chart in the registry —
+    # it waits for the gate like the image jobs do.
+    needs: gate
     runs-on: ubuntu-latest
     permissions:
       contents: write        # create GitHub Releases on tags

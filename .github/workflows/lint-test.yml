@@ -1,10 +1,13 @@
 name: Lint & test
 
+# Standalone on pull requests; pushes run it as the `gate` job inside
+# Build & push (workflow_call). That ordering is the point: the two used to be
+# parallel workflows on the same trigger, so images published while the tests
+# that would have failed them were still running. It also means nothing runs
+# twice on the same push.
 on:
-  push:
-    branches: [develop, master]
-    tags: ['*']
   pull_request:
+  workflow_call:
 
 # Nothing here writes to the repository or the registry — the images this
 # workflow builds stay on the runner.
