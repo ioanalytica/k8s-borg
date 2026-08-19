@@ -1,11 +1,13 @@
 name: Lint & test
 
-# Standalone on pull requests; pushes run it as the `gate` job inside
-# Build & push (workflow_call). That ordering is the point: the two used to be
-# parallel workflows on the same trigger, so images published while the tests
-# that would have failed them were still running. It also means nothing runs
-# twice on the same push.
+# Standalone on branch pushes and pull requests. Tag pushes run it as the
+# `gate` job inside Build & push (workflow_call) instead — that ordering is the
+# point: the two used to be parallel workflows on the same trigger, so images
+# published while the tests that would have failed them were still running.
+# Tags are deliberately absent here, or a release would run the suite twice.
 on:
+  push:
+    branches: [develop, master]
   pull_request:
   workflow_call:
 
@@ -15,6 +17,15 @@ permissions:
   contents: read
 
 jobs:
+  chart-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@v5
+      - run: helm lint ./chart
+
   shellcheck:
     runs-on: ubuntu-latest
     steps:

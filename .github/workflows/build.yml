@@ -1,8 +1,10 @@
 name: Build & push
 
+# Release-tag pushes only. Branch pushes and pull requests are Lint & test's
+# business; nothing here validates — everything here publishes, and the tag is
+# what names the artifacts.
 on:
   push:
-    branches: [develop, master]
     tags: ['*']
 
 env:
@@ -21,9 +23,10 @@ jobs:
     permissions:
       contents: read
 
-  # Read the borg version pins once and expose them to the image builds.
-  # Images are built on TAG pushes only (branch pushes just lint/package the
-  # chart below); gate prep and every image job on refs/tags/*.
+  # Read the borg version pins once and expose them to the image builds. The
+  # workflow only triggers on tags; the per-job refs/tags guards stay anyway,
+  # so a future trigger addition cannot quietly turn branch pushes into
+  # releases.
   prep:
     needs: gate
     runs-on: ubuntu-latest
