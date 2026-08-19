@@ -17,13 +17,21 @@ KEEP_WEEKLY=${KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${KEEP_MONTHLY:-6}
 
 # prune/compact are named the same in borg1 and borg2, and both majors read the
-# repo from BORG_REPO in the environment, so no version branch and no positional
-# repo are needed.
+# repo from BORG_REPO in the environment, so no positional repo is needed.
+# borg 2.0.0b22 removed --keep-within (and --keep-last) in favour of --keep,
+# which takes the same interval; borg 1 has no --keep. This is the one prune
+# flag the two majors spell differently.
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  keep_recent=(--keep 24H)
+else
+  keep_recent=(--keep-within 24H)
+fi
+
 borg prune                     \
     --verbose                  \
     --list                     \
     --show-rc                  \
-    --keep-within   24H              \
+    "${keep_recent[@]}"        \
     --keep-daily    ${KEEP_DAILY}    \
     --keep-weekly   ${KEEP_WEEKLY}   \
     --keep-monthly  ${KEEP_MONTHLY}  \

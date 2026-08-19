@@ -89,12 +89,21 @@ backup_exit=$?
 info "Pruning repository ..."
 
 # prune/compact: same command name in borg1/borg2; repo from BORG_REPO env in
-# both (borg2 rejects a positional repo), so no version branch — just omit it.
+# both (borg2 rejects a positional repo), so it is just omitted.
+# borg 2.0.0b22 removed --keep-within (and --keep-last) in favour of --keep,
+# which takes the same interval; borg 1 has no --keep. This is the one prune
+# flag the two majors spell differently.
+if [ "${BORG_VERSION:-1}" = "2" ]; then
+  keep_recent=(--keep 24H)
+else
+  keep_recent=(--keep-within 24H)
+fi
+
 borg prune                     \
     --verbose                  \
     --list                     \
     --show-rc                  \
-    --keep-within   24H              \
+    "${keep_recent[@]}"        \
     --keep-daily    ${KEEP_DAILY}    \
     --keep-weekly   ${KEEP_WEEKLY}   \
     --keep-monthly  ${KEEP_MONTHLY}  \

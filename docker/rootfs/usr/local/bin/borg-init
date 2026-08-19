@@ -12,12 +12,36 @@
 # NB: no `set -e` — we inspect borg's status ourselves and normalise it.
 set -uo pipefail
 
-# borg2 renamed `init` to `repo-create` and uses different encryption-mode names
-# (repokey-blake2 is borg1-only; borg2's recommended default is repokey-aes-ocb).
-# Pick both by BORG_VERSION; `borg` dispatches to the right binary, and both
-# majors take the repo from BORG_REPO. BORG_ENCRYPTION overrides the default.
+# borg2 renamed `init` to `repo-create` and names its encryption modes
+# differently (repokey-blake2 is borg1-only; borg2's recommended default is
+# repokey-aes-ocb). Pick both by BORG_VERSION; `borg` dispatches to the right
+# binary, and both majors take the repo from BORG_REPO. BORG_ENCRYPTION
+# overrides the default in either case.
+#
+# borg 2.0.0b22 then split repo-create's single --encryption value into the
+# cipher, where the key is stored (--key-location) and the id hash. BORG_ENCRYPTION
+# keeps naming the mode the combined way, so it is translated here.
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  init_cmd=(repo-create --encryption "${BORG_ENCRYPTION:-repokey-aes-ocb}")
+  mode="${BORG_ENCRYPTION:-repokey-aes-ocb}"
+  case "$mode" in
+    repokey-aes-ocb)
+      enc=(--encryption aes256-ocb --key-location repokey) ;;
+    repokey-chacha20-poly1305)
+      enc=(--encryption chacha20-poly1305 --key-location repokey) ;;
+    keyfile-aes-ocb)
+      enc=(--encryption aes256-ocb --key-location keyfile) ;;
+    keyfile-chacha20-poly1305)
+      enc=(--encryption chacha20-poly1305 --key-location keyfile) ;;
+    # 'none' has no key, and 'authenticated' keeps borg's default location.
+    authenticated | none)
+      enc=(--encryption "$mode") ;;
+    *)
+      echo "BORG_ENCRYPTION=$mode is not a Borg 2 mode (expected repokey-aes-ocb," >&2
+      echo "repokey-chacha20-poly1305, keyfile-aes-ocb, keyfile-chacha20-poly1305," >&2
+      echo "authenticated or none)." >&2
+      exit 1 ;;
+  esac
+  init_cmd=(repo-create "${enc[@]}")
 else
   init_cmd=(init --encryption="${BORG_ENCRYPTION:-repokey-blake2}")
 fi
@@ -28,6 +52,15 @@ if out=$(borg "${init_cmd[@]}" 2>&1); then
 elif printf '%s' "$out" | grep -qi 'already exist'; then
   echo "Repository already exists — skipping init."
   exit 0
+elif printf '%s' "$out" | grep -qiE '^(usage|error): |unrecognized arguments'; then
+  # borg rejected the command line, so it never reached the repository. Saying
+  # "cannot be accessed" here sends the reader after storage, credentials and
+  # the network for a fault that is entirely on this side — as a borg version
+  # bump that changes an option's spelling reliably does.
+  printf '%s\n' "$out" >&2
+  echo "borg rejected the repo-creation command — this is a bug in borg-init," >&2
+  echo "not a problem with the repository (borg ${BORG_VERSION:-1})." >&2
+  exit 1
 else
   printf '%s\n' "$out" >&2
   echo "Repository cannot be accessed!" >&2
