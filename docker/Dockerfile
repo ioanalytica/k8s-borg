@@ -141,6 +141,15 @@ ENV HOME=/root
 # sftp:// needs nothing.
 ENV BORG1_DEFAULT_PARAMS=""
 ENV BORG2_DEFAULT_PARAMS=""
+# Borg 2.0.0b23's pack cache: borgstore serves archive metadata as whole-pack
+# loads, so on remote repositories every listing re-transfers packs; the
+# writethrough cache under ~/.cache/borg (persisted in our deployments)
+# downloads each pack once. Set at image level so interactive shells and the
+# wrapper scripts get it too — the borg-ui-agent only defaults it for the
+# processes it spawns itself. Pod env overrides both values; BORG_STORE_CACHE=""
+# disables the cache. Borg 1 ignores them.
+ENV BORG_STORE_CACHE=1
+ENV BORG_PACK_CACHE_SIZE=2147483648
 
 # Build-time self-test: both Borg majors (via the wrappers) and the agent CLI
 # must work, or the build fails.
