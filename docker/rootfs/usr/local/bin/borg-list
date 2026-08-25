@@ -2,9 +2,21 @@
 # List the archives in BORG_REPO. Borg 2 renamed the repo-level listing from
 # `borg list` (that now lists archive *contents*) to `borg repo-list`, so pick
 # the subcommand by BORG_VERSION. `borg` itself dispatches to the right binary.
+#
+# Borg 2 (2.0.0b22) reads every archive's metadata — served as whole-pack
+# loads on remote repositories — unless an explicit --format is given; even
+# its own default template is slow when left implicit. Pass that template
+# explicitly so a plain listing stays fast, and keep caller-supplied
+# --format/--json/--short untouched.
 
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  borg repo-list "$@"
+  extra=(--format '{archive:<36} {time} [{id}]{NL}')
+  for arg in "$@"; do
+    case "$arg" in
+      --format|--format=*|--json|--short) extra=() ;;
+    esac
+  done
+  borg repo-list "${extra[@]}" "$@"
 else
   borg list "$@"
 fi
