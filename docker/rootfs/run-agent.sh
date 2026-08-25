@@ -94,5 +94,12 @@ if [ "${BORG_UI_AGENT:-}" = "true" ]; then
 
   # --- 3) run ----------------------------------------------------------------
   # hand over to the long-running agent as PID 1 (clean signal handling)
-  exec borg-ui-agent --config "${BORG_UI_CONFIG}" run
+  #
+  # The agent-bin shim dir goes first on the agent's PATH: for the agent (and
+  # everything it spawns) the bare name `borg` must always mean Borg 1 — the
+  # /usr/local/bin gateway's BORG_VERSION dispatch is interactive-shell UX and
+  # would otherwise misreport Borg 1 as Borg 2 on a BORG_VERSION=2 pod (and run
+  # Borg 2 for a Borg 1 repo job). See the shim itself for the full story.
+  PATH="/usr/local/libexec/borg-ui-agent-bin:${PATH}" \
+    exec borg-ui-agent --config "${BORG_UI_CONFIG}" run
 fi

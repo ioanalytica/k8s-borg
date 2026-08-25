@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Agent-only `borg` shim — pins the gateway to its Borg 1 path.
+#
+# run-agent.sh puts this directory first on the agent's PATH. The agent decides
+# the Borg major per repository (the server names it in every job payload) and
+# spells the choice as a bare command name: `borg` = Borg 1, `borg2` = Borg 2.
+# The gateway in /usr/local/bin, however, redefines `borg` per pod via
+# BORG_VERSION — human UX for interactive shells — so on a BORG_VERSION=2 pod
+# the agent's `borg` would land on Borg 2: version detection reports Borg 2
+# twice, and a Borg 1 repository job would run the wrong major.
+#
+# Forcing BORG_VERSION=1 through the unchanged gateway restores the name's
+# meaning for the agent's process tree while keeping every wrapper feature
+# (default params, --remote-path, warning downgrade). `borg2` needs no shim —
+# that wrapper is version-fixed already. Deliberately NOT solved by exporting
+# BORG_VERSION=1 in run-agent.sh: the sibling bin scripts (borg-list,
+# borg-info, …) dispatch on BORG_VERSION and must keep the pod's version when
+# a hook script calls them.
+BORG_VERSION=1 exec "${BORG_BIN_DIR:-/usr/local/bin}/borg" "$@"
