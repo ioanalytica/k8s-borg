@@ -46,10 +46,16 @@ else
   init_cmd=(init --encryption="${BORG_ENCRYPTION:-repokey-blake2}")
 fi
 
-if out=$(borg "${init_cmd[@]}" 2>&1); then
+# The shared pack cache stays out of repo creation: borgstore rejects an
+# already-populated cache directory on create, and borg misreports that as
+# "repository already exists" — which the exists-branch below would then
+# trust, leaving the repository uncreated. Borg 1 ignores the variable.
+if out=$(BORG_STORE_CACHE="" borg "${init_cmd[@]}" 2>&1); then
   echo "Repository didn't exist and has been created."
   exit 0
-elif printf '%s' "$out" | grep -qi 'already exist'; then
+# Anchored to borg's actual message ("A repository already exists at …") so
+# an unrelated "already exists" elsewhere in the output cannot fake it.
+elif printf '%s' "$out" | grep -qi 'repository already exists'; then
   echo "Repository already exists — skipping init."
   exit 0
 elif printf '%s' "$out" | grep -qiE '^(usage|error): |unrecognized arguments'; then

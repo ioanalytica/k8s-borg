@@ -4,7 +4,10 @@
 # `borg` dispatches to the right binary via BORG_VERSION.
 
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  borg repo-delete "$@"
+  # Repo deletion must not touch the shared pack cache: with the cache
+  # enabled, repo-delete removes the whole cache directory, evicting every
+  # other repository's cached packs.
+  BORG_STORE_CACHE="" borg repo-delete "$@"
 else
   borg delete "$@"
 fi
