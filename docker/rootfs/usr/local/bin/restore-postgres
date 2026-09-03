@@ -31,17 +31,17 @@ if [ ! -f "$DB_BACKUP_FILE" ]; then
   exit 1
 fi
 
+export PGPASSFILE="$credentials_file"
 
-# DB is a positional placeholder in the credentials line, not used here.
+# DB/PASS are positional placeholders in the credentials line, not used here.
 # shellcheck disable=SC2034
 while IFS=':' read -r HOST PORT DB USER PASS; do
-  echo "In case you are prompted: $PASS"
   echo "Dropping database: ${database_name} ..."
-  psql -h $HOST -p $PORT -U $USER -A -q -t -c "DROP DATABASE IF EXISTS ${database_name} WITH (FORCE)"
+  psql -h "$HOST" -p "$PORT" -U "$USER" -A -q -t -c "DROP DATABASE IF EXISTS ${database_name} WITH (FORCE)"
   echo "Creating database: ${database_name} ..."
-  psql -h $HOST -p $PORT -U $USER -A -q -t -c "CREATE DATABASE ${database_name} WITH TEMPLATE=template0"
+  psql -h "$HOST" -p "$PORT" -U "$USER" -A -q -t -c "CREATE DATABASE ${database_name} WITH TEMPLATE=template0"
   echo "Restoring database: ${database_name} from dump ..."
-  gunzip -c $DB_BACKUP_FILE | pg_restore -d ${database_name} -h $HOST -p $PORT -U $USER
+  gunzip -c "$DB_BACKUP_FILE" | pg_restore -d "${database_name}" -h "$HOST" -p "$PORT" -U "$USER"
 done < "$credentials_file"
 
 # end

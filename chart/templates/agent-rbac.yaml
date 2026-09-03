@@ -50,4 +50,9 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "k8s-borg.agentSAName" . }}
     namespace: {{ .Release.Namespace | quote }}
+  {{- if include "k8s-borg.dbResolverEnabled" . }}
+  - kind: ServiceAccount
+    name: {{ include "k8s-borg.dbResolverSAName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+  {{- end }}
 {{- end }}

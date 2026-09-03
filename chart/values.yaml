@@ -183,12 +183,24 @@ ssh:
 ## @section Databases (logical dumps; cluster/app workloads)
 ##
 databases:
+  ## An instance is configured EITHER with a static `config` (rendered into a
+  ## chart-managed Secret, or brought via existingSecret) OR with a `secretRef`
+  ## pointing at a credentials Secret in the database's own namespace (e.g. the
+  ## operator-generated Zalando/mariadb-operator secrets). secretRef instances
+  ## are resolved at pod start by an init container: it reads each referenced
+  ## Secret through the Kubernetes API and synthesizes the *.conf file the dump
+  ## scripts consume. The generated files are available in the cluster CronJob
+  ## for backups and in the app StatefulSet for restores; node DaemonSet pods
+  ## never receive DB credentials. The StatefulSet must be rolled after a
+  ## referenced Secret changes. The chart creates a
+  ## get-only Role in each referenced namespace, restricted to exactly the
+  ## configured Secret names, and binds it to a dedicated resolver ServiceAccount.
   mariadb:
     ## @param databases.mariadb.enabled Back up MariaDB instances
     enabled: false
     ## @param databases.mariadb.existingSecret Use an existing Secret (one *.conf per instance)
     existingSecret: ""
-    ## @param databases.mariadb.instances MariaDB instances: name + MySQL defaults-file config
+    ## @param databases.mariadb.instances MariaDB instances (static config or secretRef)
     instances: []
     #  - name: mariadb-example
     #    config: |
@@ -196,16 +208,40 @@ databases:
     #      host = mariadb.databases.svc
     #      user = backup
     #      password = CHANGE_ME
+    #  - name: mariadb-operator-example
+    #    host: mariadb.databases.svc
+    #    port: 3306              # default 3306
+    #    user: root              # literal user; omit when usernameKey is set
+    #    secretRef:
+    #      namespace: databases
+    #      name: mariadb
+    #      passwordKey: root-password
+    #      # usernameKey: username  # read the user from the Secret instead
   postgres:
     ## @param databases.postgres.enabled Back up PostgreSQL instances
     enabled: false
     ## @param databases.postgres.existingSecret Use an existing Secret (one *.conf per instance)
     existingSecret: ""
-    ## @param databases.postgres.instances PostgreSQL instances: name + pgpass line
+    ## @param databases.postgres.instances PostgreSQL instances (static config or secretRef)
     instances: []
     #  - name: postgres-example
     #    config: |
     #      postgres.databases.svc:5432:*:backup:CHANGE_ME
+    #  - name: zalando-example
+    #    host: example-db.databases.svc
+    #    port: 5432              # default 5432
+    #    secretRef:
+    #      namespace: databases
+    #      name: postgres.example-db.credentials.postgresql.acid.zalan.do
+    #      usernameKey: username
+    #      passwordKey: password
+  ## @param databases.credentialsResolver Image for the secretRef resolver init container
+  credentialsResolver:
+    image:
+      ## bitnamilegacy is a frozen mirror, its tags are static.
+      repository: bitnamilegacy/kubectl
+      tag: latest
+      pullPolicy: IfNotPresent
 
 ## @section Node backup (DaemonSet)
 ##

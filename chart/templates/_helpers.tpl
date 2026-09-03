@@ -578,30 +578,181 @@ Volume mounts shared by all backup workloads. Requires NODE_NAME in the env.
 {{/*
 DB secret volumes (cluster/app workloads).
 */}}
+{{/*
+Truthy (non-empty) when any database instance uses secretRef, i.e. its
+credentials are resolved from the database's namespace at pod start.
+*/}}
+{{- define "k8s-borg.dbResolverEnabled" -}}
+{{- $found := false -}}
+{{- if .Values.databases.mariadb.enabled }}{{- range .Values.databases.mariadb.instances }}{{- if .secretRef }}{{- $found = true }}{{- end }}{{- end }}{{- end }}
+{{- if .Values.databases.postgres.enabled }}{{- range .Values.databases.postgres.instances }}{{- if .secretRef }}{{- $found = true }}{{- end }}{{- end }}{{- end }}
+{{- if $found }}true{{- end }}
+{{- end -}}
+
+{{/* Validate database instances before rendering volumes or credentials. */}}
+{{- define "k8s-borg.validateDatabases" -}}
+{{- range $engine := list "mariadb" "postgres" -}}
+{{- $database := index $.Values.databases $engine -}}
+{{- if $database.enabled -}}
+{{- if and (not $database.existingSecret) (empty $database.instances) -}}
+{{- fail (printf "databases.%s.instances must contain at least one instance when enabled without existingSecret" $engine) -}}
+{{- end -}}
+{{- range $index, $instance := $database.instances -}}
+{{- $path := printf "databases.%s.instances[%d]" $engine $index -}}
+{{- if not $instance.name -}}{{- fail (printf "%s.name is required" $path) -}}{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._-]+$" $instance.name) -}}{{- fail (printf "%s.name must be a safe file name containing only letters, digits, '.', '_' or '-'" $path) -}}{{- end -}}
+{{- if and $instance.config $instance.secretRef -}}{{- fail (printf "%s must define either config or secretRef, not both" $path) -}}{{- end -}}
+{{- if and (not $instance.config) (not $instance.secretRef) (not $database.existingSecret) -}}{{- fail (printf "%s must define either config or secretRef" $path) -}}{{- end -}}
+{{- if $instance.secretRef -}}
+{{- if not $instance.host -}}{{- fail (printf "%s.host is required with secretRef" $path) -}}{{- end -}}
+{{- if not $instance.secretRef.namespace -}}{{- fail (printf "%s.secretRef.namespace is required" $path) -}}{{- end -}}
+{{- if not $instance.secretRef.name -}}{{- fail (printf "%s.secretRef.name is required" $path) -}}{{- end -}}
+{{- if not $instance.secretRef.passwordKey -}}{{- fail (printf "%s.secretRef.passwordKey is required" $path) -}}{{- end -}}
+{{- if eq (empty $instance.user) (empty $instance.secretRef.usernameKey) -}}{{- fail (printf "%s must define exactly one of user or secretRef.usernameKey" $path) -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Truthy when static *.conf content exists for the engine (existingSecret or at
+least one instance with inline config) — the secret volume is then still
+mounted (staged for the resolver in secretRef mode).
+*/}}
+{{- define "k8s-borg.mariadbStaticConf" -}}
+{{- if .Values.databases.mariadb.existingSecret }}true{{- else }}{{- range .Values.databases.mariadb.instances }}{{- if .config }}true{{- end }}{{- end }}{{- end }}
+{{- end -}}
+
+{{- define "k8s-borg.postgresStaticConf" -}}
+{{- if .Values.databases.postgres.existingSecret }}true{{- else }}{{- range .Values.databases.postgres.instances }}{{- if .config }}true{{- end }}{{- end }}{{- end }}
+{{- end -}}
+
+{{- define "k8s-borg.dbResolverSAName" -}}
+{{- printf "%s-db-resolver" (include "common.names.fullname" .) -}}
+{{- end -}}
+
 {{- define "k8s-borg.volumes.db" -}}
+{{- include "k8s-borg.validateDatabases" . -}}
+{{- $resolver := include "k8s-borg.dbResolverEnabled" . -}}
 {{- if .Values.databases.mariadb.enabled }}
+{{- if $resolver }}
+- name: mariadb-conf
+  emptyDir:
+    medium: Memory
+{{- end }}
+{{- if or (not $resolver) (include "k8s-borg.mariadbStaticConf" .) }}
 - name: mariadb-secret
   secret:
     secretName: {{ include "k8s-borg.mariadbSecretName" . }}
     defaultMode: 384
 {{- end }}
+{{- end }}
 {{- if .Values.databases.postgres.enabled }}
+{{- if $resolver }}
+- name: postgres-conf
+  emptyDir:
+    medium: Memory
+{{- end }}
+{{- if or (not $resolver) (include "k8s-borg.postgresStaticConf" .) }}
 - name: postgres-secret
   secret:
     secretName: {{ include "k8s-borg.postgresSecretName" . }}
     defaultMode: 384
 {{- end }}
+{{- end }}
 {{- end -}}
 
 {{- define "k8s-borg.volumeMounts.db" -}}
+{{- $resolver := include "k8s-borg.dbResolverEnabled" . -}}
 {{- if .Values.databases.mariadb.enabled }}
-- name: mariadb-secret
+- name: {{ ternary "mariadb-conf" "mariadb-secret" (not (empty $resolver)) }}
   mountPath: /root/.mariadb
   readOnly: true
 {{- end }}
 {{- if .Values.databases.postgres.enabled }}
-- name: postgres-secret
+- name: {{ ternary "postgres-conf" "postgres-secret" (not (empty $resolver)) }}
   mountPath: /root/.postgres
   readOnly: true
+{{- end }}
+{{- end -}}
+
+{{/*
+Init container that builds /root/.mariadb and /root/.postgres *.conf files:
+copies static confs from the chart/existing Secret (if any) and resolves
+secretRef instances by reading the referenced Secret from its namespace via
+the API (needs the get-only ClusterRole from db-credentials-rbac.yaml).
+Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
+*/}}
+{{- define "k8s-borg.dbResolverInitContainer" -}}
+{{- if (include "k8s-borg.dbResolverEnabled" .) }}
+- name: resolve-db-credentials
+  image: {{ .Values.databases.credentialsResolver.image.repository }}:{{ .Values.databases.credentialsResolver.image.tag }}
+  imagePullPolicy: {{ .Values.databases.credentialsResolver.image.pullPolicy }}
+  # Secret volumes are 0600 root:root and the generated files must retain that
+  # mode, so this narrowly scoped init container has to run as root.
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  command:
+    - /bin/bash
+    - -c
+    - |
+      set -euo pipefail
+      get_key() { kubectl get secret -n "$1" "$2" -o "jsonpath={.data.$3}" | base64 -d; }
+      pg() { # ns secret userKey passKey host port user name
+        local u p
+        if [ -n "$3" ]; then u=$(get_key "$1" "$2" "$3"); else u=$7; fi
+        p=$(get_key "$1" "$2" "$4"); p=${p//\\/\\\\}; p=${p//:/\\:}
+        printf '%s:%s:*:%s:%s\n' "$5" "$6" "$u" "$p" > "/out/postgres/$8.conf"
+        chmod 600 "/out/postgres/$8.conf"
+      }
+      my() { # ns secret userKey passKey host port user name
+        local u p
+        if [ -n "$3" ]; then u=$(get_key "$1" "$2" "$3"); else u=$7; fi
+        p=$(get_key "$1" "$2" "$4"); p=${p//\\/\\\\}; p=${p//\"/\\\"}
+        printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$5" "$6" "$u" "$p" > "/out/mariadb/$8.conf"
+        chmod 600 "/out/mariadb/$8.conf"
+      }
+      for d in /static/mariadb /static/postgres; do
+        [ -d "$d" ] || continue
+        for f in "$d"/*.conf; do
+          [ -e "$f" ] || continue
+          cp "$f" "/out/${d##*/}/"; chmod 600 "/out/${d##*/}/${f##*/}"
+        done
+      done
+      {{- range .Values.databases.mariadb.instances }}
+      {{- if .secretRef }}
+      my {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 3306 | quote }} {{ .user | default "" | quote }} {{ .name | quote }}
+      {{- end }}
+      {{- end }}
+      {{- range .Values.databases.postgres.instances }}
+      {{- if .secretRef }}
+      pg {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 5432 | quote }} {{ .user | default "" | quote }} {{ .name | quote }}
+      {{- end }}
+      {{- end }}
+      echo "db credentials resolved"
+  volumeMounts:
+    {{- if .Values.databases.mariadb.enabled }}
+    - name: mariadb-conf
+      mountPath: /out/mariadb
+    {{- if (include "k8s-borg.mariadbStaticConf" .) }}
+    - name: mariadb-secret
+      mountPath: /static/mariadb
+      readOnly: true
+    {{- end }}
+    {{- end }}
+    {{- if .Values.databases.postgres.enabled }}
+    - name: postgres-conf
+      mountPath: /out/postgres
+    {{- if (include "k8s-borg.postgresStaticConf" .) }}
+    - name: postgres-secret
+      mountPath: /static/postgres
+      readOnly: true
+    {{- end }}
+    {{- end }}
 {{- end }}
 {{- end -}}

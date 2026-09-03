@@ -22,7 +22,9 @@ spec:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "app") | nindent 8 }}
     spec:
-      {{- if and (eq .Values.cluster.mode "agent") (include "k8s-borg.ui.reconcileGate" .) }}
+      {{- if (include "k8s-borg.dbResolverEnabled" .) }}
+      serviceAccountName: {{ include "k8s-borg.dbResolverSAName" . }}
+      {{- else if and (eq .Values.cluster.mode "agent") (include "k8s-borg.ui.reconcileGate" .) }}
       serviceAccountName: {{ include "k8s-borg.agentSAName" . }}
       {{- end }}
       {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
@@ -53,6 +55,7 @@ spec:
         {{- end }}
       initContainers:
         {{- include "k8s-borg.sshInitContainer" . | nindent 8 }}
+        {{- include "k8s-borg.dbResolverInitContainer" . | nindent 8 }}
         {{- if eq .Values.cluster.mode "agent" }}
         {{- if include "k8s-borg.ui.reconcileGate" . }}
         {{- include "k8s-borg.waitForReconcileInitContainer" . | nindent 8 }}

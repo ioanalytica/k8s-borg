@@ -26,6 +26,9 @@ spec:
           labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "cluster") | nindent 12 }}
         spec:
           restartPolicy: OnFailure
+          {{- if (include "k8s-borg.dbResolverEnabled" .) }}
+          serviceAccountName: {{ include "k8s-borg.dbResolverSAName" . }}
+          {{- end }}
           {{- include "k8s-borg.imagePullSecrets" . | nindent 10 }}
           {{- if .Values.cluster.nodeSelector }}
           nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.cluster.nodeSelector "context" $) | nindent 12 }}
@@ -47,6 +50,7 @@ spec:
             {{- end }}
           initContainers:
             {{- include "k8s-borg.sshInitContainer" . | nindent 12 }}
+            {{- include "k8s-borg.dbResolverInitContainer" . | nindent 12 }}
           containers:
             - name: cluster
               image: {{ include "k8s-borg.image" . | quote }}
