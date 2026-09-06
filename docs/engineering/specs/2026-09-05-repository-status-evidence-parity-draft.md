@@ -230,7 +230,8 @@ is kept only as the option if a uniform walk is ever wanted.
 |---|---|---|---|
 | local path / `file://` | walk (or `du`) | walk (or `du`) | both byte-exact; walk keeps one code path |
 | `sftp://` (Hetzner Storage Box) | walk via paramiko | walk | today: server `du` only when `repository.host` is set (ssh), else `du <url>` fails |
-| `rest://` (borgstore-server-rest) | walk via `requests` | walk | today: `du <url>` fails on both sides |
+| `rest://user@host/path` (ssh + `borgstore-server-rest --stdio`, key bound by `command=",restrict`) | index sum only (walk through borgstore possible, no shell, no HTTP) | same | today: `du <url>` fails on both sides; corrected 2026-09-06 after reading borgstore (`rest://` is not HTTP; `http(s)://` is) |
+| `http(s)://` (borgstore REST over HTTP) | walk via `requests` (`Accept: application/vnd.x.borgstore.rest.v1`) | walk | |
 | `rclone:` / `s3:` | walk (rclone binary on PATH, boto) | walk | extras already in both venvs |
 | `ssh://` (remote `borg serve`) | **no walk**: the store sits behind Borg's RPC; keep `du` over ssh (`calculate_path_size_bytes`) | same via the agent's ssh | requires shell access on the remote; label `source: du` |
 
@@ -404,6 +405,7 @@ Fields per source:
 | 10 | m3s `stats_refresh_interval_minutes` 720 -> 60 (UI setting) | deployment | done 2026-09-06 | - | XS |
 | 11 | Optional: runtime-base venv layout (Borg 1 shares site-packages with the app) | borg-ui Dockerfile.runtime-base | idea, not linked to the above | - | M |
 | 12 | Optional: `borgstore[sftp,rest]` as declared dependency for a uniform store walk | borg-ui + agent | parked | - | M |
+| 13 | Archive viewer header (`RepositoryStatsGrid` via `useRepositoryStats`) shows `Repository Size = 0 B` on Borg 2: it reads `rinfo_stats.unique_csize` from the live `repo-info` instead of `repositories.total_size` + `total_size_source`, which W2/W2b already fill (observed 2026-09-06, 32 archives, 11.46 GB archive size, 0 B repository size). Fold into the W6 "one stats component": header, card and info dialog read the status model's size with its source label, never a per-version borg-output field; no size = "unknown", never `0 B` | borg-ui frontend (+ `/repositories/{id}/info` shape) | backlog, not posted upstream | 2, 6 | S |
 
 ## 9. Implementation plan (2026-09-06)
 
@@ -451,6 +453,11 @@ W8 borgbackup repo-info --stats (external, no dependency; W2 gains a source when
   and by phase 5 later. The agent half rides in the wave C agent PR.
 - **W2 + W5** are one PR because both extend `run_stats` and the rinfo
   parsing; splitting them would touch the same lines twice.
+- **W13 rides with W6-frontend**: `useRepositoryStats` is the third reader
+  of a size (card, dialog, archive viewer header); when the status model
+  lands, the hook takes `total_size`/`total_size_source` from it and the
+  `rinfo_stats` branch for Borg 2 goes away. Until then the header keeps
+  lying with `0 B` on every Borg 2 repository.
 - **W6-backend** ships before the frontend so the old strip keeps working
   during the switch; `legacy_status.py` is consulted by the new model until
   phase 9 deletes the legacy tables.
