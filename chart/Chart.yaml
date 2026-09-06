@@ -3,8 +3,8 @@
 
 apiVersion: v2
 name: k8s-borg
-version: 1.1.7-alpha.4
-appVersion: "1.1.7-alpha.4"
+version: 1.1.7-alpha.5
+appVersion: "1.1.7-alpha.5"
 
 description: >-
   Backup for Kubernetes clusters with BorgBackup. Deploys a node-backup
@@ -32,7 +32,7 @@ annotations:
   licenses: Apache-2.0
   images: |
     - name: k8s-borg
-      image: ghcr.io/ioanalytica/k8s-borg:1.1.7-alpha.4
+      image: ghcr.io/ioanalytica/k8s-borg:1.1.7-alpha.5
     - name: k8s-borg-ui
       image: ghcr.io/ioanalytica/k8s-borg-ui:2.3.0-alpha.1
     - name: redis
