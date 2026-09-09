@@ -4,10 +4,11 @@ Date: 2026-09-08. Status: proposal posted on upstream #937
 (https://github.com/karanhudia/borg-ui/pull/937#issuecomment-5581817114),
 waiting for Karan's answer. Built the same day on the fork branch
 `refactor/status-strip-into-card-row` and opened as fork PR
-https://github.com/ioanalytica/borg-ui/pull/63 against `io/integration`
-(one commit, all gates green, six local review rounds applied; sections 3
-and 4 reflect the built state). The upstream PR follows once #967 has
-landed.
+https://github.com/ioanalytica/borg-ui/pull/63; after upstream merged
+#967, #968, #948, #966, #949 and Karan's #971 (phase 6) the branch was
+rebased onto `main` and the PR retargeted (one commit, all gates green,
+seven local review rounds applied; sections 3 and 4 reflect the built
+state). Opened upstream as https://github.com/karanhudia/borg-ui/pull/975 on 2026-09-08, superseding #937; the fork PR is closed with a pointer.
 
 ## 1. Situation
 
@@ -186,7 +187,7 @@ unification of #935. It is no longer polled by anything.
 2. Branch from `upstream/main` (or stacked on `feat/repository-status-model`
    until then), name `refactor/status-strip-into-card-row`.
 3. Build backend, frontend, docs as in section 3, one commit.
-4. Gates (all green on 2026-09-08 for commit `71d7ad81`, after six local
+4. Gates (all green on 2026-09-08 for commit `fe6fb388`, after seven local
    review rounds plus CodeRabbit CLI; round 1: filter test, debounce maximum
    wait, removal scan in SQL, guarded list computation, spec Pro rows and
    SSE consumer list, deletion rule; round 2: wipe jobs as deletion
@@ -205,8 +206,12 @@ unification of #935. It is no longer polled by anything.
    contracts, both entries disabled for index mode `off`, phase
    attribution of the card row; round 6: ids captured before the rollback,
    page cap, route test for the dry-run exclusion, paging test that
-   discriminates): backend unit suite in a scratch checkout
-   (`pytest tests/unit`);
+   discriminates; round 7, against `main` after the rebase: a deletion
+   explains the first listing that reported removals after it, not the
+   first listing of any kind, every deletion source needs a start time,
+   the list refetch has a 10 s minimum interval, dry-run prune events are
+   ignored, and a `WithoutRunHistory` story shows the `Never` state):
+   backend unit suite in a scratch checkout (`pytest tests/unit`);
 5. PR body: supersedes #937, cites Karan's point 2 on #967, the cost table
    above, the spec amendment. Ask Karan to close #937 in favour of it.
 6. Afterwards: io/integration is rebuilt on main plus the open PRs as usual;
