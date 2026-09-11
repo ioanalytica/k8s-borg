@@ -435,7 +435,7 @@ rollout.
 | 19 | `stats` recorded the admission 409 as `failed` instead of deferring like `archive_sync` (2-3 red `stats` per wave); a listing timed out at 504 left its queued agent job blocking later work | borg-ui backend | issue #1002 CLOSED, fix MERGED upstream #1012 (2026-09-10) | 16 | M |
 | 20 | Index operations of one repository run side by side (duplicate `stats`, `list` next to `rinfo`) | borg-ui backend | issue karanhudia/borg-ui#1003 open; look at phase 10 (per-repository index mode) first | - | M |
 | 21 | Queued stages say "Waiting for the backup" whatever exclusive operation holds the lane | borg-ui backend + frontend | issue karanhudia/borg-ui#1001 open | - | S |
-| 22 | Direct `BorgRouter.update_stats()` refreshes (wipe, prune, config import, manual) bypass the `stats` operation and its source order | borg-ui backend | issue karanhudia/borg-ui#963 open, unblocked by phase 9 | 2 | M |
+| 22 | Direct `BorgRouter.update_stats()` refreshes (wipe, prune, config import, manual) bypass the `stats` operation and its source order | borg-ui backend | CLOSED 2026-09-11: resolved by phase 9 (#1010) which removed the direct refresh; every path enqueues the `stats` chain (verified on main 7df23469, comment on #963) | 2 | M |
 
 ## 9. Implementation plan (2026-09-06)
 
