@@ -148,7 +148,7 @@ for Borg 2. The same three run in CI on every push and pull request. See
 ## Submodule
 
 `borg-ui` provides the agent and server source, pinned to a specific commit
-(currently our `io/integration` line). To advance it:
+(currently tracking `main`). To advance it:
 
 ```sh
 git submodule update --remote borg-ui
