@@ -92,6 +92,28 @@ teardown() { e2e_teardown; }
   [ "$(archive_count)" -eq 2 ]
 }
 
+@test "borg-backup keeps its exit code when the Borg UI resync fails" {
+  # Nothing listens on port 1: the resync is best effort and must only warn.
+  BORG_UI_SERVER="http://127.0.0.1:1" BORG_UI_ADMIN_PAT="borgui_x" run borg-backup
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Borg UI resync failed"* ]]
+  [ "$(archive_count)" -eq 1 ]
+}
+
+@test "borg-backup keeps a real failure when the Borg UI resync fails too" {
+  # The unknown flag fails borg create; the resync warning must not mask it.
+  BORG_UI_SERVER="http://127.0.0.1:1" BORG_UI_ADMIN_PAT="borgui_x" \
+    run borg-backup --no-such-flag
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Borg UI resync failed"* ]]
+}
+
+@test "borg-backup does not mention Borg UI without BORG_UI_SERVER" {
+  run borg-backup
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Borg UI"* ]]
+}
+
 @test "borg-backup skips cleanly when no source roots are configured" {
   write_patterns   # comment only, no "R <path>"
   run borg-backup

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Ask Borg UI to resync this node's repository: re-list its archives, fold the
+# removed ones and refresh the size. For backups that write the repository
+# outside Borg UI (the legacy CronJob flow), which Borg UI would otherwise only
+# notice on its next periodic reconcile run.
+#
+# Standalone command — also called by borg-backup. Best effort by design:
+#   exit 0   resync queued, or nothing to do (BORG_UI_SERVER unset, repository
+#            not registered in Borg UI)
+#   exit 1   Borg UI unreachable, authentication failed or the request failed
+# The caller decides what a failure means; borg-backup only logs a warning.
+#
+# Auth (borgui-common.sh) is PAT-first: BORG_UI_ADMIN_PAT when it works, else
+# BORG_UI_ADMIN_USER/PASS. Unlike the provisioning commands this one does not
+# wait for Borg UI to settle: one attempt unless BORG_UI_LOGIN_RETRIES says
+# otherwise.
+#
+#   BORG_UI_SERVER      e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
+#   BORG_REPO           repository path/URL; the repo record is located by this
+#                       path ONLY — a record that merely shares the node's name
+#                       may be a different repository
+#   BORG_UI_AGENT_NAME  optional; name used in messages. Default: $NODE_NAME,
+#                       else hostname.
+#   BORG_UI_ADMIN_PAT   preferred admin credential (bootstrap-minted PAT)
+#   BORG_UI_ADMIN_USER  admin user   (fallback when no working PAT)
+#   BORG_UI_ADMIN_PASS  admin password (fallback when no working PAT)
+#
+set -euo pipefail
+
+# shellcheck source=../lib/borgui-common.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borgui-common.sh"
+
+if [ -z "${BORG_UI_SERVER:-}" ]; then
+  echo "BORG_UI_SERVER is not set — skipping the Borg UI resync."
+  exit 0
+fi
+: "${BORG_REPO:?set BORG_REPO to locate the repository record}"
+
+: "${REPO_NAME:=${BORG_UI_AGENT_NAME:-${NODE_NAME:-$(hostname)}}}"
+: "${BORG_UI_LOGIN_RETRIES:=1}"
+
+fail() { echo "Borg UI resync: $*" >&2; exit 1; }
+
+token=$(borgui_bearer) || fail "could not authenticate to ${BORG_UI_SERVER}"
+
+repo_row=$(BORGUI_REPO_MATCH=path borgui_repo_row "$token") || fail "could not list repositories"
+repo_id="${repo_row%%$'\t'*}"
+
+if [ -z "$repo_id" ]; then
+  echo "No repository with path ${BORG_REPO} is registered in Borg UI — skipping the resync."
+  exit 0
+fi
+
+borgui_api "$token" POST "/api/repositories/${repo_id}/resync" >/dev/null \
+  || fail "POST /api/repositories/${repo_id}/resync failed"
+echo "Borg UI resync requested for '${REPO_NAME}' (repository id=${repo_id})."

@@ -133,6 +133,15 @@ fi
 borg-info
 borg-list
 
+# Borg UI learns about archives written outside of it only from its periodic
+# reconcile run; ask for a resync now. Best effort: a no-op without
+# BORG_UI_SERVER, bounded by a timeout, and never part of the backup's exit code.
+if [ -n "${BORG_UI_SERVER:-}" ]; then
+    info "Requesting Borg UI resync ..."
+    timeout "${BORG_UI_RESYNC_TIMEOUT:-120}" resync-borgui \
+        || info "WARNING: Borg UI resync failed; Borg UI catches up on its next reconcile run."
+fi
+
 exit ${global_exit}
 
 # end

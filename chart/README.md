@@ -44,6 +44,11 @@ Backup execution is chosen **per component**, along two independent axes:
     (default, inspection only — tails the log, `kubectl exec` in) or `agent` (enroll
     at Borg UI: register the cluster repository + check-schedule so it is browsable,
     and run the agent). In `cronjob` mode the agent just makes the repo visible.
+  - `cluster.borgUiResync` (default `true`) — in `cronjob` mode with a Borg UI to
+    talk to (`borgUI.enabled` or `borgUI.agentConnection.server`), each run ends by
+    asking Borg UI to resync the cluster repository, so new and pruned archives and
+    the size show up right away instead of on the next periodic reconcile run. Best
+    effort: a failure is logged as a warning and never changes the job's exit code.
 
 Managed-agent modes need a reachable server: set `borgUI.agentConnection.server`,
 or deploy one in-cluster with `borgUI.enabled=true` (which also runs a reconcile
