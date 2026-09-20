@@ -77,15 +77,19 @@ borgui_api() {
 # --- repository lookup (match by name OR path) -------------------------------
 # borgui_repo_row TOKEN → echoes "<repo_id>\t<agent_machine_id>" (empty line if
 # not found; agent_machine_id empty for non-agent repos). Uses REPO_NAME + BORG_REPO.
+# BORGUI_REPO_MATCH=path matches by path only, for callers that act on the
+# repository they just wrote to rather than on this node's record.
 borgui_repo_row() {
   local token="$1"
   borgui_api "$token" GET /api/repositories/ \
-    | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" python3 -c '
+    | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" \
+      BORGUI_REPO_MATCH="${BORGUI_REPO_MATCH:-}" python3 -c '
 import sys, json, os
 data = json.load(sys.stdin)
 repos = data.get("repositories", data if isinstance(data, list) else [])
 name, path = os.environ["REPO_NAME"], os.environ["BORG_REPO"]
-m = [r for r in repos if r.get("name") == name or r.get("path") == path]
+by_name = os.environ.get("BORGUI_REPO_MATCH") != "path"
+m = [r for r in repos if (by_name and r.get("name") == name) or r.get("path") == path]
 if m:
     aid = m[0].get("agent_machine_id")
     print(str(m[0]["id"]) + "\t" + (str(aid) if aid not in (None, "") else ""))'

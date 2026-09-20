@@ -327,6 +327,13 @@ cluster:
   schedule: "0 */6 * * *"
   ## @param cluster.timeZone CronJob time zone (defaults to .timezone)
   timeZone: ""
+  ## @param cluster.borgUiResync After each CronJob run (backupMode=cronjob), ask Borg UI
+  ##   to resync the cluster repository so the new archives, the pruned ones and the
+  ##   size show up right away instead of on Borg UI's next periodic reconcile run.
+  ##   Only takes effect with a Borg UI to talk to (borgUI.enabled or
+  ##   borgUI.agentConnection.server). Best effort: a failure is logged as a warning
+  ##   and never changes the backup's exit code.
+  borgUiResync: true
   ## @param cluster.nodeName Logical NODE_NAME for the cluster repo — used by BOTH the
   ##   CronJob and the console/agent pod (its Borg UI agent/repo/schedule key)
   nodeName: "k8s-borg-mycluster"

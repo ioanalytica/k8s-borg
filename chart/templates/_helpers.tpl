@@ -459,6 +459,51 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
 {{- end -}}
 
 {{/*
+Whether the cluster CronJob asks Borg UI for a resync of its repository after
+each run: the CronJob exists, cluster.borgUiResync is on and there is a Borg UI
+to talk to (the in-cluster server or borgUI.agentConnection.server). Also makes
+the chart Secret carry the admin password for it. Emits "true" or "".
+*/}}
+{{- define "k8s-borg.cluster.borgUiResync" -}}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") .Values.cluster.borgUiResync (or .Values.borgUI.enabled .Values.borgUI.agentConnection.server) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Borg UI connection env: server URL + admin credentials, WITHOUT BORG_UI_AGENT
+(which would switch run.sh into agent mode). Shared by the agent workloads and
+the cluster CronJob's resync step.
+Usage: include "k8s-borg.env.borgui" (dict "context" $ "optional" true)
+"optional" marks the password reference optional: the CronJob's resync is best
+effort, so a missing password Secret must never keep the backup from starting.
+*/}}
+{{- define "k8s-borg.env.borgui" -}}
+{{- $ctx := .context -}}
+- name: BORG_UI_SERVER
+  value: {{ include "k8s-borg.ui.serverUrl" $ctx | quote }}
+# Preferred credential: the admin PAT minted by the reconcile Job (optional —
+# absent before the first reconcile or for out-of-cluster agents, then the
+# admin user/password below is the fallback).
+- name: BORG_UI_ADMIN_PAT
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "k8s-borg.ui.patSecretName" $ctx }}
+      key: BORG_UI_ADMIN_PAT
+      optional: true
+- name: BORG_UI_ADMIN_USER
+  value: {{ $ctx.Values.borgUI.adminUser | quote }}
+- name: BORG_UI_ADMIN_PASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ $ctx.Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" $ctx) }}
+      key: {{ $ctx.Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
+      {{- if .optional }}
+      optional: true
+      {{- end }}
+{{- end -}}
+
+{{/*
 Managed-agent enrollment env. Rendered per component when it runs as an agent
 (node.backupMode=agent, cluster.backupMode=plan). Username is fixed to "admin"
 server-side; the password matches the server's INITIAL_ADMIN_PASSWORD.
@@ -466,24 +511,7 @@ server-side; the password matches the server's INITIAL_ADMIN_PASSWORD.
 {{- define "k8s-borg.env.agent" -}}
 - name: BORG_UI_AGENT
   value: "true"
-- name: BORG_UI_SERVER
-  value: {{ include "k8s-borg.ui.serverUrl" . | quote }}
-# Preferred credential: the admin PAT minted by the reconcile Job (optional —
-# absent before the first reconcile or for out-of-cluster agents, then run-agent.sh
-# falls back to the admin user/password below).
-- name: BORG_UI_ADMIN_PAT
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "k8s-borg.ui.patSecretName" . }}
-      key: BORG_UI_ADMIN_PAT
-      optional: true
-- name: BORG_UI_ADMIN_USER
-  value: {{ .Values.borgUI.adminUser | quote }}
-- name: BORG_UI_ADMIN_PASS
-  valueFrom:
-    secretKeyRef:
-      name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
-      key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
+{{ include "k8s-borg.env.borgui" (dict "context" $) }}
 - name: BORG_CHECK_SCHEDULE_DIR
   value: /etc/borg-check-schedules
 - name: BORG_BACKUP_SCHEDULE_DIR

@@ -63,6 +63,9 @@ spec:
                 - name: NODE_NAME
                   value: {{ .Values.cluster.nodeName | quote }}
                 {{- include "k8s-borg.env.common" . | nindent 16 }}
+                {{- if (include "k8s-borg.cluster.borgUiResync" .) }}
+                {{- include "k8s-borg.env.borgui" (dict "context" $ "optional" true) | nindent 16 }}
+                {{- end }}
               volumeMounts:
                 {{- include "k8s-borg.volumeMounts.common" . | nindent 16 }}
                 {{- include "k8s-borg.volumeMounts.db" . | nindent 16 }}
