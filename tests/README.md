@@ -31,12 +31,15 @@ bats tests/borg-rc.bats               # a single file
 | --- | --- |
 | `borg-rc.bats` | `borg_rc_is_warning` / `borg_rc_worst` — borg's two exit-code schemes and the error-over-warning precedence |
 | `borg-wrapper.bats` | the `borg` gateway: borg1/borg2 dispatch, default-param and `--remote-path` injection, warning downgrade, stdout/stderr separation |
-| `borg2-wrapper.bats` | the `borg2` wrapper: always-borg2, modern exit codes, missing `/etc/borg-fuse.env` |
+| `borg2-wrapper.bats` | the `borg2` wrapper: always-borg2, modern exit codes, missing `/etc/borg-fuse.env`, no `--remote-path` for Borg 2, and the refusal of a `rest://` repository when the binary is 2.0.0b25 or later (by `BORG_REPO`, `-r`, `--repo`; not for an earlier Borg 2; not for `--version`) |
+| `borg-init.bats` | `borg-init`: what `BORG_ENCRYPTION` becomes on the command line of each major, `authenticated` as `authenticated-sha256`, the refusal of `none` for Borg 2 |
+| `borg-mount.bats` | `borg-mount`: a failed mount ends with Borg's exit code |
 | `agent-borg-shim.bats` | the agent-only `borg` shim: always Borg 1 through the gateway, regardless of the pod's `BORG_VERSION` |
 | `borg-files-cache-flag.bats` | the S3-mounted gate for `--files-cache=mtime,size` (negative cases only — the positive one needs a real fuse.s3fs mount) |
 | `repo-serve.bats` | `borg-repo-serve`, the forced command of the repository server: Borg 1/Borg 2 dispatch by the client's request, pinned path and permissions, refusal of everything that is not a `serve` request |
 | `repo-server-entrypoint.bats` | `prepare-repo-server.sh` and `run-repo-server.sh`: what a plain `authorized_keys` line becomes, the client list, modes of what is staged, and every input that has to stop the start |
 | `chart-repo-server.bats` | the chart's repository server: nothing rendered by default, no other object touched when enabled, Service types, storage, and the values that are refused |
+| `chart-repo-base.bats` | the chart's repository base: `rest://` refused in `borg.repoBase.value` for Borg 2, a base from an existing Secret left to the wrapper, `BORG_REMOTE_PATH` for both majors, no object rendered by the validations |
 | `borgstore-pin.bats` | the agent image installs exactly the borgstore the submodule states, with the `blake3` extra; the submodule's two statements of the Borg 2 version agree; `borg-versions.py` stops on a pin that belongs to another Borg 2 |
 | `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, and the chart version follows `appVersion[-N]` |
 
@@ -77,6 +80,7 @@ different `mount` argument shape.
 | --- | --- |
 | `lifecycle.bats` | `borg-init` (create, idempotent, real failure), `borg-backup` (archive contents, name template, node vs cluster patterns, empty-pattern skip), `borg-list`, `borg-info`, `borg-break-lock`, `borg-mount`, `borg-delete` |
 | `prune.bats` | `borg-prune`: retention window, `KEEP_*` overrides, and the combined prune+compact exit code on real borg output |
+| `clients.bats` | what the clients say to Borg, each case against a local repository and against one on the repository server: `rest://` refused from 2.0.0b25 on with no directory left behind, `BORG_REMOTE_PATH`, every encryption mode of `borg-init` with backup, prune, list and info, `none` refused for Borg 2, the passphrase for `break-lock` and `delete`, the exit code of `borg-mount` |
 | `repo-server.bats` | the repository server with the image's own `sshd` as an unprivileged user and its own Borg as the client: create/backup/list below the client's directory, refusal outside it, no shell and no foreign command, permissions, unknown key, host key across a restart |
 
 FUSE is required — `borg-mount` is part of the suite. The container gets

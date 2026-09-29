@@ -36,8 +36,25 @@ e2e_teardown() {
   if mountpoint -q /mnt/borg 2>/dev/null; then
     borg umount /mnt/borg 2>/dev/null || umount /mnt/borg 2>/dev/null || true
   fi
+  end_mounts
   [ -n "${TMP:-}" ] && rm -rf "$TMP"
   return 0
+}
+
+# end_mounts — no mount process outlives its test. Borg 2 (2.0.0b24 and b25)
+# leaves the process of a background mount of a remote repository behind after
+# the unmount: one thread, waiting for a lock, for good. It holds the
+# descriptors of the test that started it, and bats waits for them at the end
+# of the run. A mount gets a moment to end by itself; what is left is ended.
+end_mounts() {
+  local pid
+  for _ in 1 2 3 4 5 6; do
+    [ -n "$(pgrep -f 'borg mount ')" ] || return 0
+    sleep 0.5
+  done
+  for pid in $(pgrep -f 'borg mount '); do
+    kill -9 "$pid" 2>/dev/null || true
+  done
 }
 
 # archive_ref NAME — how a single archive is addressed on the command line.

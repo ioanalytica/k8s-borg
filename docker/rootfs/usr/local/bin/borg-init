@@ -21,6 +21,13 @@ set -uo pipefail
 # borg 2.0.0b22 then split repo-create's single --encryption value into the
 # cipher, where the key is stored (--key-location) and the id hash. BORG_ENCRYPTION
 # keeps naming the mode the combined way, so it is translated here.
+#
+# The modes that do not encrypt carry their hash in the name since 2.0.0b23.
+# 'authenticated' stands for authenticated-sha256, the hash the encrypted modes
+# use by default. It keeps borg's default key location, and it has a key: the
+# passphrase is needed as for an encrypted repository.
+#
+# Borg 2 has no mode without a key: 2.0.0b25 removed the none-* modes.
 if [ "${BORG_VERSION:-1}" = "2" ]; then
   mode="${BORG_ENCRYPTION:-repokey-aes-ocb}"
   case "$mode" in
@@ -32,13 +39,19 @@ if [ "${BORG_VERSION:-1}" = "2" ]; then
       enc=(--encryption aes256-ocb --key-location keyfile) ;;
     keyfile-chacha20-poly1305)
       enc=(--encryption chacha20-poly1305 --key-location keyfile) ;;
-    # 'none' has no key, and 'authenticated' keeps borg's default location.
-    authenticated | none)
+    authenticated)
+      enc=(--encryption authenticated-sha256) ;;
+    authenticated-sha256 | authenticated-blake3)
       enc=(--encryption "$mode") ;;
+    none)
+      echo "BORG_ENCRYPTION=none: Borg 2 has no repository without a key (the none modes" >&2
+      echo "were removed in 2.0.0b25). Use 'authenticated' for a repository that is not" >&2
+      echo "encrypted, or one of the encrypted modes; both need the passphrase." >&2
+      exit 1 ;;
     *)
       echo "BORG_ENCRYPTION=$mode is not a Borg 2 mode (expected repokey-aes-ocb," >&2
       echo "repokey-chacha20-poly1305, keyfile-aes-ocb, keyfile-chacha20-poly1305," >&2
-      echo "authenticated or none)." >&2
+      echo "authenticated, authenticated-sha256 or authenticated-blake3)." >&2
       exit 1 ;;
   esac
   init_cmd=(repo-create "${enc[@]}")

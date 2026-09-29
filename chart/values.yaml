@@ -77,11 +77,29 @@ borg:
   ## these would be invalid on other subcommands. e.g. "--filter AME --list --exclude-caches".
   ## NB: the agent's create already passes --stats; --list logs one line per file into the job log.
   planCustomFlags: ""
-  ## @param borg.remotePath Path to the borg executable on the remote (ssh:// server). When set, the
-  ## borg/borg2 wrapper injects `--remote-path=<value>` into every call (both versions). Empty = none.
-  ## e.g. "borg-1.4" or "borg2" when the server's borg isn't the default `borg` on PATH.
+  ## @param borg.remotePath Name or path of the borg executable on an ssh:// server, e.g. "borg-1.4"
+  ## or "borg2" when the server's borg isn't the default `borg` on PATH. Empty = none.
+  ## Rendered as BORG_REMOTE_PATH. Borg 1: the borg wrapper turns it into the option
+  ## `--remote-path=<value>` of every call. Borg 2 has no such option (removed in 2.0.0b22) and
+  ## reads the variable itself.
   remotePath: ""
-  ## Repository base, e.g. ssh://user@host:22/./cluster. Each pod appends its node name.
+  ## Repository base. Each pod appends its node name. The same text means different directories
+  ## for the two majors:
+  ##
+  ##   Borg 1   ssh://user@host:22/./cluster    relative to the login directory
+  ##            ssh://user@host:22/srv/cluster  absolute
+  ##   Borg 2   ssh://user@host:22/cluster      relative to the login directory
+  ##            ssh://user@host:22//srv/cluster absolute
+  ##            sftp://…, s3:…, rclone:…        see the Borg 2 documentation
+  ##
+  ## Borg 2.0.0b25 and later know no rest:// (up to 2.0.0b24 the name of what is ssh:// now) and
+  ## read such a URL as a local directory: `value` is refused at render time for borg.version 2,
+  ## a base from an existing Secret by the borg2 wrapper at run time. The wrapper goes by the
+  ## Borg 2 of the image, the chart cannot: a release that pins an image with an earlier Borg 2
+  ## takes its rest:// base from an existing Secret.
+  ## Borg 2 takes the port from the URL unless a remote shell command is set (BORG_RSH or
+  ## BORGSTORE_RSH, which the chart does not set). Such a command is used as it is and has to
+  ## name the port itself: "ssh -p 2222".
   ## Sensitive: provide `value`, or reference an existing Secret via existingSecret[+existingSecretKey].
   repoBase:
     ## @param borg.repoBase.value Repository base URL
@@ -90,10 +108,15 @@ borg:
     existingSecret: ""
     ## @param borg.repoBase.existingSecretKey Key in existingSecret (default: BORG_REPO_BASE)
     existingSecretKey: ""
-  ## Repository passphrase (sensitive).
+  ## Repository passphrase (sensitive). Mandatory for every Borg 2 repository: from 2.0.0b25 on
+  ## Borg 2 has no repository without a key, and every command needs it, break-lock and
+  ## repo-delete included.
   passphrase:
+    ## @param borg.passphrase.value Repository passphrase
     value: ""
+    ## @param borg.passphrase.existingSecret Existing Secret holding the passphrase
     existingSecret: ""
+    ## @param borg.passphrase.existingSecretKey Key in existingSecret (default: BORG_PASSPHRASE)
     existingSecretKey: ""
   ## @param borg.archiveNameTemplate Managed-agent archive name template (register-backup-plan).
   ## Empty = the agent's built-in default `$(NODE_NAME)-{now:%Y-%m-%d-%s}` (with a REPO_NAME

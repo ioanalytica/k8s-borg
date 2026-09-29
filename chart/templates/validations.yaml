@@ -30,4 +30,12 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- if and (eq .Values.borgUI.redis.mode "external") (not .Values.borgUI.redis.external.url) (not .Values.borgUI.redis.external.host) }}
 {{- fail "borgUI.redis.mode=external requires borgUI.redis.external.url or borgUI.redis.external.host" }}
 {{- end }}
+{{- /*
+Borg 2.0.0b25 has no rest:// scheme and reads such a URL as a local directory.
+A base that comes from an existing Secret is not visible here; the borg2 wrapper
+refuses it at run time.
+*/}}
+{{- if and (eq (toString .Values.borg.version) "2") (not .Values.borg.repoBase.existingSecret) (hasPrefix "rest://" (lower (trim (toString .Values.borg.repoBase.value)))) }}
+{{- fail "borg.repoBase.value: rest:// repository URLs were removed in Borg 2.0.0b25, which reads one as a local directory. Use ssh://[user@]host[:port]/path (relative to the login directory; ssh://host//path is absolute) and create the repository anew. See \"Upgrading to Borg 2.0.0b25\" in chart/README.md." }}
+{{- end }}
 {{- include "k8s-borg.repoServer.validate" . }}

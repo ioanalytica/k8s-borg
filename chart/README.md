@@ -15,8 +15,8 @@ enrollment (DEV/TEST).
 helm dependency build ./chart
 
 helm install my-borg ./chart -n k8s-borg --create-namespace \
-  --set borg.repoBase="ssh://user@borg.example.com:22/./mycluster" \
-  --set borg.passphrase="…" \
+  --set borg.repoBase.value="ssh://user@borg.example.com:22/./mycluster" \
+  --set borg.passphrase.value="…" \
   --set-file ssh.privateKey=./id_ed25519 \
   --set-file ssh.knownHosts=./known_hosts
 ```
@@ -251,6 +251,82 @@ Volume and claim created by the chart are kept on `helm uninstall`.
 version: `ssh://` (server has borg installed, works with 1 and 2) or `sftp://`
 (plain SFTP target with no server-side borg — borg 2 only).
 
+The two majors read the same `ssh://` URL differently:
+
+| | relative to the login directory | absolute |
+| --- | --- | --- |
+| Borg 1 | `ssh://user@host:22/./cluster` | `ssh://user@host:22/srv/cluster` |
+| Borg 2 | `ssh://user@host:22/cluster` | `ssh://user@host:22//srv/cluster` |
+
+| | Borg 1 | Borg 2 |
+| --- | --- | --- |
+| `borg.remotePath` (`BORG_REMOTE_PATH`) | the `borg` wrapper adds `--remote-path=<value>` to every call | read by Borg itself; the option no longer exists (removed in 2.0.0b22) |
+| `BORG_ENCRYPTION` (read by `borg-init`; the chart does not set it, its workloads get the default) | any Borg 1 mode, default `repokey-blake2` | `repokey-aes-ocb` (default), `repokey-chacha20-poly1305`, `keyfile-aes-ocb`, `keyfile-chacha20-poly1305`, `authenticated` (= `authenticated-sha256`), `authenticated-blake3`. No `none` |
+| `borg.passphrase` | needed for the modes with a key | mandatory: from 2.0.0b25 on there is no repository without a key, and every command needs it, `break-lock` and `repo-delete` included |
+| port | taken from the URL | taken from the URL, unless a remote shell command is set (`BORG_RSH`, `BORGSTORE_RSH`): that command is used as it is and has to name the port, `ssh -p 2222`. The chart sets neither |
+| `rest://` | never a repository URL | the name of `ssh://` up to 2.0.0b24; refused from 2.0.0b25 on |
+
+### Upgrading to Borg 2.0.0b25
+
+This concerns releases with `borg.version: 2`. **Borg 1 repositories are not
+affected.** Which Borg 2 an image carries: `borg2 --version` in a pod.
+
+> **Borg 2 repositories are test beds, not backups to rely on.** Borg 2 is a
+> beta. 2.0.0b25 cannot open a repository written by 2.0.0b22–b24 (exit 15,
+> "is not a valid repository"), and there is no conversion in place: every
+> Borg 2 repository is created anew, and the history in the old one ends.
+
+What changes for the clients:
+
+- **`rest://` becomes `ssh://`.** The path rules are the same. 2.0.0b25 does not
+  reject the old scheme, it reads the URL as a local directory and would back up
+  into the pod's own filesystem. The chart therefore refuses a
+  `borg.repoBase.value` that starts with `rest://`, and the `borg2` wrapper
+  refuses such a repository before Borg runs when the Borg 2 of the image is
+  2.0.0b25 or later. A base from an existing Secret is only seen by the wrapper.
+  The wrapper goes by the Borg 2 of the image, the chart cannot: a release that
+  pins an image with an earlier Borg 2 takes its `rest://` base from an existing
+  Secret.
+- **`BORG_ENCRYPTION=none` is refused**, `authenticated` creates an
+  `authenticated-sha256` repository.
+- **The passphrase is needed for every command.**
+
+Before the upgrade, with the release that is still running:
+
+1. **Restore what you still need** from the Borg 2 repositories. Where the
+   history itself matters, the only bridge is one archive at a time, with both
+   Borg versions side by side: `borg export-tar --tar-format BORG` from the old
+   repository into `borg import-tar` of the new one. The archives get new ids.
+
+Then, in this order:
+
+2. **Repository server first.** It has to run the borgstore that belongs to
+   2.0.0b25 (0.7.0, with the `blake3` extra); clients up to 2.0.0b24 keep
+   working against it. For the [repository server](#repository-server-optional)
+   of this chart that is the upgrade of the release that runs it.
+3. Stop the backups of the Borg 2 repositories (suspend the CronJob, pause the
+   plans and schedules in Borg UI) and wait for running jobs.
+4. On the server, **move the old repository directories aside. Do not delete
+   them.**
+5. **Upgrade the release.** With the base in `borg.repoBase.value`, change it to
+   `ssh://` in the same step; the chart does not render otherwise.
+6. **Then the base URL**, where it comes from an existing Secret: change it to
+   `ssh://` and restart the pods. Until then they refuse to run Borg 2 and say
+   why; nothing is written anywhere.
+7. Borg UI keeps the URL of every repository it knows, and the pods leave a
+   record they find alone. Change the records of the Borg 2 repositories there,
+   or remove them from Borg UI without deleting data, so that the pods register
+   them anew.
+8. The pods create the repositories (`borg-init`). Check one: `borg-info` prints
+   `Repository version: 5`. Run a backup and a restore into an empty directory,
+   then resume the backups.
+9. Delete the directories of step 4 once the new repositories hold backups you
+   have verified.
+
+**Rollback** is the previous release with the previous base URL and the
+directories of step 4 moved back. It works only as long as those directories
+exist. What 2.0.0b25 has written in between cannot be read by an earlier beta.
+
 ## Versioning
 
 `appVersion` is the agent image version, and `image.tag` defaults to it — the
@@ -274,7 +350,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | Section | Highlights |
 | --- | --- |
 | `image`, `initImage` | agent image (defaults to appVersion) |
-| `borg` | `version`, `repoBase`, `passphrase`, retention, archive naming |
+| `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
 | `s3` | S3 sources mounted via s3fs |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
 | `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude` |
