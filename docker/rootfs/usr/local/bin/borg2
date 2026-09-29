@@ -2,7 +2,7 @@
 # Borg 2 wrapper / gateway.
 #
 # Provides the `borg2` command on PATH; the real Borg 2 binary lives in its own
-# binary ($BORG2_BINARY). Does two things:
+# binary ($BORG2_BINARY). Does three things:
 #
 # 1) Injects default common params (BORG2_DEFAULT_PARAMS); Borg 2 reaches a
 #    Storage Box over sftp:// and usually needs none. Server-provided flags in
@@ -16,6 +16,9 @@
 #    a warning is downgraded to 0 so a managed-agent job isn't marked "failed"
 #    on a routine warning; errors always pass through. Set
 #    BORG_TREAT_WARNINGS_AS_ERRORS=true to propagate warnings unchanged.
+#
+# 3) Refuses a rest:// repository URL when the binary is Borg 2.0.0b25 or later
+#    (see below).
 #
 # NB: run (not exec) so we can remap the exit code; borg2 shares this process
 # group, so the agent's process-group SIGTERM still cancels it cleanly.
@@ -34,13 +37,86 @@
 # invoked without this image's environment (`env -i`, cron, `su -`).
 [ -r /etc/borg-fuse.env ] && . /etc/borg-fuse.env && export FUSE_LIBRARY_PATH
 
-# --remote-path: path to the borg executable on an ssh:// server. Injected when
-# BORG_REMOTE_PATH is set (from the chart's borg.remotePath). An explicit
-# --remote-path later in the command still wins (argparse: last occurrence).
-remote_args=()
-[ -n "${BORG_REMOTE_PATH:-}" ] && remote_args=(--remote-path="${BORG_REMOTE_PATH}")
+borg2_binary="${BORG2_BINARY:-/opt/borg-ui-agent/borg2/current/borg}"
 
-"${BORG2_BINARY:-/opt/borg-ui-agent/borg2/current/borg}" "${remote_args[@]}" ${BORG2_DEFAULT_PARAMS:-} "$@"
+# No --remote-path here, unlike the borg1 wrapper: Borg 2 dropped the option in
+# 2.0.0b22 and exits 2 on it. It reads BORG_REMOTE_PATH (the chart's
+# borg.remotePath) from the environment itself.
+
+# rest:// repository URLs. Borg 2.0.0b25 replaced the scheme by ssh:// and does
+# not reject the old one: a URL it does not know is a local path to it, so
+# rest://user@host/repo names the directory ./rest:/user@host/repo below the
+# working directory. repo-create and create succeed there, and the backup never
+# leaves the pod. Every script reaches Borg 2 through this wrapper, so the URL
+# is refused here, before Borg runs.
+#
+# A Borg 2 before 2.0.0b25 still speaks rest://, so the binary decides, and it
+# is asked only for a rest:// URL. A version that cannot be read is no evidence
+# of an old binary: the URL is refused then as well.
+
+# borg2_rest_url ARGS… — succeed iff this call names a rest:// repository: on
+# the command line, or in BORG_REPO when the command line names none.
+#
+# Borg accepts the option in many spellings (-r URL, -rURL, -r=URL, -vr URL,
+# --repo, every abbreviation of it, with a blank or with "="), so the command
+# line is not parsed: a word that starts with rest://, or an option that carries
+# such a URL, is enough. Only the plain spellings count as naming another
+# repository than BORG_REPO. Leading white space does not protect a URL, Borg
+# would create the directory " rest:". What follows "--" are paths. A call that
+# only prints the version or a help text uses no repository.
+borg2_rest_url() {
+  local named=0 word repo
+  while [ $# -gt 0 ]; do
+    word="${1#"${1%%[![:space:]]*}"}"
+    case "$word" in
+      --) break ;;
+      -V | --version | -h | --help) return 1 ;;
+      [Rr][Ee][Ss][Tt]://* | -*[Rr][Ee][Ss][Tt]://*) return 0 ;;
+      -r | --r | --re | --rep | --repo) [ $# -ge 2 ] && named=1 ;;
+      -r?* | --r=?* | --re=?* | --rep=?* | --repo=?*) named=1 ;;
+    esac
+    shift
+  done
+  [ "$named" = 0 ] || return 1
+  repo="${BORG_REPO:-}"
+  repo="${repo#"${repo%%[![:space:]]*}"}"
+  case "$repo" in
+    [Rr][Ee][Ss][Tt]://*) return 0 ;;
+  esac
+  return 1
+}
+
+# borg2_speaks_rest — 0 when the binary reads as a Borg 2 before 2.0.0b25, 1
+# when it reads as anything else, 2 when it does not state a version at all;
+# what it said instead is left in $borg2_probe.
+borg2_speaks_rest() {
+  local beta='(^|[[:space:]])2\.0\.0b([0-9]+)'
+  borg2_probe="$("$borg2_binary" --version 2>&1)" || return 2
+  [[ "$borg2_probe" =~ $beta ]] || return 1
+  [ "${BASH_REMATCH[2]}" -lt 25 ]
+}
+
+# shellcheck disable=SC2086
+if borg2_rest_url ${BORG2_DEFAULT_PARAMS:-} "$@"; then
+  borg2_speaks_rest
+  case $? in
+    0) ;;
+    2)
+      printf '%s\n' "$borg2_probe" >&2
+      echo "borg2: $borg2_binary does not state its version. A rest:// repository is only" >&2
+      echo "valid for a Borg 2 before 2.0.0b25, so this one is refused." >&2
+      exit 2 ;;
+    *)
+      echo "borg2: rest:// repository URLs were removed in Borg 2.0.0b25, which reads one as a" >&2
+      echo "local directory. Use ssh://[user@]host[:port]/path instead (the path rules are" >&2
+      echo "the same), and create the repository anew: 2.0.0b25 cannot read a repository" >&2
+      echo "written by an earlier Borg 2 beta." >&2
+      exit 2 ;;
+  esac
+fi
+
+# shellcheck disable=SC2086
+"$borg2_binary" ${BORG2_DEFAULT_PARAMS:-} "$@"
 rc=$?
 
 # shellcheck source=../lib/borg-rc.sh

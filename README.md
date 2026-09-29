@@ -65,7 +65,9 @@ Core settings (standalone mode), supplied via env / mounted secrets:
 | `BORG_MODE` | `cluster` (default) or `node` — selects the workload's backup flow |
 | `NODE_NAME` | Node identity (archive naming; injected from the Downward API) |
 | `BORG_REPO` | The Borg repository this pod owns |
-| `BORG_PASSPHRASE` | Repository passphrase |
+| `BORG_PASSPHRASE` | Repository passphrase. Mandatory for Borg 2: every command needs it from 2.0.0b25 on |
+| `BORG_ENCRYPTION` | Mode of a repository `borg-init` creates. Borg 1: default `repokey-blake2`. Borg 2: default `repokey-aes-ocb`; `authenticated` stands for `authenticated-sha256`; there is no `none` |
+| `BORG_REMOTE_PATH` | Name or path of the borg executable on an `ssh://` server |
 | `DB_BACKUP_LOCATION` | Where logical DB dumps are written before archiving |
 | `S3_ENDPOINT`, `S3_MOUNTPOINT`, `AWS_KEY`, `AWS_SECRET_KEY` | S3 sources (cluster/app jobs; never mounted for node backups) |
 
@@ -113,9 +115,19 @@ Secret). Each wrapper injects default common params:
 | Env var | Default | Purpose |
 | --- | --- | --- |
 | `BORG1_DEFAULT_PARAMS` | (empty) | Borg 1; set e.g. `--remote-path=borg-1.4` for a Hetzner Storage Box over `ssh://` |
-| `BORG2_DEFAULT_PARAMS` | (empty) | Borg 2; reaches a Storage Box over `sftp://`, no `--remote-path` needed |
+| `BORG2_DEFAULT_PARAMS` | (empty) | Borg 2; reaches a Storage Box over `sftp://`. Borg 2 has no `--remote-path` |
 
 Server-provided flags override them (borg's argparse lets the last `--remote-path` win).
+
+`BORG_REMOTE_PATH` becomes `--remote-path=<value>` in the `borg` wrapper. Borg 2
+dropped that option in 2.0.0b22 and reads the variable itself, so the `borg2`
+wrapper adds nothing.
+
+The `borg2` wrapper refuses a `rest://` repository (`BORG_REPO`, `-r`, `--repo`)
+when its binary is Borg 2.0.0b25 or later. That Borg has no such scheme and
+would read the URL as a local directory; the repository is an `ssh://` one now.
+With an earlier Borg 2 in the image the wrapper lets a `rest://` repository
+pass. See "Upgrading to Borg 2.0.0b25" in [`chart/README.md`](chart/README.md).
 
 ## Layout
 

@@ -37,9 +37,9 @@ mount_rc=$?
 # shellcheck source=../lib/borg-rc.sh
 . "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
 if [ "$mount_rc" -ne 0 ] && ! borg_rc_is_warning "$mount_rc"; then
-    echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} failed!"
-else
-    echo "Backup set ${BORG_REPO}::${BORG_BACKUP_SET} successfully mounted on /mnt/borg"
+    echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} failed!" >&2
+    exit "$mount_rc"
 fi
+echo "Backup set ${BORG_REPO}::${BORG_BACKUP_SET} successfully mounted on /mnt/borg"
 
 # end

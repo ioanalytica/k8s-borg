@@ -13,7 +13,8 @@ export BORG_BIN_DIR="$BIN"
 common_setup() {
   TMP="$(mktemp -d)"
   unset BORG_VERSION BORG_REMOTE_PATH BORG_TREAT_WARNINGS_AS_ERRORS \
-        BORG1_DEFAULT_PARAMS BORG2_DEFAULT_PARAMS S3_ENABLED
+        BORG1_DEFAULT_PARAMS BORG2_DEFAULT_PARAMS S3_ENABLED \
+        BORG_REPO BORG_ENCRYPTION
   export BORG1_BINARY="$TMP/fake-borg" BORG2_BINARY="$TMP/fake-borg"
 }
 
@@ -44,6 +45,35 @@ exit $rc
 EOF
   chmod +x "$TMP/fake-borg"
 }
+
+# make_fake_borg2 VERSION [RC] — a stub that answers `--version` like a Borg of
+# that version and otherwise behaves like make_fake_borg. The version probe is
+# counted in $TMP/probes and leaves $TMP/argv alone, so that a test can tell
+# whether the wrapper asked, and whether Borg ran after it. It also records the
+# BORG_REMOTE_PATH it was started with. VERSION "" makes the probe fail.
+make_fake_borg2() {
+  local version="${1:-}" rc="${2:-0}"
+  rm -f "$TMP/argv" "$TMP/probes" "$TMP/remote-path"
+  cat >"$TMP/fake-borg" <<EOF
+#!/usr/bin/env bash
+if [ "\$*" = "--version" ]; then
+  echo probe >> "$TMP/probes"
+  [ -n "$version" ] || exit 2
+  echo "borg $version"
+  exit 0
+fi
+printf '%s\n' "\$@" > "$TMP/argv"
+printf '%s' "\${BORG_REMOTE_PATH-unset}" > "$TMP/remote-path"
+exit $rc
+EOF
+  chmod +x "$TMP/fake-borg"
+}
+
+# probes — how often the wrapper asked the stub for its version.
+probes() { if [ -f "$TMP/probes" ]; then grep -c . "$TMP/probes"; else echo 0; fi; }
+
+# borg_ran — succeed iff the stub was started for anything but its version.
+borg_ran() { [ -f "$TMP/argv" ]; }
 
 # argv_line N — the Nth argument the fake borg received (1-based).
 argv_line() { sed -n "${1}p" "$TMP/argv"; }

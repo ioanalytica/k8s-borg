@@ -90,8 +90,13 @@ repo_server_setup() {
   start_server || { cat /tmp/repo-server.log >&2; return 1; }
 }
 
-# borg2_beta — the beta number of the image's Borg 2 (24 for 2.0.0b24).
-borg2_beta() { borg2 --version 2>/dev/null | sed -n 's/.*2\.0\.0b\([0-9][0-9]*\).*/\1/p'; }
+# borg2_beta — the beta number of the image's Borg 2 (24 for 2.0.0b24). A
+# version that is no beta comes after every beta.
+borg2_beta() {
+  local beta
+  beta="$(borg2 --version 2>/dev/null | sed -n 's/.*2\.0\.0b\([0-9][0-9]*\).*/\1/p')"
+  echo "${beta:-999}"
+}
 
 # repo_url PATH — how a client addresses PATH on the server. PATH is relative to
 # the data directory; pass one starting with "/" for an absolute path. Borg 2
