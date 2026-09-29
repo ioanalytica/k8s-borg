@@ -1,0 +1,203 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Optional Borg 2 repository server (repoServer.enabled): sshd as the only
+process, from the agent image, so server and clients carry the same Borg 2.
+Its own workload, not a sidecar of a client. One replica — the data is on one
+node.
+
+Host key and the clients' public keys come from the ssh Secret the client pods
+use. Only the init container mounts it, and only those two entries of it: it
+binds every key to its directory and stages the result, with the modes sshd
+insists on. The server container gets that read-only.
+
+The pod asks for nothing beyond what a restricted namespace allows: no root, no
+capabilities, no hostPath, a read-only root filesystem.
+*/}}
+{{- if .Values.repoServer.enabled }}
+{{- $rs := .Values.repoServer }}
+{{- $dataDir := include "k8s-borg.repoServer.dataDir" . }}
+{{- $runDir := include "k8s-borg.repoServer.runDir" . }}
+apiVersion: {{ include "common.capabilities.statefulset.apiVersion" . }}
+kind: StatefulSet
+metadata:
+  name: {{ include "k8s-borg.repoServer.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  serviceName: {{ include "k8s-borg.repoServer.fullname" . }}
+  selector:
+    matchLabels: {{- include "k8s-borg.matchLabels" (dict "context" $ "component" "repo-server") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server") | nindent 8 }}
+      annotations:
+        # Clients and keys are read once, at start.
+        checksum/config: {{ include (print $.Template.BasePath "/repo-server-configmap.yaml") . | sha256sum }}
+        {{- if not .Values.ssh.existingSecret }}
+        checksum/ssh: {{ include (print $.Template.BasePath "/secret-ssh.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with $rs.podAnnotations }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ int $rs.runAsUser }}
+        runAsGroup: {{ int $rs.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $rs.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
+      {{- end }}
+      {{- with $rs.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
+      {{- end }}
+      {{- with $rs.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: prepare
+          image: {{ include "k8s-borg.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command: ["/prepare-repo-server.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: BORG_REPO_SERVER_ROOT
+              value: {{ $dataDir | quote }}
+            - name: BORG_REPO_SERVER_RUN_DIR
+              value: {{ $runDir | quote }}
+            - name: BORG_REPO_SERVER_DEFAULT_PERMISSIONS
+              value: {{ $rs.defaultPermissions | quote }}
+            - name: BORG_REPO_SERVER_BORG1
+              value: {{ $rs.borg1 | ternary "true" "false" | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ $dataDir }}
+            - name: run
+              mountPath: {{ $runDir }}
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/borg-repo-server/clients
+              readOnly: true
+            - name: ssh
+              mountPath: /etc/borg-repo-server/ssh
+              readOnly: true
+            - name: accounts
+              mountPath: /etc/passwd
+              subPath: passwd
+              readOnly: true
+            - name: accounts
+              mountPath: /etc/group
+              subPath: group
+              readOnly: true
+      containers:
+        - name: repo-server
+          image: {{ include "k8s-borg.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command: ["/run-repo-server.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: BORG_REPO_SERVER_RUN_DIR
+              value: {{ $runDir | quote }}
+            - name: BORG_REPO_SERVER_PORT
+              value: {{ $rs.port | quote }}
+          ports:
+            - name: ssh
+              containerPort: {{ $rs.port }}
+              protocol: TCP
+          # Looks at the listening socket instead of connecting to it: every
+          # connection that ends before authentication is a line in sshd's log.
+          # No liveness probe — sshd is the container's only process.
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - netstat -ltn | grep -q ':{{ $rs.port }} '
+            periodSeconds: 15
+          volumeMounts:
+            - name: data
+              mountPath: {{ $dataDir }}
+            - name: run
+              mountPath: {{ $runDir }}
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: accounts
+              mountPath: /etc/passwd
+              subPath: passwd
+              readOnly: true
+            - name: accounts
+              mountPath: /etc/group
+              subPath: group
+              readOnly: true
+          {{- with $rs.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "k8s-borg.repoServer.claimName" . }}
+        # Host key, authorized_keys and the home directory, as staged by the init
+        # container. In memory: none of it is meant to outlive the pod.
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "k8s-borg.repoServer.fullname" . }}
+            items:
+              - key: clients
+                path: clients
+        - name: accounts
+          configMap:
+            name: {{ include "k8s-borg.repoServer.fullname" . }}
+            items:
+              - key: passwd
+                path: passwd
+              - key: group
+                path: group
+        - name: ssh
+          secret:
+            secretName: {{ include "k8s-borg.sshSecretName" . }}
+            # 0444: the init container is not root, so it could not read anything
+            # stricter. It is the only one to see these files, and what it stages
+            # is 0600.
+            defaultMode: 292
+            # A Secret without one of the two entries still mounts, and the init
+            # container says which one is missing. Otherwise the pod would hang
+            # on a mount error.
+            optional: true
+            items:
+              - key: ssh_host_ed25519_key
+                path: ssh_host_ed25519_key
+              - key: authorized_keys
+                path: authorized_keys
+{{- end }}

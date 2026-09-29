@@ -179,6 +179,15 @@ ssh:
   publicKey: ""
   ## @param ssh.knownHosts known_hosts for the Borg host
   knownHosts: ""
+  ## The two entries below are for the repository server (repoServer.enabled) and
+  ## live in the same Secret; an existing Secret has to carry both keys itself.
+  ## @param ssh.hostKey Host key of the repository server, private part (Secret key
+  ## `ssh_host_ed25519_key`). Create one with: ssh-keygen -t ed25519 -N "" -C "" -f ssh_host_ed25519_key
+  hostKey: ""
+  ## @param ssh.authorizedKeys Public keys of the repository server's clients (Secret key
+  ## `authorized_keys`), one per line as in any authorized_keys file: "<type> <key> <name>".
+  ## The comment names the client. No options — the server adds the restriction itself.
+  authorizedKeys: ""
 
 ## @section Databases (logical dumps; cluster/app workloads)
 ##
@@ -725,3 +734,122 @@ persistence:
     path: "/storage/shared/cluster/static/k8s-borg-ui-agent"
     size: 10Mi
     storageClassName: ""
+
+## @section Repository server (optional; Borg 2 over ssh)
+## A Borg 2 repository server inside the release: sshd as the unprivileged user
+## `borg`, every client key bound to `borg serve --rest` for its own path below
+## the data directory. It runs from the agent image, so server and clients always
+## carry the same Borg 2 and borgstore. One replica, data on one node.
+##
+## Borg 2 is a beta and its repository format has changed more than once without
+## a conversion path. Repositories on this server are test beds, not backups to
+## rely on.
+##
+## Clients address a repository as
+##   ssh://borg@<host>:<port>/<path>/<repository>     (Borg 2.0.0b25 and later)
+##   rest://borg@<host>:<port>/<path>/<repository>    (up to Borg 2.0.0b24)
+## The path is relative to the data directory. Nothing is wired up for the
+## workloads of this release: set borg.repoBase and the known_hosts entry
+## yourself, as for any other server.
+##
+## Server and clients share ONE Secret, the ssh Secret (section `ssh` above). The
+## server takes from it:
+##   ssh_host_ed25519_key   its host key
+##   authorized_keys        the clients' public keys, one per line in the usual
+##                          form "<type> <key> <name>". The comment names the client.
+## An init container rewrites every line into one that binds the key to
+## `borg serve` for a single directory, and stages it together with the host key
+## with the modes sshd insists on. The server container itself mounts neither the
+## Secret nor anything it could write to.
+##
+## A new client is one more line in authorized_keys: it gets the directory named
+## after it, and repoServer.defaultPermissions. The pod reads the Secret at start
+## — restart it after a change.
+##
+repoServer:
+  ## @param repoServer.enabled Deploy the repository server
+  enabled: false
+  ## @param repoServer.port Port sshd listens on in the pod (1024 or higher: sshd is unprivileged)
+  port: 2222
+  ## @param repoServer.runAsUser uid of the user `borg` the server runs as. The data directory has
+  ## to belong to it; the server sets the directory to mode 0700 and creates everything below it
+  ## readable for this user only. Deliberately not a uid other charts commonly run as — a second
+  ## workload with the same number on the node could read the repositories.
+  runAsUser: 20222
+  ## @param repoServer.runAsGroup gid of the group `borg`
+  runAsGroup: 20222
+  ## @param repoServer.borg1 Serve Borg 1 repositories as well (`borg serve`). The client decides by
+  ## the way it asks; the directory a key is confined to is the same for both. Borg 1 knows no
+  ## permissions, only append-only: `no-delete` becomes --append-only, and a key that may only
+  ## read or only write gets no Borg 1 access.
+  borg1: true
+  ## @param repoServer.defaultPermissions What a client may do unless listed below:
+  ## all | no-delete | write-only | read-only. Enforced by the server (`borg serve --permissions`).
+  defaultPermissions: all
+  ## @param repoServer.clients Optional. Another directory or other permissions for single clients:
+  ##   name         the client, as named by the comment of its key
+  ##   path         directory below the data directory the client is confined to
+  ##                (default: its name). Repositories are created on demand anywhere
+  ##                below it. Relative, no "..". Clients may share a directory, e.g.
+  ##                a second key that may only read.
+  ##   permissions  default: repoServer.defaultPermissions
+  ## A name that matches no key stops the start: it is most likely a typo.
+  clients: []
+  #  - name: cluster-b
+  #    permissions: no-delete
+  #  - name: restore-test
+  #    path: cluster-b
+  #    permissions: read-only
+  service:
+    ## @param repoServer.service.type ClusterIP | NodePort | LoadBalancer. Pods of the cluster reach
+    ## the server by the Service name with every type; NodePort and LoadBalancer add a way in for
+    ## clients outside the cluster.
+    type: ClusterIP
+    ## @param repoServer.service.port Service port
+    port: 2222
+    ## @param repoServer.service.nodePort Fixed node port (NodePort and LoadBalancer; empty = assigned)
+    nodePort: ""
+    ## @param repoServer.service.loadBalancerIP Requested address (LoadBalancer). Newer load balancers
+    ## take it from an annotation instead, see annotations.
+    loadBalancerIP: ""
+    ## @param repoServer.service.loadBalancerClass Load balancer implementation (LoadBalancer; empty = default)
+    loadBalancerClass: ""
+    ## @param repoServer.service.loadBalancerSourceRanges Networks allowed in (LoadBalancer), e.g. ["192.0.2.0/24"]
+    loadBalancerSourceRanges: []
+    ## @param repoServer.service.externalTrafficPolicy Cluster | Local (NodePort and LoadBalancer). Local
+    ## keeps the client address in the sshd log, and only the node running the pod answers.
+    externalTrafficPolicy: Cluster
+    ## @param repoServer.service.annotations Service annotations, e.g. metallb.io/loadBalancerIPs
+    annotations: {}
+  ## Where the repositories live. One of:
+  ##   existingClaim       a claim you manage
+  ##   local.createPV      a static `local` PersistentVolume for a directory on one
+  ##                       node, plus its claim. The volume pins the pod to that node.
+  ##   neither             a claim from storageClassName (or the default class)
+  ## In every case the directory has to exist and belong to runAsUser — the chart
+  ## does not change ownership. Volume and claim created by the chart are kept on
+  ## uninstall.
+  persistence:
+    ## @param repoServer.persistence.existingClaim Use an existing claim
+    existingClaim: ""
+    ## @param repoServer.persistence.size Size of the claim (and of the local volume)
+    size: 100Gi
+    ## @param repoServer.persistence.storageClassName StorageClass of the claim (not used with local.createPV)
+    storageClassName: ""
+    local:
+      ## @param repoServer.persistence.local.createPV Create a static local PersistentVolume
+      createPV: false
+      ## @param repoServer.persistence.local.nodeName Node holding the directory (its kubernetes.io/hostname label)
+      nodeName: ""
+      ## @param repoServer.persistence.local.path Directory on that node
+      path: ""
+  ## @param repoServer.resources Container resources
+  resources: {}
+  ## @param repoServer.nodeSelector Node selector (not needed with local.createPV, which pins by itself)
+  nodeSelector: {}
+  ## @param repoServer.affinity Affinity
+  affinity: {}
+  ## @param repoServer.tolerations Tolerations, for a storage node that is tainted
+  tolerations: []
+  ## @param repoServer.podAnnotations Extra pod annotations
+  podAnnotations: {}

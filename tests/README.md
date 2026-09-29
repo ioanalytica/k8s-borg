@@ -6,7 +6,7 @@ the agent image. Both run in `.github/workflows/lint-test.yml` on every push and
 pull request.
 
 ```sh
-brew install shellcheck bats-core     # or: apt-get install shellcheck bats
+brew install shellcheck bats-core helm   # or: apt-get install shellcheck bats, plus helm
 
 ./run-tests.sh                        # all three layers, with a summary
 ./run-tests.sh --quick                # lint + unit tests only, ~3s
@@ -34,10 +34,15 @@ bats tests/borg-rc.bats               # a single file
 | `borg2-wrapper.bats` | the `borg2` wrapper: always-borg2, modern exit codes, missing `/etc/borg-fuse.env` |
 | `agent-borg-shim.bats` | the agent-only `borg` shim: always Borg 1 through the gateway, regardless of the pod's `BORG_VERSION` |
 | `borg-files-cache-flag.bats` | the S3-mounted gate for `--files-cache=mtime,size` (negative cases only — the positive one needs a real fuse.s3fs mount) |
+| `repo-serve.bats` | `borg-repo-serve`, the forced command of the repository server: Borg 1/Borg 2 dispatch by the client's request, pinned path and permissions, refusal of everything that is not a `serve` request |
+| `repo-server-entrypoint.bats` | `prepare-repo-server.sh` and `run-repo-server.sh`: what a plain `authorized_keys` line becomes, the client list, modes of what is staged, and every input that has to stop the start |
+| `chart-repo-server.bats` | the chart's repository server: nothing rendered by default, no other object touched when enabled, Service types, storage, and the values that are refused |
+| `borgstore-pin.bats` | the agent image installs exactly the borgstore the submodule states, with the `blake3` extra; the submodule's two statements of the Borg 2 version agree; `borg-versions.py` stops on a pin that belongs to another Borg 2 |
 | `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, and the chart version follows `appVersion[-N]` |
 
-`chart-versions.bats` reads `borg-ui/VERSION`, so the submodule has to be
-checked out. Its extractors are plain sed/awk rather than `yq`, so the check
+`chart-versions.bats` reads `borg-ui/VERSION`, and `borgstore-pin.bats` the
+submodule's manifest and `runtime-base.env`, so the submodule has to be checked
+out. Its extractors are plain sed/awk rather than `yq`, so the check
 needs no setup; the first test pins the extractors themselves, because one that
 quietly stops finding its value would make every later assertion compare `""`
 with `""` and pass.
@@ -72,6 +77,7 @@ different `mount` argument shape.
 | --- | --- |
 | `lifecycle.bats` | `borg-init` (create, idempotent, real failure), `borg-backup` (archive contents, name template, node vs cluster patterns, empty-pattern skip), `borg-list`, `borg-info`, `borg-break-lock`, `borg-mount`, `borg-delete` |
 | `prune.bats` | `borg-prune`: retention window, `KEEP_*` overrides, and the combined prune+compact exit code on real borg output |
+| `repo-server.bats` | the repository server with the image's own `sshd` as an unprivileged user and its own Borg as the client: create/backup/list below the client's directory, refusal outside it, no shell and no foreign command, permissions, unknown key, host key across a restart |
 
 FUSE is required — `borg-mount` is part of the suite. The container gets
 `--device /dev/fuse --cap-add SYS_ADMIN`; the host OS is irrelevant, since on
@@ -91,6 +97,7 @@ image, so a change under `docker/rootfs/` will not be picked up — rebuild.
 
 ## Deliberately not covered here
 
-Remote repositories (ssh://, sftp://, s3://), the mounted-S3 files-cache case,
-and the borg version pins. Python and frontend tests live in the `borg-ui`
+Remote repositories other than the image's own repository server (sftp://,
+s3://, a foreign ssh:// server), the mounted-S3 files-cache case, and the borg
+version pins. Python and frontend tests live in the `borg-ui`
 submodule and run in its own CI.

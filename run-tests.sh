@@ -40,6 +40,7 @@ need() {
 }
 need shellcheck shellcheck
 need bats bats-core
+need helm helm
 
 if [ -t 1 ]; then bold=$'\033[1m'; off=$'\033[0m'; else bold=''; off=''; fi
 

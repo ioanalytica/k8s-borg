@@ -1,0 +1,46 @@
+# sshd for the repository server (run-repo-server.sh).
+#
+# sshd runs as an unprivileged user, so the only account that can log in is the
+# one it runs as. Every key is bound to a forced command in authorized_keys.
+#
+# Port, host key, authorized_keys and the allowed user are set on the command
+# line by run-repo-server.sh. Host key and authorized_keys are staged by
+# prepare-repo-server.sh and read-only here.
+
+PidFile none
+LogLevel VERBOSE
+
+# Keys only.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+HostbasedAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin no
+AuthenticationMethods publickey
+StrictModes yes
+
+# authorized_keys already says `restrict`; this holds even for a line that
+# would not.
+AllowTcpForwarding no
+AllowAgentForwarding no
+AllowStreamLocalForwarding no
+GatewayPorts no
+PermitTunnel no
+PermitTTY no
+PermitUserEnvironment no
+PermitUserRC no
+X11Forwarding no
+
+PrintMotd no
+UseDNS no
+
+# Clients from outside the cluster usually arrive with one shared address, the
+# node's. A penalty for one of them — a wrong key, a port scan — would lock out
+# all of them. Only keys are accepted, so there is no password to guess.
+PerSourcePenalties no
+
+# A client that vanished without closing the connection is dropped after five
+# minutes, which ends its `borg serve` and releases the repository lock.
+ClientAliveInterval 10
+ClientAliveCountMax 30
