@@ -9,8 +9,8 @@ expects — the same shape `borgUI.licensing.entitlement.existingSecret` holds.
 
 Runs INSIDE the UI pod, where the database credentials already live; pipe it in:
 
-    KUBECONFIG=~/.kube/config.styxnet kubectl -n borg exec -i deploy/k8s-borg-ui -c ui \
-      -- python3 - < scripts/dump-entitlement.py > entitlement-styxnet.json
+    kubectl -n <namespace> exec -i deploy/<release>-ui -c ui \
+      -- python3 - < scripts/dump-entitlement.py > entitlement.json
 
 The identifying line goes to stderr, the document to stdout, so the redirect above
 yields a clean file. Read-only; picks Postgres when DB_HOST is set, else the
