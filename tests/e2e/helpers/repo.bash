@@ -29,6 +29,10 @@ e2e_setup() {
   echo "nested payload" >"$SRC/nested/deep.txt"
 
   write_patterns "R $SRC"
+
+  # Mount processes that are there before the test are not its own.
+  MOUNTS_BEFORE=""
+  MOUNTS_BEFORE=" $(mount_pids | tr '\n' ' ')"
 }
 
 e2e_teardown() {
@@ -41,6 +45,18 @@ e2e_teardown() {
   return 0
 }
 
+# mount_pids — the mount processes of this test: `borg mount` on the suite's
+# mountpoint, started after e2e_setup.
+mount_pids() {
+  local pid
+  for pid in $(pgrep -f 'borg mount .*/mnt/borg'); do
+    case "${MOUNTS_BEFORE:-}" in
+      *" $pid "*) ;;
+      *) echo "$pid" ;;
+    esac
+  done
+}
+
 # end_mounts — no mount process outlives its test. Borg 2 (2.0.0b24 and b25)
 # leaves the process of a background mount of a remote repository behind after
 # the unmount: one thread, waiting for a lock, for good. It holds the
@@ -49,10 +65,10 @@ e2e_teardown() {
 end_mounts() {
   local pid
   for _ in 1 2 3 4 5 6; do
-    [ -n "$(pgrep -f 'borg mount ')" ] || return 0
+    [ -n "$(mount_pids)" ] || return 0
     sleep 0.5
   done
-  for pid in $(pgrep -f 'borg mount '); do
+  for pid in $(mount_pids); do
     kill -9 "$pid" 2>/dev/null || true
   done
 }
