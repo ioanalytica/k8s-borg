@@ -7,6 +7,11 @@
 # source path; the `borg`/`borg2` commands are thin wrappers that inject default
 # params (e.g. --remote-path). SSH credentials live in /root/.ssh.
 #
+# The same image is the optional repository server (/prepare-repo-server.sh,
+# then /run-repo-server.sh): sshd as an unprivileged user, every client key
+# bound to `borg serve --rest` for its own path. Server and clients therefore
+# always run the same Borg 2.
+#
 # The image is intentionally "cold": it is NOT enrolled. The agent credential
 # (/etc/borg-ui-agent/config.toml) is written by `borg-ui-agent register` at
 # enrollment time, which is wired up in a later iteration — not baked here.
@@ -29,10 +34,15 @@
 # borg1 takes pyfuse3, a compiled extension; borg2 takes mfusepy, which loads
 # libfuse through ctypes at run time. The borgstore extras add every Borg 2
 # repository backend — sftp for targets like a Hetzner Storage Box with no
-# server-side Borg, plus rclone, rest and s3; posixfs is built in.
+# server-side Borg, plus rclone, rest and s3; posixfs is built in — and blake3,
+# the hash Borg 2 stores its objects under.
 #
-# The versions come from the borg-ui manifest, so a Borg bump still happens in
-# exactly one place, in borg-ui, and this image follows.
+# The versions come from the borg-ui submodule, so a Borg bump still happens in
+# exactly one place, in borg-ui, and this image follows: Borg from its manifest,
+# borgstore from its runtime-base.env. borgstore is pinned to exactly that
+# version. Borg 2 and borgstore belong together, on the client and on the
+# repository server; a pin that no longer fits the Borg 2 being built fails the
+# build instead of installing something else.
 #
 # Python tracks borg-ui/docker/runtime-base.env, same as the server image, kept
 # in step by a guard test.
@@ -45,18 +55,19 @@ RUN apk add --no-cache \
         build-base python3-dev pkgconf linux-headers \
         acl-dev lz4-dev zstd-dev xxhash-dev openssl-dev libffi-dev fuse3-dev
 
-COPY borg-ui/app/api/borg_binaries.json docker/borg-versions.py /build/
+COPY borg-ui/app/api/borg_binaries.json borg-ui/docker/runtime-base.env docker/borg-versions.py /build/
 
 # hadolint ignore=DL3013
 RUN set -eu; \
-    eval "$(python /build/borg-versions.py /build/borg_binaries.json)"; \
-    echo "compiling Borg ${BORG1_VERSION} and ${BORG2_VERSION}"; \
+    eval "$(python /build/borg-versions.py /build/borg_binaries.json /build/runtime-base.env)"; \
+    echo "compiling Borg ${BORG1_VERSION} and ${BORG2_VERSION}, with borgstore ${BORGSTORE_VERSION}"; \
     python -m venv /opt/borg-ui-agent/borg1/venv; \
     /opt/borg-ui-agent/borg1/venv/bin/pip install --no-cache-dir -q \
         pyfuse3 "borgbackup==${BORG1_VERSION}"; \
     python -m venv /opt/borg-ui-agent/borg2/venv; \
     /opt/borg-ui-agent/borg2/venv/bin/pip install --no-cache-dir -q --pre \
-        "borgbackup==${BORG2_VERSION}" "borgstore[rclone,sftp,rest,s3]" mfusepy
+        "borgbackup==${BORG2_VERSION}" \
+        "borgstore[rclone,sftp,rest,s3,blake3]==${BORGSTORE_VERSION}" mfusepy
 
 # --- agent image -------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-alpine
@@ -65,12 +76,14 @@ FROM python:${PYTHON_VERSION}-alpine
 # already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs-fuse
 # covers the s3fs mounts some sources use. rclone is a separate Go program that
 # no Borg release bundles, and borgstore drives it over its rc API, so rclone:
-# repositories need it present.
+# repositories need it present. openssh-server is only started by the
+# repository server.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \
         ca-certificates \
         openssh-client \
+        openssh-server \
         tzdata \
         rsync \
         curl \
@@ -130,7 +143,8 @@ RUN python -m venv "${BORG_UI_AGENT_VENV}" \
 RUN install -d -m 0750 /etc/borg-ui-agent
 
 COPY docker/rootfs/ /
-RUN chmod 0755 /entrypoint.sh /run-agent.sh /usr/local/bin/* \
+RUN chmod 0755 /entrypoint.sh /run-agent.sh /prepare-repo-server.sh /run-repo-server.sh \
+        /usr/local/bin/* \
         /usr/local/libexec/borg-ui-agent-bin/*
 
 # Explicit HOME so `~` resolves to /root everywhere (the agent, borg's
@@ -157,6 +171,12 @@ ENV BORG_PACK_CACHE_SIZE=2147483648
 RUN borg --version \
     && borg2 --version \
     && borg-ui-agent --help >/dev/null
+
+# The repository server's sshd_config must parse with the OpenSSH this image
+# installed: an option a release no longer knows stops sshd at start.
+RUN ssh-keygen -q -t ed25519 -N "" -f /tmp/selftest_key \
+    && /usr/sbin/sshd -t -f /etc/borg-repo-server/sshd_config -h /tmp/selftest_key \
+    && rm -f /tmp/selftest_key /tmp/selftest_key.pub
 
 WORKDIR /root
 

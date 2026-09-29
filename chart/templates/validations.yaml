@@ -30,3 +30,4 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- if and (eq .Values.borgUI.redis.mode "external") (not .Values.borgUI.redis.external.url) (not .Values.borgUI.redis.external.host) }}
 {{- fail "borgUI.redis.mode=external requires borgUI.redis.external.url or borgUI.redis.external.host" }}
 {{- end }}
+{{- include "k8s-borg.repoServer.validate" . }}

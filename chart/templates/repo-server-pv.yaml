@@ -1,0 +1,67 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Storage of the repository server. Both objects are kept on uninstall: they hold
+the repositories.
+
+A `local` volume rather than a hostPath in the pod: the pod then needs nothing a
+restricted namespace forbids, and the volume's node affinity is what pins the
+pod to the node holding the directory.
+*/}}
+{{- if and .Values.repoServer.enabled (not .Values.repoServer.persistence.existingClaim) }}
+{{- $p := .Values.repoServer.persistence }}
+{{- $pvName := printf "%s-pv" (include "k8s-borg.repoServer.fullname" .) }}
+{{- if $p.local.createPV }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $pvName }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server") | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  capacity:
+    storage: {{ $p.size | quote }}
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  # Reserved for the server's claim: no other claim can bind the repositories.
+  claimRef:
+    namespace: {{ .Release.Namespace | quote }}
+    name: {{ include "k8s-borg.repoServer.claimName" . }}
+  local:
+    path: {{ $p.local.path | quote }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - {{ $p.local.nodeName | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "k8s-borg.repoServer.claimName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server") | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $p.local.createPV }}
+  storageClassName: ""
+  volumeName: {{ $pvName }}
+  {{- else if $p.storageClassName }}
+  storageClassName: {{ $p.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size | quote }}
+{{- end }}

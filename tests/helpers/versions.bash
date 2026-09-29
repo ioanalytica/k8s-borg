@@ -77,4 +77,12 @@ dockerfile_python_arg() {
   sed -n 's/^ARG PYTHON_VERSION=\(.*\)/\1/p' "$REPO_ROOT/$1" | head -1
 }
 
+# Borg 2 and borgstore, as the two files in the submodule state them. The agent
+# image takes Borg 2 from the manifest and borgstore from the env file.
+MANIFEST="$REPO_ROOT/borg-ui/app/api/borg_binaries.json"
+runtime_env_value() { sed -n "s/^$1=\\(.*\\)/\\1/p" "$RUNTIME_ENV" | head -1; }
+manifest_borg2_version() {
+  awk '/"current"/ { on = 1 } on && /"2"/ { gsub(/[",[:space:]]/, ""); sub(/^2:/, ""); print; exit }' "$MANIFEST"
+}
+
 fail() { printf '%s\n' "$*" >&2; return 1; }

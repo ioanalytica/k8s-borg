@@ -27,6 +27,11 @@ independently with the Borg repository assigned to it:
 - **`k8s-borg-app` pod** — console access to the DB backups, the Borg archives,
   and the shared file-system resources that also serve as the CronJob's sources.
 
+Optionally, the chart adds a **repository server**: `sshd` and `borg serve` from
+the same image, unprivileged, with every client key confined to its own
+directory on one node's local storage — see
+[chart/README.md](chart/README.md#repository-server-optional).
+
 > Packaging the deployment as a Helm chart is in progress; this repository
 > currently provides the **image** and its tooling.
 
@@ -93,6 +98,11 @@ Hetzner Storage Box, which only ships server-side Borg 1.x. Borg 2's repo format
 is incompatible with Borg 1 (migrate with `borg transfer`), and Borg 2 is beta —
 its on-disk format can change between betas, so use the same `borg2` build
 everywhere.
+
+Borg 2 and borgstore are installed as a pair: Borg 2 at the version of the
+`borg-ui` manifest, borgstore at exactly the version
+`borg-ui/docker/runtime-base.env` states, with the `blake3` extra. A borgstore
+version that does not fit the Borg 2 being built fails the build.
 
 The image runs as **root**, so backups can read any source path with no
 privilege juggling. On `PATH`, `borg` and `borg2` (`docker/rootfs/usr/local/bin/`)

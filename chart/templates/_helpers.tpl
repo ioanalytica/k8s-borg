@@ -784,3 +784,101 @@ Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
     {{- end }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Repository server (repoServer.enabled).
+*/}}
+{{- define "k8s-borg.repoServer.fullname" -}}
+{{- printf "%s-repo-server" (include "common.names.fullname" .) -}}
+{{- end -}}
+
+{{- define "k8s-borg.repoServer.claimName" -}}
+{{- .Values.repoServer.persistence.existingClaim | default (printf "%s-data" (include "k8s-borg.repoServer.fullname" .)) -}}
+{{- end -}}
+
+{{/* Where the pod keeps its data and its scratch files. Fixed: they are part of
+the account the chart renders into /etc/passwd. */}}
+{{- define "k8s-borg.repoServer.dataDir" -}}/repos{{- end -}}
+{{- define "k8s-borg.repoServer.runDir" -}}/run/borg-repo-server{{- end -}}
+
+{{/*
+Fail fast on a repository server that could not start, or that would grant more
+than intended. The pod checks the same things again at start, and then also
+what the chart cannot see: the content of an existing Secret. Here they fail
+the install instead of a pod.
+*/}}
+{{- define "k8s-borg.repoServer.validate" -}}
+{{- $rs := .Values.repoServer -}}
+{{- if $rs.enabled -}}
+{{- $permissionModes := list "all" "no-delete" "write-only" "read-only" -}}
+{{- if not .Values.ssh.existingSecret -}}
+{{- if not .Values.ssh.hostKey -}}
+{{- fail "repoServer.enabled requires a host key: set ssh.hostKey, or use ssh.existingSecret with a key ssh_host_ed25519_key in it (create one with: ssh-keygen -t ed25519 -N \"\" -C \"\" -f ssh_host_ed25519_key)" -}}
+{{- end -}}
+{{- if not (trim (toString .Values.ssh.authorizedKeys)) -}}
+{{- fail "repoServer.enabled requires the clients' public keys: set ssh.authorizedKeys, or use ssh.existingSecret with a key authorized_keys in it" -}}
+{{- end -}}
+{{- range $i, $line := splitList "\n" (toString .Values.ssh.authorizedKeys) -}}
+{{- $line = trim $line -}}
+{{- if and $line (not (hasPrefix "#" $line)) -}}
+{{- if not (regexMatch "^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\\.com|sk-ecdsa-sha2-nistp256@openssh\\.com) [A-Za-z0-9+/]+=* [A-Za-z0-9][A-Za-z0-9._-]*( .*)?$" $line) -}}
+{{- fail (printf "ssh.authorizedKeys line %d must be \"<type> <key> <name>\": no options, and a comment that names the client (letters, digits, \".\", \"_\", \"-\")" (add $i 1)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if lt (int $rs.port) 1024 -}}
+{{- fail (printf "repoServer.port must be 1024 or higher, sshd runs as an unprivileged user (got %v)" $rs.port) -}}
+{{- end -}}
+{{- if or (lt (int $rs.runAsUser) 1) (lt (int $rs.runAsGroup) 1) -}}
+{{- fail (printf "repoServer.runAsUser and repoServer.runAsGroup must be 1 or higher, the server does not run as root (got %v:%v)" $rs.runAsUser $rs.runAsGroup) -}}
+{{- end -}}
+{{- if not (has (toString $rs.defaultPermissions) $permissionModes) -}}
+{{- fail (printf "repoServer.defaultPermissions must be \"all\", \"no-delete\", \"write-only\" or \"read-only\" (got %q)" (toString $rs.defaultPermissions)) -}}
+{{- end -}}
+{{- if not (has $rs.service.type (list "ClusterIP" "NodePort" "LoadBalancer")) -}}
+{{- fail (printf "repoServer.service.type must be \"ClusterIP\", \"NodePort\" or \"LoadBalancer\" (got %q)" $rs.service.type) -}}
+{{- end -}}
+{{- if not (has $rs.service.externalTrafficPolicy (list "Cluster" "Local")) -}}
+{{- fail (printf "repoServer.service.externalTrafficPolicy must be \"Cluster\" or \"Local\" (got %q)" $rs.service.externalTrafficPolicy) -}}
+{{- end -}}
+{{- $p := $rs.persistence -}}
+{{- if and $p.local.createPV (not $p.existingClaim) -}}
+{{- if not $p.local.nodeName -}}
+{{- fail "repoServer.persistence.local.createPV requires repoServer.persistence.local.nodeName" -}}
+{{- end -}}
+{{- if not (hasPrefix "/" (toString $p.local.path)) -}}
+{{- fail (printf "repoServer.persistence.local.path must be an absolute path on the node (got %q)" (toString $p.local.path)) -}}
+{{- end -}}
+{{- end -}}
+{{- $names := dict -}}
+{{- range $i, $c := $rs.clients -}}
+{{- $at := printf "repoServer.clients[%d]" $i -}}
+{{- $name := toString ($c.name | default "") -}}
+{{- if not $name -}}
+{{- fail (printf "%s.name is required" $at) -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]*$" $name) -}}
+{{- fail (printf "%s.name must start with a letter or digit and consist of letters, digits, \".\", \"_\" and \"-\" (got %q)" $at $name) -}}
+{{- end -}}
+{{- if hasKey $names $name -}}
+{{- fail (printf "%s.name %q is used twice" $at $name) -}}
+{{- end -}}
+{{- $_ := set $names $name true -}}
+{{- $path := toString ($c.path | default $name) -}}
+{{- if hasPrefix "/" $path -}}
+{{- fail (printf "%s.path must be relative to the data directory, without a leading \"/\" (got %q)" $at $path) -}}
+{{- end -}}
+{{- if has ".." (splitList "/" $path) -}}
+{{- fail (printf "%s.path must not contain \"..\" (got %q)" $at $path) -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$" $path) -}}
+{{- fail (printf "%s.path must be made of letters, digits, \".\", \"_\", \"-\" and \"/\", every segment starting with a letter, digit or \"_\" (got %q)" $at $path) -}}
+{{- end -}}
+{{- $permissions := toString ($c.permissions | default $rs.defaultPermissions) -}}
+{{- if not (has $permissions $permissionModes) -}}
+{{- fail (printf "%s.permissions must be \"all\", \"no-delete\", \"write-only\" or \"read-only\" (got %q)" $at $permissions) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

@@ -1,0 +1,36 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Repository server: what is configured for single clients, and the account the
+pod runs as. sshd looks its user up by name, so the configured uid needs an
+entry in /etc/passwd. The clients' keys are in the ssh Secret.
+*/}}
+{{- if .Values.repoServer.enabled }}
+{{- $rs := .Values.repoServer }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-borg.repoServer.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+  clients: |
+    # name path permissions
+    {{- range $rs.clients }}
+    {{ .name }} {{ .path | default .name }} {{ .permissions | default $rs.defaultPermissions }}
+    {{- end }}
+  passwd: |
+    root:x:0:0:root:/root:/bin/sh
+    borg:x:{{ int $rs.runAsUser }}:{{ int $rs.runAsGroup }}:Borg repository server:{{ include "k8s-borg.repoServer.runDir" . }}/home:/bin/sh
+    sshd:x:22:22:sshd:/dev/null:/sbin/nologin
+    nobody:x:65534:65534:nobody:/:/sbin/nologin
+  group: |
+    root:x:0:
+    borg:x:{{ int $rs.runAsGroup }}:
+    sshd:x:22:
+    nobody:x:65534:
+{{- end }}

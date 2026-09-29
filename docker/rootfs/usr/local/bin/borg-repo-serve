@@ -1,0 +1,86 @@
+#!/bin/sh
+# Forced command of the repository server: serve Borg repositories below one
+# path, and nothing else.
+#
+#   borg-repo-serve ROOT PATH PERMISSIONS MODES
+#
+#   MODES  "2" serves Borg 2 only, "1,2" serves Borg 1 as well
+#
+# prepare-repo-server.sh binds every client key to one such line in
+# authorized_keys. The client chooses WHICH repository, and by the way it asks
+# also which Borg: `serve --rest --backend FILE:<path>` is Borg 2, a plain
+# `serve` is Borg 1. The restriction and the permissions come from here and
+# cannot be overridden by the client; Borg reads the client's request from
+# SSH_ORIGINAL_COMMAND, takes only what it allows from it, and validates the
+# requested path against the restriction itself, by resolved path.
+#
+# What is left for this script:
+#  - refuse anything that is not a `serve` request. Borg alone would answer a
+#    foreign command with its help text and exit 0.
+#  - start in ROOT, so that a repository URL with a relative path resolves below
+#    the data directory.
+#  - hand over the FUSE library path. Borg 2 needs it at import time, and a
+#    session started by sshd does not inherit the image's environment.
+#  - point Borg's own directories at /tmp. The home directory is read-only.
+#
+# Borg 1 knows no permissions, only --append-only. `no-delete` maps to it; a key
+# that may only read or only write gets no Borg 1 access at all, because Borg 1
+# could not hold it to that.
+#
+# STREAM INVARIANT: stdout carries the protocol. Diagnostics go to stderr only.
+set -eu
+
+die() { echo "borg-repo-serve: $*" >&2; exit 1; }
+
+[ $# -eq 4 ] || { echo "usage: borg-repo-serve ROOT PATH PERMISSIONS MODES" >&2; exit 2; }
+root=$1
+path=$2
+permissions=$3
+modes=$4
+
+# Word splitting only: no globbing, no evaluation of what the client sent.
+set -f
+# shellcheck disable=SC2086
+set -- ${SSH_ORIGINAL_COMMAND:-}
+set +f
+# Leading VAR=value words are dropped, as Borg does.
+while [ $# -gt 0 ]; do
+  case $1 in
+    *=*) shift ;;
+    *) break ;;
+  esac
+done
+[ "${2:-}" = "serve" ] || die "rejected: this key only serves Borg repositories"
+
+major=1
+for word in "$@"; do
+  [ "$word" = "--rest" ] && major=2
+done
+
+# shellcheck disable=SC1091
+[ -r /etc/borg-fuse.env ] && . /etc/borg-fuse.env && export FUSE_LIBRARY_PATH
+
+export BORG_BASE_DIR="${BORG_REPO_SERVER_BASE_DIR:-/tmp/borg}"
+
+cd "$root" || die "data directory $root is not accessible"
+
+if [ "$major" = "2" ]; then
+  exec "${BORG2_BINARY:-/opt/borg-ui-agent/borg2/current/borg}" serve --rest \
+    --restrict-to-path "$root/$path" --permissions "$permissions"
+fi
+
+case "$modes" in
+  1,2) ;;
+  *) die "rejected: this server does not serve Borg 1 repositories" ;;
+esac
+case "$permissions" in
+  all)
+    exec "${BORG1_BINARY:-/opt/borg-ui-agent/borg1/current/borg}" serve \
+      --restrict-to-path "$root/$path"
+    ;;
+  no-delete)
+    exec "${BORG1_BINARY:-/opt/borg-ui-agent/borg1/current/borg}" serve \
+      --restrict-to-path "$root/$path" --append-only
+    ;;
+  *) die "rejected: a key with the permissions \"$permissions\" cannot use Borg 1 repositories" ;;
+esac

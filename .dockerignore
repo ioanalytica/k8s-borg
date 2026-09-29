@@ -35,5 +35,7 @@ borg-ui/security
 borg-ui/scripts
 borg-ui/examples
 borg-ui/docker
+# …except the version facts: the image pins borgstore to the version stated here.
+!borg-ui/docker/runtime-base.env
 borg-ui/*.png
 borg-ui/*.json

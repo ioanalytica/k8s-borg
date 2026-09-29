@@ -40,6 +40,27 @@ Borg UI server:
 {{- end }}
 {{- end }}
 
+{{- if .Values.repoServer.enabled }}
+
+Repository server (Borg 2{{ if .Values.repoServer.borg1 }} and Borg 1{{ end }}):
+  Borg 2 is a beta whose repository format has changed more than once.
+  Borg 2 repositories on this server are test beds, not backups to rely on.
+
+  in the cluster   {{ include "k8s-borg.repoServer.fullname" . }}.{{ .Release.Namespace }}.svc, port {{ .Values.repoServer.service.port }}
+{{- if eq .Values.repoServer.service.type "NodePort" }}
+  from outside     any node, node port: kubectl -n {{ .Release.Namespace }} get svc {{ include "k8s-borg.repoServer.fullname" . }}
+{{- else if eq .Values.repoServer.service.type "LoadBalancer" }}
+  from outside     the load balancer address: kubectl -n {{ .Release.Namespace }} get svc {{ include "k8s-borg.repoServer.fullname" . }}
+{{- end }}
+  repository URL   ssh://borg@<host>:<port>/<client>/<repository>
+                   (rest:// instead of ssh:// up to Borg 2.0.0b24; Borg 1: …/./<client>/<repository>)
+  host key         kubectl -n {{ .Release.Namespace }} logs {{ include "k8s-borg.repoServer.fullname" . }}-0 -c prepare | grep "Host key:"
+                   → known_hosts of the clients: [<host>]:<port> <type> <key>
+
+  Clients are the keys in `authorized_keys` of Secret {{ include "k8s-borg.sshSecretName" . }}.
+  Restart the pod after changing that Secret.
+{{- end }}
+
 {{- if not .Values.existingSecret }}
 
 Reminder: this release created a Secret with your borg/S3 credentials. For

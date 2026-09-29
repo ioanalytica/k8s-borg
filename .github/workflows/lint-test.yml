@@ -52,6 +52,8 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y bats
           bats --version
+      # chart-repo-server.bats renders the chart.
+      - uses: azure/setup-helm@v5
       - run: bats --print-output-on-failure tests/
 
   # End-to-end against real Borg repositories, inside the agent image. Slower

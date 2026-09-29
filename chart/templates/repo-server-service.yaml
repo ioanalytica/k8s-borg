@@ -1,0 +1,46 @@
+{{- /*
+Copyright IO ANALYTICA. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
+
+One Service for every client: pods of the cluster use its name, clients outside
+use the node port or the load balancer address of the same Service.
+*/}}
+{{- if .Values.repoServer.enabled }}
+{{- $svc := .Values.repoServer.service }}
+{{- $external := ne $svc.type "ClusterIP" }}
+{{- $annotations := merge (dict) $svc.annotations .Values.commonAnnotations }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s-borg.repoServer.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server") | nindent 4 }}
+  {{- if $annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" $annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svc.type }}
+  {{- if $external }}
+  externalTrafficPolicy: {{ $svc.externalTrafficPolicy }}
+  {{- end }}
+  {{- if eq $svc.type "LoadBalancer" }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . | quote }}
+  {{- end }}
+  {{- with $svc.loadBalancerClass }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- with $svc.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector: {{- include "k8s-borg.matchLabels" (dict "context" $ "component" "repo-server") | nindent 4 }}
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: {{ $svc.port }}
+      targetPort: ssh
+      {{- if and $external $svc.nodePort }}
+      nodePort: {{ $svc.nodePort }}
+      {{- end }}
+{{- end }}
