@@ -1,0 +1,157 @@
+# Local test stack: Borg UI server, its database and Redis, a repository
+# server and one managed agent, all from locally built images. Nothing here is
+# pushed or released; see README.md. Driven by ./stack.sh, which builds the
+# images and creates the keys and certificates under .state/ first.
+name: borg-local
+
+x-agent-image: &agent-image
+  image: k8s-borg:local
+  pull_policy: never
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: borg
+      POSTGRES_PASSWORD: borg
+      POSTGRES_DB: borg
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U borg -d borg"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  server:
+    image: k8s-borg-ui:local
+    pull_policy: never
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8081}
+      INITIAL_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-local-admin}
+      SECRET_KEY: local-stack-secret-key-not-for-any-real-use
+      # Licensing stays as the image ships it: a fresh instance asks the
+      # activation service for the full-access trial on its first start, and
+      # managed agents need that plan. LICENSE_SYNC=false keeps it offline.
+      ENABLE_STARTUP_LICENSE_SYNC: ${LICENSE_SYNC:-true}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: borg
+      DB_USER: borg
+      DB_PASSWORD: borg
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+    ports:
+      - "${BIND:-127.0.0.1}:${SERVER_PORT:-8081}:8081"
+    volumes:
+      - ui-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 100
+
+  # The same server behind a certificate no public CA has signed. The CA is
+  # .state/tls/ca.crt; a client trusts it by installing that file.
+  server-tls:
+    image: caddy:2-alpine
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${BIND:-127.0.0.1}:${SERVER_TLS_PORT:-8443}:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./.state/tls:/tls:ro
+
+  repo-server:
+    <<: *agent-image
+    entrypoint: ["/local/repo-server-start.sh"]
+    environment:
+      TZ: UTC
+    ports:
+      - "${BIND:-127.0.0.1}:${REPO_SERVER_PORT:-2222}:2222"
+    volumes:
+      - ./repo-server-start.sh:/local/repo-server-start.sh:ro
+      - ./.state/ssh:/local/ssh:ro
+      - repos:/repos
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -ltn | grep -q ':2222 '"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  agent:
+    <<: *agent-image
+    hostname: ${AGENT_NAME:-agent-1}
+    depends_on:
+      server:
+        condition: service_healthy
+      repo-server:
+        condition: service_healthy
+    entrypoint: ["/local/agent-start.sh"]
+    environment:
+      TZ: UTC
+      BORG_UI_AGENT: "true"
+      BORG_UI_SERVER: ${AGENT_SERVER_URL:-http://server:8081}
+      BORG_UI_AGENT_NAME: ${AGENT_NAME:-agent-1}
+      BORG_UI_ADMIN_USER: admin
+      BORG_UI_ADMIN_PASS: ${ADMIN_PASSWORD:-local-admin}
+      BORG_UI_LOGIN_RETRY_SLEEP: "3"
+      BORG_VERSION: ${AGENT_BORG_VERSION:-2}
+      BORG_PASSPHRASE: local-passphrase
+      BORG_REGISTER_PLAN: "false"
+      REPO_SERVER: repo-server:2222
+    # borg mount needs FUSE.
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+    volumes:
+      - ./agent-start.sh:/local/agent-start.sh:ro
+      - ./.state/ssh:/local/ssh:ro
+      - ./.state/tls/ca.crt:/local/ca.crt:ro
+      - ./sample-data:/source:ro
+      - agent-config:/etc/borg-ui-agent
+      - agent-cache:/root/.cache
+
+  # A bare Debian machine with systemd, as the target of the server's
+  # install.sh. Only started with `./stack.sh target`.
+  target:
+    profiles: ["target"]
+    image: borg-local-target:latest
+    pull_policy: never
+    hostname: target-1
+    privileged: true
+    cgroup: host
+    tmpfs:
+      - /run
+      - /run/lock
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ./.state/tls/ca.crt:/local/ca.crt:ro
+      - ./.state/ssh:/local/ssh:ro
+
+volumes:
+  pgdata:
+  ui-data:
+  repos:
+  agent-config:
+  agent-cache:

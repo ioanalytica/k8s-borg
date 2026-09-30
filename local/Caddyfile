@@ -1,0 +1,9 @@
+{
+	auto_https off
+	admin off
+}
+
+https://:8443 {
+	tls /tls/server.crt /tls/server.key
+	reverse_proxy server:8081
+}
