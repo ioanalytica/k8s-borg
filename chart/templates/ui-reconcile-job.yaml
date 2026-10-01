@@ -2,7 +2,7 @@
 Copyright IO ANALYTICA. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
-Reconcile Job (Helm post-install/upgrade hook). Runs the k8s-borg agent image's
+Reconcile Job (one per release revision). Runs the k8s-borg agent image's
 reconcile-borgui reconciler against the freshly (re)deployed server: waits for
 health, reuses/mints the admin PAT into the retained PAT Secret, and reconciles
 OIDC / system SSH key / remote machines. Idempotent — safe to re-run on every upgrade.
@@ -18,9 +18,14 @@ metadata:
   name: {{ printf "%s-reconcile-%d" (include "common.names.fullname" .) .Release.Revision }}
   namespace: {{ .Release.Namespace | quote }}
   labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
-  {{- if .Values.commonAnnotations }}
-  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
-  {{- end }}
+  annotations:
+    # The TTL reaper deletes the finished Job; exclude it from Flux drift detection
+    # so the deletion is not treated as drift and the Job is not recreated (and
+    # the reconcile re-run) on every HelmRelease interval.
+    helm.toolkit.fluxcd.io/driftDetection: disabled
+    {{- if .Values.commonAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+    {{- end }}
 spec:
   # Single-shot: one attempt only. A failed reconcile leaves the Job failed, so
   # Flux/Helm --wait marks the release failed — never spin up retry pods.
