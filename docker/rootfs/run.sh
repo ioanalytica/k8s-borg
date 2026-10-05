@@ -65,8 +65,10 @@ if [[ "${s3_active}" = "true" && -f "${S3_BUCKETS}" ]]; then
     [[ -n "${bucket}" && "${bucket}" != \#* ]] || continue
     echo "  mounting ${bucket} …"
     mkdir -p "${S3_MOUNTPOINT}/${bucket}"
+    # ListObjectsV2 pages with continuation tokens; MinIO AIStor logs every
+    # ListObjectsV1 listing it cuts at its per-drive limit as an error.
     s3fs "${bucket}" "${S3_MOUNTPOINT}/${bucket}" \
-      -o "passwd_file=/root/.s3fs,use_path_request_style,url=${S3_ENDPOINT}"
+      -o "passwd_file=/root/.s3fs,use_path_request_style,listobjectsv2,url=${S3_ENDPOINT}"
   done < "${S3_BUCKETS}"
 fi
 
