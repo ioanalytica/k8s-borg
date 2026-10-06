@@ -6,8 +6,8 @@
 #
 # A record with the agent's name and another path (the repository base of the
 # release changed) is moved to BORG_REPO and resynced, when it is this node's
-# own record: bound to this node's agent, of the same Borg major, and BORG_REPO
-# is a remote ssh:// URL. Borg UI checks a changed path itself, on the server,
+# own record: bound to this node's agent, of the same Borg major and encryption
+# mode, and BORG_REPO is a remote ssh:// URL. Borg UI checks a changed path itself, on the server,
 # and initializes a location it finds empty there, so a local path is not
 # handed to it. Anything else that does not fit together ends non-zero with
 # both paths, rather than letting the pod start on a stale record.
@@ -53,8 +53,8 @@ comp="${BORG_COMPRESSION:-auto,lz4}"
 jwt=$(borgui_bearer) || borgui_die "could not authenticate to Borg UI"
 
 # the record with this node's name and the record with its path, as
-# id, name, path, Borg major, agent id (fields separated by \037, so that
-# an empty field stays a field)
+# id, name, path, Borg major, agent id, encryption mode ("unknown" is no mode;
+# fields separated by \037, so that an empty field stays a field)
 records=$(borgui_api "$jwt" GET /api/repositories/ \
   | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" python3 -c '
 import sys, json, os
@@ -63,15 +63,16 @@ repos = data.get("repositories", []) if isinstance(data, dict) else data
 name, path = os.environ["REPO_NAME"], os.environ["BORG_REPO"]
 def fields(r):
     if r is None:
-        return [""] * 5
+        return [""] * 6
     aid = r.get("agent_machine_id")
     return [str(r["id"]), r.get("name") or "", r.get("path") or "",
-            str(r.get("borg_version") or 1), "" if aid in (None, "") else str(aid)]
+            str(r.get("borg_version") or 1), "" if aid in (None, "") else str(aid),
+            "" if str(r.get("encryption") or "").lower() == "unknown" else r.get("encryption") or ""]
 by_name = next((r for r in repos if r.get("name") == name), None)
 by_path = next((r for r in repos if r.get("path") == path), None)
 print("\037".join(fields(by_name) + fields(by_path)))') \
   || borgui_die "could not list repositories"
-IFS=$'\037' read -r n_id _ n_path n_major n_agent p_id p_name _ _ _ <<<"$records"
+IFS=$'\037' read -r n_id _ n_path n_major n_agent n_enc p_id p_name _ _ _ _ <<<"$records"
 
 if [ -n "$p_id" ]; then
   if [ -z "$n_id" ] || [ "$n_id" = "$p_id" ]; then
@@ -96,6 +97,20 @@ if [ -n "$n_id" ]; then
     || borgui_die "${moving}; the record belongs to ${n_agent:+agent ${n_agent}}${n_agent:-no agent}, not to this node's agent ${agent_id} — not moved."
   [ "$n_major" = "$BORG_VERSION" ] \
     || borgui_die "${moving}; the record is a Borg ${n_major} repository, this node runs Borg ${BORG_VERSION}, and a record keeps its Borg major — not moved."
+  # The move sends only the path, so the record would keep its mode while
+  # borg-init created the repository at BORG_REPO with ${enc}. A record without
+  # a mode has nothing to compare.
+  if [ -n "$n_enc" ] && [ "$n_enc" != "$enc" ]; then
+    mismatch="${moving}; the record says encryption '${n_enc}', the repository at ${BORG_REPO} was created as '${enc}' (BORG_ENCRYPTION), and a move keeps the record's mode — not moved. Created anew: remove the record in Borg UI without deleting data, so that the pod registers the repository with its mode."
+    # Only a mode this node could create is worth setting; a record from
+    # before the per-major names may carry one it cannot.
+    if borg_encryption_creates "$BORG_VERSION" "$n_enc"; then
+      mismatch+=" A copy of the old repository: set BORG_ENCRYPTION to '${n_enc}'."
+    else
+      mismatch+=" '${n_enc}' is no Borg ${BORG_VERSION} mode this node can create, so the record is wrong either way."
+    fi
+    borgui_die "$mismatch"
+  fi
   case "$BORG_REPO" in
     ssh://*) ;;
     *) borgui_die "${moving}; Borg UI would check a local path on its own server, not on this node — change the record in Borg UI." ;;

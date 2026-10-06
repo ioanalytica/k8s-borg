@@ -149,12 +149,15 @@ MODES
   [ ! -e "$TMP/payload" ] || fail "imported: $(cat "$TMP/payload")"
 }
 
-# repos ROW… — a GET /api/repositories/ body from "id|name|path|major|agent" rows
+# repos ROW… — a GET /api/repositories/ body from "id|name|path|major|agent[|mode]"
+# rows; without a mode the record carries no "encryption" key.
 repos() {
-  local out="" row id name path major agent
+  local out="" row id name path major agent mode enc
   for row in "$@"; do
-    IFS='|' read -r id name path major agent <<<"$row"
-    out+="${out:+, }{\"id\": $id, \"name\": \"$name\", \"path\": \"$path\", \"borg_version\": $major, \"agent_machine_id\": ${agent:-null}}"
+    IFS='|' read -r id name path major agent mode <<<"$row"
+    enc=""
+    [ -z "$mode" ] || enc=", \"encryption\": \"$mode\""
+    out+="${out:+, }{\"id\": $id, \"name\": \"$name\", \"path\": \"$path\", \"borg_version\": $major, \"agent_machine_id\": ${agent:-null}$enc}"
   done
   printf '{"repositories": [%s]}' "$out"
 }
@@ -226,4 +229,64 @@ no_write() {
   [ "$status" -eq 1 ] || fail "status $status: $output"
   [[ "$output" == *"HTTP 400"* && "$output" == *"failedToVerifyRepository"* ]] || fail "$output"
   ! grep -q '/resync' "$TMP/requests" || fail "resynced after a refused move"
+}
+
+@test "register-repo: a record with the mode borg-init used moves" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3|repokey-aes-ocb")" register 2
+  [ "$status" -eq 0 ] || fail "$output"
+  grep -q "PUT http://ui/api/repositories/7 " "$TMP/put" || fail "not moved"
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3|authenticated")" register 2 authenticated-sha256
+  [ "$status" -eq 0 ] || fail "authenticated-sha256 against authenticated: $output"
+  FAKE_REPOS="$(repos "7|node-a|$OLD|1|3|repokey-blake2")" register 1
+  [ "$status" -eq 0 ] || fail "Borg 1: $output"
+}
+
+@test "register-repo: a record with another mode than borg-init used is not moved" {
+  # VERSION  BORG_ENCRYPTION  the record's mode  the mode borg-init used
+  while IFS='|' read -r version mode recorded used; do
+    rm -f "$TMP/put"
+    FAKE_REPOS="$(repos "7|node-a|$OLD|$version|3|$recorded")" register "$version" "$mode"
+    [ "$status" -eq 1 ] || fail "$version/$mode/$recorded: status $status: $output"
+    [[ "$output" == *"$OLD"* && "$output" == *"$BORG_REPO"* ]] || fail "$version/$mode: paths: $output"
+    [[ "$output" == *"'$recorded'"* && "$output" == *"'$used'"* ]] || fail "$version/$mode: modes: $output"
+    [[ "$output" == *"not moved"* ]] || fail "$version/$mode: $output"
+    no_write
+  done <<'PAIRS'
+2|authenticated|repokey-aes-ocb|authenticated
+2||authenticated|repokey-aes-ocb
+2||repokey-blake2|repokey-aes-ocb
+1|authenticated|repokey-blake2|authenticated
+PAIRS
+}
+
+@test "register-repo: a record without a mode moves (nothing to compare)" {
+  for recorded in "" unknown Unknown; do
+    rm -f "$TMP/put"
+    FAKE_REPOS="$(repos "7|node-a|$OLD|2|3|$recorded")" register 2 authenticated
+    [ "$status" -eq 0 ] || fail "'$recorded': $output"
+    grep -q "PUT http://ui/api/repositories/7 " "$TMP/put" || fail "'$recorded': not moved"
+  done
+}
+
+@test "register-repo: the hint for a copy names only a mode this node can create" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3|authenticated")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"set BORG_ENCRYPTION to 'authenticated'"* ]] || fail "$output"
+  # a Borg 1 name, recorded for a Borg 2 repository before the per-major names
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3|repokey-blake2")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" != *"set BORG_ENCRYPTION"* ]] || fail "$output"
+  [[ "$output" == *"wrong either way"* ]] || fail "$output"
+}
+
+@test "register-repo, borg 1: the hint for a copy names only a mode Borg 1 has" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|1|3|repokey")" register 1
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"set BORG_ENCRYPTION to 'repokey'"* ]] || fail "$output"
+  for recorded in not-a-borg-mode repokey-aes-ocb; do
+    FAKE_REPOS="$(repos "7|node-a|$OLD|1|3|$recorded")" register 1
+    [ "$status" -eq 1 ] || fail "$recorded: status $status: $output"
+    [[ "$output" != *"set BORG_ENCRYPTION"* ]] || fail "$recorded: $output"
+    [[ "$output" == *"is no Borg 1 mode"* ]] || fail "$recorded: $output"
+  done
 }
