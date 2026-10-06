@@ -12,51 +12,18 @@
 # NB: no `set -e` — we inspect borg's status ourselves and normalise it.
 set -uo pipefail
 
-# borg2 renamed `init` to `repo-create` and names its encryption modes
-# differently (repokey-blake2 is borg1-only; borg2's recommended default is
-# repokey-aes-ocb). Pick both by BORG_VERSION; `borg` dispatches to the right
-# binary, and both majors take the repo from BORG_REPO. BORG_ENCRYPTION
-# overrides the default in either case.
-#
-# borg 2.0.0b22 then split repo-create's single --encryption value into the
-# cipher, where the key is stored (--key-location) and the id hash. BORG_ENCRYPTION
-# keeps naming the mode the combined way, so it is translated here.
-#
-# The modes that do not encrypt carry their hash in the name since 2.0.0b23.
-# 'authenticated' stands for authenticated-sha256, the hash the encrypted modes
-# use by default. It keeps borg's default key location, and it has a key: the
-# passphrase is needed as for an encrypted repository.
-#
-# Borg 2 has no mode without a key: 2.0.0b25 removed the none-* modes.
+# borg2 renamed `init` to `repo-create`; `borg` dispatches to the right binary,
+# and both majors take the repo from BORG_REPO. What BORG_ENCRYPTION becomes on
+# the command line, and its default per major, is borg-encryption.sh's table —
+# shared with register-repo, which records the mode in Borg UI.
+# shellcheck source=../lib/borg-encryption.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-encryption.sh"
+borg_encryption "${BORG_VERSION:-1}" || exit 1
+# shellcheck disable=SC2154  # borg_enc_args is set by borg_encryption
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  mode="${BORG_ENCRYPTION:-repokey-aes-ocb}"
-  case "$mode" in
-    repokey-aes-ocb)
-      enc=(--encryption aes256-ocb --key-location repokey) ;;
-    repokey-chacha20-poly1305)
-      enc=(--encryption chacha20-poly1305 --key-location repokey) ;;
-    keyfile-aes-ocb)
-      enc=(--encryption aes256-ocb --key-location keyfile) ;;
-    keyfile-chacha20-poly1305)
-      enc=(--encryption chacha20-poly1305 --key-location keyfile) ;;
-    authenticated)
-      enc=(--encryption authenticated-sha256) ;;
-    authenticated-sha256 | authenticated-blake3)
-      enc=(--encryption "$mode") ;;
-    none)
-      echo "BORG_ENCRYPTION=none: Borg 2 has no repository without a key (the none modes" >&2
-      echo "were removed in 2.0.0b25). Use 'authenticated' for a repository that is not" >&2
-      echo "encrypted, or one of the encrypted modes; both need the passphrase." >&2
-      exit 1 ;;
-    *)
-      echo "BORG_ENCRYPTION=$mode is not a Borg 2 mode (expected repokey-aes-ocb," >&2
-      echo "repokey-chacha20-poly1305, keyfile-aes-ocb, keyfile-chacha20-poly1305," >&2
-      echo "authenticated, authenticated-sha256 or authenticated-blake3)." >&2
-      exit 1 ;;
-  esac
-  init_cmd=(repo-create "${enc[@]}")
+  init_cmd=(repo-create "${borg_enc_args[@]}")
 else
-  init_cmd=(init --encryption="${BORG_ENCRYPTION:-repokey-blake2}")
+  init_cmd=(init "${borg_enc_args[@]}")
 fi
 
 # The shared pack cache stays out of repo creation: borgstore rejects an
@@ -71,11 +38,17 @@ if out=$(BORG_STORE_CACHE="" borg "${init_cmd[@]}" 2>&1); then
 elif printf '%s' "$out" | grep -qi 'repository already exists'; then
   echo "Repository already exists — skipping init."
   exit 0
-elif printf '%s' "$out" | grep -qiE '^(usage|error): |unrecognized arguments'; then
+elif [[ "${out%%$'\n'*}" == "usage: "* ]]; then
   # borg rejected the command line, so it never reached the repository. Saying
   # "cannot be accessed" here sends the reader after storage, credentials and
   # the network for a fault that is entirely on this side — as a borg version
   # bump that changes an option's spelling reliably does.
+  #
+  # argparse prints its usage text before anything else, and both majors exit
+  # with 2 for it as for a repository they cannot reach — so the first line
+  # decides, case-sensitively. Borg 2's run-time "Error: Could not access the
+  # repository …" quotes the remote side's stderr after it, which can hold a
+  # remote Borg's own usage error; that is not this command line.
   printf '%s\n' "$out" >&2
   echo "borg rejected the repo-creation command — this is a bug in borg-init," >&2
   echo "not a problem with the repository (borg ${BORG_VERSION:-1})." >&2
