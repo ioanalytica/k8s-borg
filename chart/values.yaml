@@ -178,6 +178,8 @@ s3:
   enabled: false
   ## @param s3.endpoint S3 endpoint URL
   endpoint: "http://minio.minio.svc:9000"
+  ## @param s3.region SigV4 region of the S3 endpoint (s3fs `endpoint=`); empty keeps s3fs's default us-east-1. Servers that check the region (e.g. Garage) need it set
+  region: ""
   ## @param s3.mountPath Where buckets are mounted (must be under /mnt)
   mountPath: "/mnt/s3"
   ## S3 access key (sensitive).

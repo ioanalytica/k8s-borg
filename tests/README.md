@@ -35,6 +35,7 @@ bats tests/borg-rc.bats               # a single file
 | `borg-init.bats` | `borg-init`: what `BORG_ENCRYPTION` becomes on the command line of each major, `authenticated` as `authenticated-sha256`, the refusal of `none` for Borg 2 |
 | `borg-mount.bats` | `borg-mount`: a failed mount ends with Borg's exit code |
 | `agent-borg-shim.bats` | the agent-only `borg` shim: always Borg 1 through the gateway, regardless of the pod's `BORG_VERSION` |
+| `s3-mount-bucket.bats` | `s3-mount-bucket`: the s3fs options with and without a region (`endpoint=`), and that a bucket whose listing fails or does not come back in time stops the start, with the mount aborted, s3fs ended and the mount detached |
 | `borg-files-cache-flag.bats` | the S3-mounted gate for `--files-cache=mtime,size` (negative cases only — the positive one needs a real fuse.s3fs mount) |
 | `repo-serve.bats` | `borg-repo-serve`, the forced command of the repository server: Borg 1/Borg 2 dispatch by the client's request, pinned path and permissions, refusal of everything that is not a `serve` request |
 | `repo-server-entrypoint.bats` | `prepare-repo-server.sh` and `run-repo-server.sh`: what a plain `authorized_keys` line becomes, the client list, modes of what is staged, and every input that has to stop the start |

@@ -64,10 +64,8 @@ if [[ "${s3_active}" = "true" && -f "${S3_BUCKETS}" ]]; then
     # Skip blank lines and # comments (the file is never empty — see the ConfigMap).
     [[ -n "${bucket}" && "${bucket}" != \#* ]] || continue
     echo "  mounting ${bucket} …"
-    mkdir -p "${S3_MOUNTPOINT}/${bucket}"
-    # Use ListObjectsV2, the current S3 listing API (continuation tokens).
-    s3fs "${bucket}" "${S3_MOUNTPOINT}/${bucket}" \
-      -o "passwd_file=/root/.s3fs,use_path_request_style,listobjectsv2,url=${S3_ENDPOINT}"
+    # Stops the start when the bucket does not answer (see the script).
+    s3-mount-bucket "${bucket}" </dev/null
   done < "${S3_BUCKETS}"
 fi
 
