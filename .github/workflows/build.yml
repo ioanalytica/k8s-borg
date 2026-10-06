@@ -29,7 +29,7 @@ jobs:
   # releases.
   prep:
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: startsWith(github.ref, 'refs/tags/')
     outputs:
       runtime_tag: ${{ steps.pins.outputs.tag }}
@@ -137,7 +137,7 @@ jobs:
     # Publishes on master/tags and would overwrite the chart in the registry —
     # it waits for the gate like the image jobs do.
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write        # create GitHub Releases on tags
       packages: write
@@ -147,7 +147,11 @@ jobs:
           # The release step gets its token through the action, and helm gets
           # its own registry login — neither needs one left in .git/config.
           persist-credentials: false
+      # Pinned: without a version the action fetches "latest" from the
+      # GitHub API and silently falls back to an old Helm 3 when that fails.
       - uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
       # This job does not depend on prep, so it needs the check of its own —
       # and it is the one that would do the damage: package the old version and
       # overwrite it in the registry.
