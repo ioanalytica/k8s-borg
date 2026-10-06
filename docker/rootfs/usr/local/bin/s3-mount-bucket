@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# Mount one S3 bucket with s3fs under ${S3_MOUNTPOINT}/BUCKET and keep the mount
+# only once it has answered a directory listing.
+#
+# s3fs 1.97 returns 0 and leaves a mount behind even when it cannot use the
+# bucket: a wrong region, wrong credentials, a missing bucket, an unreachable
+# endpoint. Its bucket check then repeats forever (hundreds of requests per
+# second against the server), and the first access to the mountpoint blocks in
+# the kernel until s3fs is gone. So the listing runs in the background with a
+# time limit; when it fails or does not come back, the FUSE connection is
+# aborted (umount -f frees the blocked listing), s3fs is ended, the mount is
+# detached, and the start stops with the reason.
+#
+# Usage: s3-mount-bucket BUCKET
+#
+# Environment:
+#   S3_ENDPOINT        endpoint URL (s3fs url=)
+#   S3_MOUNTPOINT      parent directory of the bucket mounts
+#   S3_REGION          SigV4 region (s3fs endpoint=); empty keeps s3fs's us-east-1
+#   S3_PROBE_TIMEOUT   seconds the first listing may take (default 30)
+#   S3FS_PASSWD_FILE   credentials file (default /root/.s3fs)
+set -euo pipefail
+
+die() { echo "FATAL: $*" >&2; exit 1; }
+
+[[ $# -eq 1 && -n $1 ]] || die "usage: s3-mount-bucket BUCKET"
+bucket=$1
+: "${S3_ENDPOINT:?S3_ENDPOINT must be set}"
+: "${S3_MOUNTPOINT:?S3_MOUNTPOINT must be set}"
+region="${S3_REGION:-}"
+timeout="${S3_PROBE_TIMEOUT:-30}"
+[[ ${timeout} =~ ^[1-9][0-9]*$ ]] || die "S3_PROBE_TIMEOUT must be a positive number of seconds, got '${timeout}'"
+mountpoint="${S3_MOUNTPOINT}/${bucket}"
+
+# Use ListObjectsV2, the current S3 listing API (continuation tokens).
+options="passwd_file=${S3FS_PASSWD_FILE:-/root/.s3fs},use_path_request_style,listobjectsv2,url=${S3_ENDPOINT}"
+# s3fs calls the SigV4 region "endpoint"; servers that check it (Garage) reject
+# requests signed for any other region.
+[[ -n ${region} ]] && options+=",endpoint=${region}"
+
+mkdir -p "${mountpoint}"
+s3fs "${bucket}" "${mountpoint}" -o "${options}"
+
+# The listing's stderr goes to a file, so that the reason can be quoted below.
+errfile="$(mktemp)"
+trap 'rm -f "${errfile}"' EXIT
+ls -- "${mountpoint}" >/dev/null 2>"${errfile}" &
+probe=$!
+
+waited=0
+probe_rc=
+while kill -0 "${probe}" 2>/dev/null; do
+  if (( waited >= timeout )); then
+    probe_rc=timeout
+    break
+  fi
+  sleep 1
+  waited=$((waited + 1))
+done
+if [[ -z ${probe_rc} ]]; then
+  probe_rc=0
+  wait "${probe}" || probe_rc=$?
+fi
+[[ ${probe_rc} == 0 ]] && exit 0
+
+# Abort the FUSE connection first: it releases the blocked listing (and any
+# other waiter), which a plain unmount cannot because the mount is busy. s3fs
+# itself survives the abort and keeps polling the server, so end it as well.
+umount -f "${mountpoint}" 2>/dev/null || true
+pkill -KILL -f "^s3fs ${bucket} ${mountpoint}( |\$)" 2>/dev/null || true
+umount -l "${mountpoint}" 2>/dev/null || true
+kill -KILL "${probe}" 2>/dev/null || true
+wait "${probe}" 2>/dev/null || true
+
+where="${S3_ENDPOINT}, region ${region:-us-east-1 (s3fs default, s3.region empty)}"
+if [[ ${probe_rc} == timeout ]]; then
+  die "S3 bucket '${bucket}' at ${where} did not answer within ${timeout}s; check s3.endpoint, s3.region, the credentials and that the bucket exists"
+fi
+die "S3 bucket '${bucket}' at ${where} cannot be listed: $(tr '\n' ' ' <"${errfile}")"

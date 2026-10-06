@@ -443,6 +443,8 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
 {{- if .Values.s3.enabled }}
 - name: S3_ENDPOINT
   value: {{ .Values.s3.endpoint | quote }}
+- name: S3_REGION
+  value: {{ .Values.s3.region | quote }}
 - name: S3_MOUNTPOINT
   value: {{ .Values.s3.mountPath | quote }}
 - name: AWS_KEY
