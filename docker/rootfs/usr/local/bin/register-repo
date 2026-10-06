@@ -2,7 +2,15 @@
 #
 # Register this node's own Borg repository (BORG_REPO) with the Borg UI server
 # under the agent's name, bound to this node's agent (executor_type=agent).
-# Idempotent: an already-registered repo (matched by name OR path) is left as is.
+# Idempotent: a record that already has the path BORG_REPO is left as is.
+#
+# A record with the agent's name and another path (the repository base of the
+# release changed) is moved to BORG_REPO and resynced, when it is this node's
+# own record: bound to this node's agent, of the same Borg major, and BORG_REPO
+# is a remote ssh:// URL. Borg UI checks a changed path itself, on the server,
+# and initializes a location it finds empty there, so a local path is not
+# handed to it. Anything else that does not fit together ends non-zero with
+# both paths, rather than letting the pod start on a stale record.
 #
 # Standalone command — also called by run-agent.sh. Auth (borgui-common.sh) is
 # PAT-first: BORG_UI_ADMIN_PAT when it works, else BORG_UI_ADMIN_USER/PASS; a
@@ -44,11 +52,33 @@ comp="${BORG_COMPRESSION:-auto,lz4}"
 # admin bearer token (PAT-first; reuses BORG_UI_JWT if a parent set it)
 jwt=$(borgui_bearer) || borgui_die "could not authenticate to Borg UI"
 
-# already registered? (match by name OR path -> idempotent, no duplicates)
-repo_row=$(borgui_repo_row "$jwt") || borgui_die "could not list repositories"
-if [ -n "${repo_row%%$'\t'*}" ]; then
-  echo "Repository '${REPO_NAME}' already registered — nothing to do."
-  exit 0
+# the record with this node's name and the record with its path, as
+# id, name, path, Borg major, agent id (fields separated by \037, so that
+# an empty field stays a field)
+records=$(borgui_api "$jwt" GET /api/repositories/ \
+  | REPO_NAME="${REPO_NAME}" BORG_REPO="${BORG_REPO}" python3 -c '
+import sys, json, os
+data = json.load(sys.stdin)
+repos = data.get("repositories", []) if isinstance(data, dict) else data
+name, path = os.environ["REPO_NAME"], os.environ["BORG_REPO"]
+def fields(r):
+    if r is None:
+        return [""] * 5
+    aid = r.get("agent_machine_id")
+    return [str(r["id"]), r.get("name") or "", r.get("path") or "",
+            str(r.get("borg_version") or 1), "" if aid in (None, "") else str(aid)]
+by_name = next((r for r in repos if r.get("name") == name), None)
+by_path = next((r for r in repos if r.get("path") == path), None)
+print("\037".join(fields(by_name) + fields(by_path)))') \
+  || borgui_die "could not list repositories"
+IFS=$'\037' read -r n_id _ n_path n_major n_agent p_id p_name _ _ _ <<<"$records"
+
+if [ -n "$p_id" ]; then
+  if [ -z "$n_id" ] || [ "$n_id" = "$p_id" ]; then
+    echo "Repository '${REPO_NAME}' already registered — nothing to do."
+    exit 0
+  fi
+  borgui_die "${BORG_REPO} is registered as '${p_name}' (id ${p_id}), while the record '${REPO_NAME}' (id ${n_id}) points at ${n_path} — resolve the two records in Borg UI."
 fi
 
 # resolve this node's agent id (newest queueable; borgui-common.sh handles the
@@ -58,6 +88,34 @@ agent_id=$(borgui_agent_id "$jwt" "$REPO_NAME") || borgui_die "could not list ag
 
 if [ -z "$agent_id" ]; then
   borgui_die "no queueable agent named '${REPO_NAME}' — enroll the node first."
+fi
+
+if [ -n "$n_id" ]; then
+  moving="the record '${REPO_NAME}' (id ${n_id}) points at ${n_path}, this node's repository is ${BORG_REPO}"
+  [ "$n_agent" = "$agent_id" ] \
+    || borgui_die "${moving}; the record belongs to ${n_agent:+agent ${n_agent}}${n_agent:-no agent}, not to this node's agent ${agent_id} — not moved."
+  [ "$n_major" = "$BORG_VERSION" ] \
+    || borgui_die "${moving}; the record is a Borg ${n_major} repository, this node runs Borg ${BORG_VERSION}, and a record keeps its Borg major — not moved."
+  case "$BORG_REPO" in
+    ssh://*) ;;
+    *) borgui_die "${moving}; Borg UI would check a local path on its own server, not on this node — change the record in Borg UI." ;;
+  esac
+
+  echo "Repository '${REPO_NAME}' (id ${n_id}) moves: ${n_path} -> ${BORG_REPO}"
+  # only the path: Borg UI refuses keys it does not apply
+  body=$(BORG_REPO="${BORG_REPO}" python3 -c 'import json, os; print(json.dumps({"path": os.environ["BORG_REPO"]}))')
+  resp=$(curl -sS -X PUT "${BORG_UI_SERVER}/api/repositories/${n_id}" \
+           -H "Authorization: Bearer ${jwt}" -H "Content-Type: application/json" \
+           -d "${body}" -w '\n%{http_code}') \
+    || borgui_die "could not reach Borg UI to move the record"
+  code="${resp##*$'\n'}"
+  [ "$code" = "200" ] \
+    || borgui_die "Borg UI refused to move the record (HTTP ${code}): ${resp%$'\n'*}"
+  # the archives Borg UI lists for the record still come from the old path
+  borgui_api "$jwt" POST "/api/repositories/${n_id}/resync" >/dev/null \
+    || echo "WARN: resync of '${REPO_NAME}' could not be requested — Borg UI catches up on its next reconcile run." >&2
+  echo "Repository '${REPO_NAME}' (id ${n_id}) now at ${BORG_REPO}."
+  exit 0
 fi
 
 # build the import payload (python3 handles JSON escaping + int coercion)

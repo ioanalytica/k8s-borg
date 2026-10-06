@@ -1,13 +1,18 @@
 #!/usr/bin/env bats
 #
-# register-repo records this node's repository in Borg UI. What matters here is
-# the encryption mode it sends: the one borg-init created the repository with,
-# under the name Borg UI gives that mode. Borg UI's import route stores the mode
-# without checking it, so a wrong one would go unnoticed.
+# register-repo records this node's repository in Borg UI. Two things matter
+# here:
+# - the encryption mode it sends: the one borg-init created the repository
+#   with, under the name Borg UI gives that mode. Borg UI's import route stores
+#   the mode without checking it, so a wrong one would go unnoticed.
+# - which record it acts on: a record that has the path is left alone; the
+#   node's own record with another path is moved to BORG_REPO; everything else
+#   that does not fit together stops the pod instead of starting it on a stale
+#   record.
 #
 # curl is replaced by a stub that answers the endpoints the script talks to,
-# records every request line in $TMP/requests and the import payload in
-# $TMP/payload.
+# records every request line in $TMP/requests, the import payload in
+# $TMP/payload and every PUT as "PUT URL BODY" in $TMP/put.
 
 bats_require_minimum_version 1.5.0
 
@@ -28,16 +33,18 @@ setup() {
 
 teardown() { common_teardown; }
 
-# make_fake_curl — FAKE_REPOS is the body of GET /api/repositories/.
+# make_fake_curl — FAKE_REPOS is the body of GET /api/repositories/,
+# FAKE_PUT_CODE the HTTP code of PUT /api/repositories/<id> (default 200).
 make_fake_curl() {
   mkdir -p "$TMP/bin"
   cat >"$TMP/bin/curl" <<EOF
 #!/usr/bin/env bash
-method=GET url= data=
+method=GET url= data= wfmt=
 while [ \$# -gt 0 ]; do
   case "\$1" in
     -X) method="\$2"; shift ;;
     -d) data="\$2"; shift ;;
+    -w) wfmt="\$2"; shift ;;
     http*) url="\$1" ;;
   esac
   shift
@@ -48,6 +55,18 @@ case "\$url" in
   */api/repositories/)            printf '%s' "\$FAKE_REPOS" ;;
   */api/managed-machines/agents)  printf '[{"id": 3, "name": "node-a", "status": "online"}]' ;;
   */api/repositories/import)      printf '%s' "\$data" > "$TMP/payload"; printf '{"id": 9}' ;;
+  */resync)                       printf '{"run_id": "r", "operations": [1]}' ;;
+  */api/repositories/[0-9]*)
+    [ "\$method" = PUT ] || exit 0
+    echo "\$method \$url \$data" >> "$TMP/put"
+    code="\${FAKE_PUT_CODE:-200}"
+    if [ "\$code" = 200 ]; then
+      printf '{"success": true}'
+    else
+      printf '{"detail": {"key": "backend.errors.repo.failedToVerifyRepository"}}'
+    fi
+    [ -z "\$wfmt" ] || printf '\n%s' "\$code"
+    ;;
 esac
 EOF
   chmod +x "$TMP/bin/curl"
@@ -128,4 +147,83 @@ MODES
   [ "$status" -eq 0 ] || fail "$output"
   [[ "$output" == *"already registered"* ]] || fail "$output"
   [ ! -e "$TMP/payload" ] || fail "imported: $(cat "$TMP/payload")"
+}
+
+# repos ROW… — a GET /api/repositories/ body from "id|name|path|major|agent" rows
+repos() {
+  local out="" row id name path major agent
+  for row in "$@"; do
+    IFS='|' read -r id name path major agent <<<"$row"
+    out+="${out:+, }{\"id\": $id, \"name\": \"$name\", \"path\": \"$path\", \"borg_version\": $major, \"agent_machine_id\": ${agent:-null}}"
+  done
+  printf '{"repositories": [%s]}' "$out"
+}
+
+OLD="ssh://borg@host/./old-base/node-a"
+
+no_write() {
+  [ ! -e "$TMP/payload" ] || fail "imported: $(cat "$TMP/payload")"
+  [ ! -e "$TMP/put" ] || fail "moved: $(cat "$TMP/put")"
+}
+
+@test "register-repo: a record with the node's name and path is left alone" {
+  FAKE_REPOS="$(repos "7|node-a|$BORG_REPO|2|3")" register 2
+  [ "$status" -eq 0 ] || fail "$output"
+  [[ "$output" == *"already registered"* ]] || fail "$output"
+  no_write
+}
+
+@test "register-repo: the node's own record with another path moves to BORG_REPO and is resynced" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3")" register 2
+  [ "$status" -eq 0 ] || fail "$output"
+  # only the path: Borg UI refuses keys it does not apply
+  grep -qx "PUT http://ui/api/repositories/7 {\"path\": \"$BORG_REPO\"}" "$TMP/put" \
+    || fail "no path-only PUT for record 7: $(cat "$TMP/put" 2>/dev/null)"
+  [[ "$output" == *"$OLD -> $BORG_REPO"* ]] || fail "$output"
+  grep -qx 'POST http://ui/api/repositories/7/resync' "$TMP/requests" || fail "no resync"
+  [ ! -e "$TMP/payload" ] || fail "imported: $(cat "$TMP/payload")"
+}
+
+@test "register-repo: a record with the node's name that belongs to another agent stops the pod" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|4")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"$OLD"* && "$output" == *"$BORG_REPO"* ]] || fail "$output"
+  [[ "$output" == *"agent 4"* ]] || fail "$output"
+  no_write
+}
+
+@test "register-repo: a record with the node's name and no agent stops the pod" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"no agent"* ]] || fail "$output"
+  no_write
+}
+
+@test "register-repo: a record of the other Borg major is not moved" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|1|3")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"Borg 1"* && "$output" == *"Borg 2"* ]] || fail "$output"
+  no_write
+}
+
+@test "register-repo: BORG_REPO held by another record while the node's record points elsewhere stops the pod" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3" "9|other|$BORG_REPO|2|4")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"'other'"* && "$output" == *"$OLD"* ]] || fail "$output"
+  no_write
+}
+
+@test "register-repo: a local BORG_REPO is not moved (Borg UI would check it on the server)" {
+  export BORG_REPO=/repos/new/node-a
+  FAKE_REPOS="$(repos "7|node-a|/repos/old/node-a|2|3")" register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"/repos/old/node-a"* && "$output" == *"/repos/new/node-a"* ]] || fail "$output"
+  no_write
+}
+
+@test "register-repo: a move Borg UI refuses stops the pod with its answer" {
+  FAKE_REPOS="$(repos "7|node-a|$OLD|2|3")" FAKE_PUT_CODE=400 register 2
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"HTTP 400"* && "$output" == *"failedToVerifyRepository"* ]] || fail "$output"
+  ! grep -q '/resync' "$TMP/requests" || fail "resynced after a refused move"
 }
