@@ -313,13 +313,14 @@ Then, in this order:
 6. **Then the base URL**, where it comes from an existing Secret: change it to
    `ssh://` and restart the pods. Until then they refuse to run Borg 2 and say
    why; nothing is written anywhere.
-7. Borg UI keeps the URL of every repository it knows, and the pods leave a
-   record they find alone. Change the records of the Borg 2 repositories there,
-   or remove them from Borg UI without deleting data, so that the pods register
-   them anew.
-8. The pods create the repositories (`borg-init`). Check one: `borg-info` prints
-   `Repository version: 5`. Run a backup and a restore into an empty directory,
-   then resume the backups.
+7. The pods create the repositories (`borg-init`) and move their records in
+   Borg UI to the new URL. Borg UI checks a changed URL from its own server:
+   when that server cannot reach the repository, it refuses, and the pod stops
+   with both URLs and Borg UI's answer. Change the record there by hand, or
+   remove it from Borg UI without deleting data, so that the pod registers it
+   anew.
+8. Check one repository: `borg-info` prints `Repository version: 5`. Run a
+   backup and a restore into an empty directory, then resume the backups.
 9. Delete the directories of step 4 once the new repositories hold backups you
    have verified.
 
