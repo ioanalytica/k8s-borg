@@ -288,6 +288,7 @@ blamed_on_repository() {
   mountpoint -q /mnt/borg || fail "/mnt/borg is not a mountpoint"
   run cat "$(mounted_path "$SRC/hello.txt")"
   [ "$output" = "hello from the e2e suite" ] || fail "$output"
+  unmount_cleanly
 }
 
 @test "borg-mount fails with Borg's exit code when the repository cannot be mounted" {

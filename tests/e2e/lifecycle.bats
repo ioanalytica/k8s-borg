@@ -170,6 +170,7 @@ teardown() { e2e_teardown; }
   # mountpoint at its original location.
   run cat "$(mounted_path "$SRC/hello.txt")"
   [ "$output" = "hello from the e2e suite" ]
+  unmount_cleanly
 }
 
 @test "borg-mount without an archive name prints usage and fails" {

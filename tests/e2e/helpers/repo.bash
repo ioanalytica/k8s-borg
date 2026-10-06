@@ -57,11 +57,11 @@ mount_pids() {
   done
 }
 
-# end_mounts — no mount process outlives its test. Borg 2 (2.0.0b24 and b25)
-# leaves the process of a background mount of a remote repository behind after
-# the unmount: one thread, waiting for a lock, for good. It holds the
-# descriptors of the test that started it, and bats waits for them at the end
-# of the run. A mount gets a moment to end by itself; what is left is ended.
+# end_mounts — no mount process outlives its test. A mount test that fails
+# before its unmount leaves the process; it may hold the descriptors of the test
+# that started it, and bats waits for them at the end of the run. A mount gets a
+# moment to end by itself; what is left is ended. A passing mount test does not
+# rely on this: unmount_cleanly asserts that the unmount ends the process.
 end_mounts() {
   local pid
   for _ in 1 2 3 4 5 6; do
@@ -71,6 +71,23 @@ end_mounts() {
   for pid in $(mount_pids); do
     kill -9 "$pid" 2>/dev/null || true
   done
+}
+
+# unmount_cleanly — `borg umount` the suite's mountpoint and succeed iff the
+# mount process of the test ends by itself within a few seconds. end_mounts in
+# the teardown would end it too; this is what tells whether it had to.
+unmount_cleanly() {
+  borg umount /mnt/borg || fail "borg umount failed"
+  ! mountpoint -q /mnt/borg || fail "/mnt/borg is still a mountpoint"
+  for _ in $(seq 1 20); do
+    [ -n "$(mount_pids)" ] || return 0
+    sleep 0.5
+  done
+  local pid
+  for pid in $(mount_pids); do
+    printf 'left after the unmount: %s %s\n' "$pid" "$(tr '\0' ' ' </proc/"$pid"/cmdline)" >&2
+  done
+  return 1
 }
 
 # archive_ref NAME — how a single archive is addressed on the command line.
