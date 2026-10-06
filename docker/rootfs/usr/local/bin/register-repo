@@ -13,7 +13,9 @@
 #   BORG_VERSION        borg version for this repo: 1 or 2
 #   BORG_PASSPHRASE     repo passphrase (stored server-side; agent runs borg)
 #   BORG_UI_AGENT_NAME  optional; repo/agent name. Default: pod hostname.
-#   BORG_ENCRYPTION     optional, default "repokey-blake2" (matches borg-init)
+#   BORG_ENCRYPTION     optional; the mode borg-init created the repository with,
+#                       default per Borg major. Recorded under Borg UI's name for
+#                       it (borg-encryption.sh, shared with borg-init).
 #   BORG_COMPRESSION    optional, default "auto,lz4"
 #   BORG_UI_ADMIN_PAT   preferred admin credential (bootstrap-minted PAT)
 #   BORG_UI_ADMIN_USER  admin user   (fallback when no working PAT)
@@ -22,14 +24,21 @@
 #
 set -euo pipefail
 
-. /usr/local/lib/borgui-common.sh
+# shellcheck source=../lib/borgui-common.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borgui-common.sh"
+# shellcheck source=../lib/borg-encryption.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-encryption.sh"
 
 borgui_require_server
 : "${BORG_REPO:?set BORG_REPO to the repository path/URL to register}"
 : "${BORG_VERSION:?set BORG_VERSION to 1 or 2}"
 
 : "${REPO_NAME:=${BORG_UI_AGENT_NAME:-$(hostname)}}"
-enc="${BORG_ENCRYPTION:-repokey-blake2}"
+# Borg UI's import stores the mode without checking it, so a mode borg-init
+# refuses stops here, before the server is asked.
+borg_encryption "${BORG_VERSION}" || borgui_die "cannot record the repository's encryption mode"
+# shellcheck disable=SC2154  # borg_enc_name is set by borg_encryption
+enc="${borg_enc_name}"
 comp="${BORG_COMPRESSION:-auto,lz4}"
 
 # admin bearer token (PAT-first; reuses BORG_UI_JWT if a parent set it)

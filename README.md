@@ -66,7 +66,7 @@ Core settings (standalone mode), supplied via env / mounted secrets:
 | `NODE_NAME` | Node identity (archive naming; injected from the Downward API) |
 | `BORG_REPO` | The Borg repository this pod owns |
 | `BORG_PASSPHRASE` | Repository passphrase. Mandatory for Borg 2: every command needs it from 2.0.0b25 on |
-| `BORG_ENCRYPTION` | Mode of a repository `borg-init` creates. Borg 1: default `repokey-blake2`. Borg 2: default `repokey-aes-ocb`; `authenticated` stands for `authenticated-sha256`; there is no `none` |
+| `BORG_ENCRYPTION` | Mode of a repository `borg-init` creates, by Borg UI's name for it; `register-repo` records the same mode. Borg 1: default `repokey-blake2`. Borg 2: default `repokey-aes-ocb`; `authenticated` stands for `authenticated-sha256`; there is no `none`, and `authenticated-blake3` is refused (Borg UI has no name for it) |
 | `BORG_REMOTE_PATH` | Name or path of the borg executable on an `ssh://` server |
 | `DB_BACKUP_LOCATION` | Where logical DB dumps are written before archiving |
 | `S3_ENDPOINT`, `S3_MOUNTPOINT`, `AWS_KEY`, `AWS_SECRET_KEY` | S3 sources (cluster/app jobs; never mounted for node backups) |

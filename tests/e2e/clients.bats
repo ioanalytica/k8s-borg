@@ -127,7 +127,7 @@ nothing_left() { [ -z "$(ls -A "$WORK")" ] || fail "left behind: $(find "$WORK" 
 
 @test "borg-init creates a repository for every mode, and the scripts work on it" {
   if [ "$BORG_VERSION" = "2" ]; then
-    modes="repokey-aes-ocb repokey-chacha20-poly1305 keyfile-aes-ocb keyfile-chacha20-poly1305 authenticated authenticated-blake3"
+    modes="repokey-aes-ocb repokey-chacha20-poly1305 keyfile-aes-ocb keyfile-chacha20-poly1305 authenticated"
   else
     modes="repokey-blake2 keyfile-blake2 authenticated none"
   fi
@@ -174,6 +174,75 @@ nothing_left() { [ -z "$(ls -A "$WORK")" ] || fail "left behind: $(find "$WORK" 
     done
   done
   nothing_left
+}
+
+@test "BORG_ENCRYPTION=authenticated-blake3 is refused for Borg 2, and nothing is created" {
+  # Borg UI has no name for the mode, so the repository could not be recorded.
+  [ "$BORG_VERSION" = "2" ] || skip "a Borg 2 mode"
+  export BORG_ENCRYPTION=authenticated-blake3
+  for kind in local remote; do
+    on "$kind"
+    run borg-init
+    [ "$status" -eq 1 ] || fail "$kind: status $status: $output"
+    [[ "$output" == *"BORG_ENCRYPTION=authenticated-blake3"*"'authenticated'"* ]] || fail "$kind: $output"
+    ! exists "$kind" || fail "$kind: created"
+  done
+  nothing_left
+}
+
+# --- what a failed borg-init is blamed on -------------------------------------
+#
+# Borg exits 2 both when it rejects the command line and when it cannot reach
+# the repository; borg-init tells the two apart by Borg's output.
+
+# blamed_on_repository — the last `run borg-init` failed, kept Borg's message
+# and closed with the repository, not with borg-init.
+blamed_on_repository() {
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"Repository cannot be accessed!" ]] || fail "$output"
+  [[ "$output" != *"rejected the repo-creation command"* ]] || fail "$output"
+}
+
+@test "borg-init blames a command line Borg rejects on itself" {
+  # The default parameters are the one way to put an option Borg does not
+  # know onto borg-init's command line.
+  for kind in local remote; do
+    on "$kind"
+    BORG1_DEFAULT_PARAMS=--no-such-option BORG2_DEFAULT_PARAMS=--no-such-option run borg-init
+    [ "$status" -eq 1 ] || fail "$kind: status $status: $output"
+    [[ "$output" == "usage: "* ]] || fail "$kind: $output"
+    [[ "$output" == *"rejected the repo-creation command"* ]] || fail "$kind: $output"
+    [[ "$output" != *"cannot be accessed"* ]] || fail "$kind: $output"
+    ! exists "$kind" || fail "$kind: created"
+  done
+  nothing_left
+}
+
+@test "borg-init blames a refused path on the repository" {
+  BORG_REPO="$(repo_url other/repo)" run borg-init
+  blamed_on_repository
+  [[ "$output" == *"Repository path not allowed"* ]] || fail "$output"
+  [ ! -e "$DATA/other" ]
+}
+
+@test "borg-init blames a key the server does not know on the repository" {
+  on remote
+  with_key stranger
+  run borg-init
+  blamed_on_repository
+  [[ "$output" == *"Permission denied (publickey)"* ]] || fail "$output"
+  ! exists remote || fail "created"
+}
+
+@test "borg-init blames a host that does not answer on the repository" {
+  # Nothing listens on port 1. Borg 2 takes the port from the remote shell
+  # command once one is set, so it goes into both.
+  on remote
+  BORG_REPO="${BORG_REPO/:$PORT\//:1/}"
+  export BORG_RSH="ssh -p 1" BORGSTORE_RSH="ssh -p 1"
+  run borg-init
+  blamed_on_repository
+  [[ "$output" == *"Connection refused"* ]] || fail "$output"
 }
 
 # --- the passphrase -----------------------------------------------------------
