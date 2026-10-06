@@ -18,16 +18,20 @@ permissions:
 
 jobs:
   chart-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      # Pinned: without a version the action fetches "latest" from the
+      # GitHub API and silently falls back to an old Helm 3 when that fails.
       - uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
       - run: helm lint ./chart
 
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -39,7 +43,7 @@ jobs:
       - run: ./tests/shellcheck.sh
 
   bats:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -51,20 +55,24 @@ jobs:
         run: ./docker/ui-app-version.sh --fetch-tags
       - name: Install bats
         # The suite uses `run --separate-stderr`, so bats must be >= 1.5.
-        # ubuntu-latest ships 1.10; the version is printed to make a future
-        # runner-image downgrade obvious in the log.
+        # The version is printed to make a future runner-image downgrade
+        # obvious in the log.
         run: |
           sudo apt-get update && sudo apt-get install -y bats
           bats --version
       # chart-repo-server.bats renders the chart.
+      # Pinned: without a version the action fetches "latest" from the
+      # GitHub API and silently falls back to an old Helm 3 when that fails.
       - uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
       - run: bats --print-output-on-failure tests/
 
   # End-to-end against real Borg repositories, inside the agent image. Slower
   # than the jobs above (it builds the image), so it runs alongside them rather
   # than gating them.
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
