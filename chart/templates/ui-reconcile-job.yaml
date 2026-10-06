@@ -5,7 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 Reconcile Job (one per release revision). Runs the k8s-borg agent image's
 reconcile-borgui reconciler against the freshly (re)deployed server: waits for
 health, reuses/mints the admin PAT into the retained PAT Secret, and reconciles
-OIDC / system SSH key / remote machines. Idempotent — safe to re-run on every upgrade.
+OIDC / cache / license / system SSH key / remote machines / notification
+channels. Idempotent — safe to re-run on every upgrade.
 */}}
 {{- if and .Values.borgUI.enabled .Values.borgUI.reconcile.enabled }}
 apiVersion: batch/v1
@@ -164,6 +165,24 @@ spec:
             {{- if .Values.borgUI.remoteMachines }}
             - name: BORG_UI_REMOTE_MACHINES
               value: {{ .Values.borgUI.remoteMachines | toJson | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if include "k8s-borg.ui.notificationsActive" . }}
+            # Notification channels. The list carries no credential; an email
+            # channel's password or a whole serviceUrl reaches the Job only
+            # through its own Secret-backed variable. Optional: notifications
+            # are best effort, so a missing Secret or key makes the reconciler
+            # skip that channel with a warning instead of keeping the Job (and
+            # the agents that wait for it) from starting.
+            - name: BORG_UI_NOTIFICATIONS
+              value: {{ include "k8s-borg.ui.notificationsJson" . | quote }}
+            {{- range (include "k8s-borg.ui.notificationSecrets" . | fromJsonArray) }}
+            - name: {{ .env }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secret }}
+                  key: {{ .key }}
+                  optional: true
             {{- end }}
             {{- end }}
           {{- if .Values.borgUI.resources }}

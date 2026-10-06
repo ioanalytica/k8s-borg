@@ -344,6 +344,171 @@ true
 {{- end -}}
 
 {{/*
+Whether the reconcile Job provisions notification channels (it is the only
+consumer of their credentials). Emits "true" or "".
+*/}}
+{{- define "k8s-borg.ui.notificationsActive" -}}
+{{- if and .Values.borgUI.enabled .Values.borgUI.reconcile.enabled .Values.borgUI.notifications -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+borgUI.notifications as the reconcile Job reads it: name, the settings to
+enforce under the API's field names, and either the email fields it assembles
+the Apprise URL from (+ the variable carrying the password) or the variable
+carrying a whole serviceUrl. Only what an entry sets is listed, so the rest
+keeps the API's default on creation and the UI's choice afterwards. No
+credential in here.
+*/}}
+{{- define "k8s-borg.ui.notificationsJson" -}}
+{{- include "k8s-borg.ui.notifications.validate" . -}}
+{{- $out := list -}}
+{{- range $i, $n := .Values.borgUI.notifications -}}
+{{- $s := dict "enabled" (ternary $n.enabled true (hasKey $n "enabled")) -}}
+{{- if $n.titlePrefix -}}{{- $_ := set $s "title_prefix" $n.titlePrefix -}}{{- end -}}
+{{- if hasKey $n "includeJobNameInTitle" -}}{{- $_ := set $s "include_job_name_in_title" $n.includeJobNameInTitle -}}{{- end -}}
+{{- if hasKey $n "monitorAllRepositories" -}}{{- $_ := set $s "monitor_all_repositories" $n.monitorAllRepositories -}}{{- end -}}
+{{- range $k, $v := ($n.events | default dict) -}}{{- $_ := set $s (printf "notify_on_%s" (snakecase $k)) $v -}}{{- end -}}
+{{- $c := dict "name" $n.name "settings" $s -}}
+{{- if $n.email -}}
+{{- $e := $n.email -}}
+{{- $m := dict "smtpHost" $e.smtp.host "mode" ($e.smtp.mode | default "starttls") "from" $e.from "to" $e.to -}}
+{{- if $e.smtp.port -}}{{- $_ := set $m "port" (int $e.smtp.port) -}}{{- end -}}
+{{- range $k := list "username" "fromName" "cc" "bcc" "replyTo" -}}
+{{- if get $e $k -}}{{- $_ := set $m $k (get $e $k) -}}{{- end -}}
+{{- end -}}
+{{- $_ := set $c "email" $m -}}
+{{- if $e.password -}}{{- $_ := set $c "passwordEnv" (printf "BORG_UI_NOTIFICATION_PASSWORD_%d" $i) -}}{{- end -}}
+{{- else -}}
+{{- $_ := set $c "urlEnv" (printf "BORG_UI_NOTIFICATION_URL_%d" $i) -}}
+{{- end -}}
+{{- $out = append $out $c -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end -}}
+
+{{/*
+The credentials of borgUI.notifications as a JSON list of {env, secret, key}
+(+ value when the chart Secret carries it): an email channel's password, or a
+whole serviceUrl. Feeds the reconcile Job's env and the chart Secret.
+*/}}
+{{- define "k8s-borg.ui.notificationSecrets" -}}
+{{- include "k8s-borg.ui.notifications.validate" . -}}
+{{- $refs := list -}}
+{{- range $i, $n := .Values.borgUI.notifications -}}
+{{- $env := "" -}}{{- $src := dict -}}
+{{- if $n.email -}}
+{{- if $n.email.password -}}{{- $env = printf "BORG_UI_NOTIFICATION_PASSWORD_%d" $i -}}{{- $src = $n.email.password -}}{{- end -}}
+{{- else -}}
+{{- $env = printf "BORG_UI_NOTIFICATION_URL_%d" $i -}}{{- $src = $n.serviceUrl -}}
+{{- end -}}
+{{- if $env -}}
+{{- if $src.existingSecret -}}
+{{- $refs = append $refs (dict "env" $env "secret" $src.existingSecret "key" $src.existingSecretKey) -}}
+{{- else -}}
+{{- $refs = append $refs (dict "env" $env "secret" (include "k8s-borg.secretName" $) "key" $env "value" (toString $src.value)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $refs -}}
+{{- end -}}
+
+{{/*
+validateSecretRef: a sensitive field given as value or existingSecret+existingSecretKey.
+Usage: include "k8s-borg.ui.notifications.validateSecretRef" (dict "ref" $x "path" "…")
+*/}}
+{{- define "k8s-borg.ui.notifications.validateSecretRef" -}}
+{{- if not (kindIs "map" .ref) -}}{{- fail (printf "%s must be a map with value or existingSecret+existingSecretKey" .path) -}}{{- end -}}
+{{- range $k := list "value" "existingSecret" "existingSecretKey" -}}
+{{- if and (hasKey $.ref $k) (not (kindIs "string" (get $.ref $k))) -}}{{- fail (printf "%s.%s must be a string (quote it)" $.path $k) -}}{{- end -}}
+{{- end -}}
+{{- if .ref.existingSecret -}}
+{{- if not .ref.existingSecretKey -}}{{- fail (printf "%s.existingSecretKey is required with existingSecret" .path) -}}{{- end -}}
+{{- else if not .ref.value -}}
+{{- fail (printf "%s needs value or existingSecret+existingSecretKey" .path) -}}
+{{- else if and .url (not (regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://" .ref.value)) -}}
+{{- fail (printf "%s.value must be an Apprise URL (scheme://…)" .path) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse malformed borgUI.notifications entries at render time; a typo would
+otherwise only show up as a warning in the reconcile Job's log.
+*/}}
+{{- define "k8s-borg.ui.notifications.validate" -}}
+{{- $keys := list "name" "email" "serviceUrl" "enabled" "titlePrefix" "includeJobNameInTitle" "monitorAllRepositories" "events" -}}
+{{- $emailKeys := list "smtp" "username" "password" "from" "fromName" "to" "cc" "bcc" "replyTo" -}}
+{{- $events := list "backupStart" "backupSuccess" "backupWarning" "backupFailure" "restoreSuccess" "restoreFailure" "checkSuccess" "checkFailure" "restoreCheckSuccess" "restoreCheckFailure" "scheduleFailure" "staleBackup" "backupReport" -}}
+{{- $addr := "^[^@\\s<>,;\"]+@[^@\\s<>,;\"]+$" -}}
+{{- $seen := dict -}}
+{{- range $i, $n := .Values.borgUI.notifications -}}
+{{- $p := printf "borgUI.notifications[%d]" $i -}}
+{{- if not (kindIs "map" $n) -}}{{- fail (printf "%s must be a map with name and email or serviceUrl" $p) -}}{{- end -}}
+{{- range $k, $_ := $n -}}
+{{- if not (has $k $keys) -}}{{- fail (printf "%s: unknown key %q (known: %s)" $p $k (join ", " $keys)) -}}{{- end -}}
+{{- end -}}
+{{- if not (and (kindIs "string" $n.name) $n.name) -}}{{- fail (printf "%s.name is required" $p) -}}{{- end -}}
+{{- if hasKey $seen $n.name -}}{{- fail (printf "borgUI.notifications: name %q is used twice — channels are matched by name" $n.name) -}}{{- end -}}
+{{- $_ := set $seen $n.name true -}}
+{{- if and (hasKey $n "email") (hasKey $n "serviceUrl") -}}{{- fail (printf "%s: set email or serviceUrl, not both" $p) -}}{{- end -}}
+{{- if hasKey $n "serviceUrl" -}}
+{{- include "k8s-borg.ui.notifications.validateSecretRef" (dict "ref" $n.serviceUrl "path" (printf "%s.serviceUrl" $p) "url" true) -}}
+{{- else if hasKey $n "email" -}}
+{{- $e := $n.email -}}
+{{- $ep := printf "%s.email" $p -}}
+{{- if not (kindIs "map" $e) -}}{{- fail (printf "%s must be a map (smtp, from, to, …)" $ep) -}}{{- end -}}
+{{- range $k, $_ := $e -}}
+{{- if not (has $k $emailKeys) -}}{{- fail (printf "%s: unknown key %q (known: %s)" $ep $k (join ", " $emailKeys)) -}}{{- end -}}
+{{- end -}}
+{{- $smtp := $e.smtp | default dict -}}
+{{- if not (kindIs "map" $smtp) -}}{{- fail (printf "%s.smtp must be a map (host, port, mode)" $ep) -}}{{- end -}}
+{{- range $k, $_ := $smtp -}}
+{{- if not (has $k (list "host" "port" "mode")) -}}{{- fail (printf "%s.smtp: unknown key %q (known: host, port, mode)" $ep $k) -}}{{- end -}}
+{{- end -}}
+{{- if not (and (kindIs "string" $smtp.host) $smtp.host) -}}{{- fail (printf "%s.smtp.host is required" $ep) -}}{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$" $smtp.host) -}}{{- fail (printf "%s.smtp.host must be a host name or IPv4 address (got %q)" $ep $smtp.host) -}}{{- end -}}
+{{- if hasKey $smtp "port" -}}
+{{- $port := $smtp.port -}}
+{{- if not (and (or (kindIs "float64" $port) (kindIs "int" $port) (kindIs "int64" $port)) (eq (float64 (int $port)) (float64 $port)) (ge (int $port) 1) (le (int $port) 65535)) -}}
+{{- fail (printf "%s.smtp.port must be a number from 1 to 65535" $ep) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (has ($smtp.mode | default "starttls") (list "starttls" "ssl" "insecure")) -}}{{- fail (printf "%s.smtp.mode must be \"starttls\", \"ssl\" or \"insecure\" (got %q)" $ep (toString $smtp.mode)) -}}{{- end -}}
+{{- if not (and (kindIs "string" $e.from) (regexMatch $addr ($e.from | default ""))) -}}{{- fail (printf "%s.from must be an e-mail address" $ep) -}}{{- end -}}
+{{- if and (hasKey $e "replyTo") (not (and (kindIs "string" $e.replyTo) (regexMatch $addr ($e.replyTo | default "")))) -}}{{- fail (printf "%s.replyTo must be an e-mail address" $ep) -}}{{- end -}}
+{{- range $k := list "fromName" "username" -}}
+{{- if and (hasKey $e $k) (not (kindIs "string" (get $e $k))) -}}{{- fail (printf "%s.%s must be a string" $ep $k) -}}{{- end -}}
+{{- end -}}
+{{- if not $e.to -}}{{- fail (printf "%s.to needs at least one address" $ep) -}}{{- end -}}
+{{- range $k := list "to" "cc" "bcc" -}}
+{{- if hasKey $e $k -}}
+{{- $l := get $e $k -}}
+{{- if not (kindIs "slice" $l) -}}{{- fail (printf "%s.%s must be a list of e-mail addresses" $ep $k) -}}{{- end -}}
+{{- range $a := $l -}}
+{{- if not (and (kindIs "string" $a) (regexMatch $addr $a)) -}}{{- fail (printf "%s.%s: %q is not an e-mail address" $ep $k (toString $a)) -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $e "password" -}}
+{{- if not $e.username -}}{{- fail (printf "%s.password needs email.username (the SMTP login)" $ep) -}}{{- end -}}
+{{- include "k8s-borg.ui.notifications.validateSecretRef" (dict "ref" $e.password "path" (printf "%s.password" $ep)) -}}
+{{- end -}}
+{{- else -}}
+{{- fail (printf "%s needs email or serviceUrl" $p) -}}
+{{- end -}}
+{{- range $k := list "enabled" "includeJobNameInTitle" "monitorAllRepositories" -}}
+{{- if and (hasKey $n $k) (not (kindIs "bool" (get $n $k))) -}}{{- fail (printf "%s.%s must be true or false" $p $k) -}}{{- end -}}
+{{- end -}}
+{{- if gt (len (toString ($n.titlePrefix | default ""))) 100 -}}{{- fail (printf "%s.titlePrefix is longer than 100 characters" $p) -}}{{- end -}}
+{{- range $k, $v := ($n.events | default dict) -}}
+{{- if not (has $k $events) -}}{{- fail (printf "%s.events: unknown event %q (known: %s)" $p $k (join ", " $events)) -}}{{- end -}}
+{{- if not (kindIs "bool" $v) -}}{{- fail (printf "%s.events.%s must be true or false" $p $k) -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Init container that stages the SSH key into an in-memory volume owned by the Borg
 UI server user (uid 1001) with sane modes, so the server can read it once to import
 as its system key. A plain secret mount would be root-owned / wrong mode.
