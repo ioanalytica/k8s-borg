@@ -127,9 +127,12 @@ lib_accepts() {
 }
 
 @test "Borg 1: the chart accepts the modes of Borg 1.4 but the keyfile ones, passed through by borg-encryption.sh" {
-  # The choices of `borg init --encryption` in Borg 1.4.5, less keyfile and keyfile-blake2.
-  borg14="authenticated authenticated-blake2 none repokey repokey-blake2"
-  [ "$(chart_modes 1 | sort | tr '\n' ' ')" = "$borg14 " ] || fail "chart: $(chart_modes 1 | tr '\n' ' ')"
+  # The choices of `borg init --encryption` in Borg 1.4.5.
+  borg14="authenticated authenticated-blake2 keyfile keyfile-blake2 none repokey repokey-blake2"
+  lib=$( . "$BORG_LIB_DIR/borg-encryption.sh"; printf '%s\n' $BORG1_ENCRYPTION_MODES | sort | tr '\n' ' ')
+  [ "$lib" = "$borg14 " ] || fail "BORG1_ENCRYPTION_MODES: $lib"
+  chart=$(chart_modes 1 | sort | tr '\n' ' ')
+  [ "$chart" = "authenticated authenticated-blake2 none repokey repokey-blake2 " ] || fail "chart: $chart"
   for mode in $borg14; do
     lib_accepts 1 "$mode" || fail "borg-init refuses $mode"
   done

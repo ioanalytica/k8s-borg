@@ -2,7 +2,8 @@
 #
 # borg-encryption.sh — what BORG_ENCRYPTION means, for borg-init (which creates
 # the repository) and register-repo (which records it in Borg UI). Sourced
-# (never executed); defines one function, prints only when it refuses a mode.
+# (never executed); defines two functions and a list, prints only when it
+# refuses a mode.
 # Keeping the table here is what makes the mode a repository is created with
 # and the mode it is recorded with the same one.
 #
@@ -67,4 +68,22 @@ borg_encryption() {
       echo "or authenticated)." >&2
       return 1 ;;
   esac
+}
+
+# The modes of `borg init --encryption` in Borg 1.4. borg_encryption does not
+# check a Borg 1 mode, Borg does; the list tells a name Borg 1 has from one it
+# does not where no Borg runs (register-repo, the chart's test).
+BORG1_ENCRYPTION_MODES="repokey-blake2 repokey keyfile-blake2 keyfile authenticated-blake2 authenticated none"
+
+# borg_encryption_creates VERSION MODE — whether borg-init creates a repository
+# of that Borg major with BORG_ENCRYPTION=MODE, under that same name in Borg UI.
+# Prints nothing.
+borg_encryption_creates() {
+  if [ "${1:-1}" != "2" ]; then
+    case " $BORG1_ENCRYPTION_MODES " in
+      *" $2 "*) return 0 ;;
+    esac
+    return 1
+  fi
+  ( BORG_ENCRYPTION="$2" borg_encryption 2 2>/dev/null && [ "$borg_enc_name" = "$2" ] )
 }

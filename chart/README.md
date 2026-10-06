@@ -271,11 +271,11 @@ chosen `borg.version` does not have fails the render with the list of valid
 ones. It never changes a repository that exists: `borg-init` only creates one
 where there is none, and `register-repo` sends the mode only when it records a
 repository for the first time. A record it moves to a changed base keeps its
-mode: change `borg.repoBase` and `borg.encryption` in the same upgrade, and the
-new repository has the new mode while Borg UI still shows the old one for it.
-Correct the record in Borg UI afterwards, or remove it there before the
-upgrade (without deleting data), so that the pod registers the repository anew,
-with its mode.
+mode, so `register-repo` moves it only when that mode is the one `borg-init`
+created the new repository with. Otherwise the pod stops and names both modes
+and both paths: change `borg.repoBase` and `borg.encryption` in the same
+upgrade, and you remove the record in Borg UI (without deleting data) so that
+the pod registers the repository anew, with its mode.
 
 The chart refuses the keyfile modes (`keyfile`, `keyfile-blake2`,
 `keyfile-aes-ocb`, `keyfile-chacha20-poly1305`). Borg keeps their key in the
@@ -333,9 +333,11 @@ Then, in this order:
 7. The pods create the repositories (`borg-init`) and move their records in
    Borg UI to the new URL. Borg UI checks a changed URL from its own server:
    when that server cannot reach the repository, it refuses, and the pod stops
-   with both URLs and Borg UI's answer. Change the record there by hand, or
-   remove it from Borg UI without deleting data, so that the pod registers it
-   anew.
+   with both URLs and Borg UI's answer. It also stops, naming both modes, when
+   the record's encryption mode is not the one the pod created the repository
+   with; a Borg 2 record that a pod of an earlier release registered carries
+   the Borg 1 name `repokey-blake2`. Change the record there by hand, or remove it
+   from Borg UI without deleting data, so that the pod registers it anew.
 8. Check one repository: `borg-info` prints `Repository version: 5`. Run a
    backup and a restore into an empty directory, then resume the backups.
 9. Delete the directories of step 4 once the new repositories hold backups you
