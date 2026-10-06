@@ -6,7 +6,8 @@
 # image four releases old.
 #
 # Two sources of truth:
-#   UI image    -> borg-ui/VERSION (the server image is built from that commit)
+#   UI image    -> `git describe` of the borg-ui pin (docker/ui-app-version.sh;
+#                  the server image is built from that commit)
 #   agent image -> Chart.yaml appVersion (values.yaml image.tag defaults to it)
 
 setup() { load helpers/versions; }
@@ -16,7 +17,7 @@ setup() { load helpers/versions; }
 # then compare "" with "" and pass. Pin them first.
 
 @test "the version sources are all readable" {
-  [ -n "$(ui_app_version)" ]      || fail "borg-ui/VERSION unreadable — is the submodule checked out?"
+  [ -n "$(ui_app_version)" ]      || fail "no UI app version — is the submodule checked out, with its tags (docker/ui-app-version.sh --fetch-tags)?"
   [ -n "$(chart_version)" ]       || fail "no version: in Chart.yaml"
   [ -n "$(chart_app_version)" ]   || fail "no appVersion: in Chart.yaml"
   [ -n "$(annotation_image k8s-borg)" ]    || fail "no k8s-borg entry in the annotations block"
@@ -43,7 +44,21 @@ YAML
 
 @test "values.yaml pins the UI image to the submodule's app version" {
   [ "$(values_tag ioanalytica/k8s-borg-ui)" = "$(ui_app_version)" ] \
-    || fail "values.yaml has $(values_tag ioanalytica/k8s-borg-ui), borg-ui/VERSION says $(ui_app_version)"
+    || fail "values.yaml has $(values_tag ioanalytica/k8s-borg-ui), the borg-ui pin is $(ui_app_version)"
+}
+
+@test "the UI app version names the pinned commit unless the pin is a release tag" {
+  # borg-ui/VERSION is the same for every main commit after a release; a tag
+  # built from it would be reused, and overwritten, by the next pin.
+  local v pin
+  v="$(ui_app_version)"
+  pin="$(git -C "$REPO_ROOT/borg-ui" rev-parse HEAD)"
+  if [[ "$v" =~ -g([0-9a-f]+)$ ]]; then
+    [[ "$pin" == "${BASH_REMATCH[1]}"* ]] || fail "$v does not name the pin $pin"
+  else
+    [ "$(git -C "$REPO_ROOT/borg-ui" rev-parse "v$v^{commit}")" = "$pin" ] \
+      || fail "$v has no commit suffix, but the pin $pin is not tag v$v"
+  fi
 }
 
 @test "the Chart.yaml annotation names the same UI image as values.yaml" {
@@ -57,6 +72,13 @@ YAML
   [ "$status" -ne 0 ] || fail "build.yml hardcodes APP_VERSION: $output"
   build_workflow | grep -q 'APP_VERSION=\${{ needs.prep.outputs.app_version }}' \
     || fail "build.yml no longer derives APP_VERSION from the prep job"
+}
+
+@test "build.yml computes the UI app version with ui-app-version.sh" {
+  build_workflow | grep -q 'app_version="$(./docker/ui-app-version.sh --fetch-tags)"' \
+    || fail "the prep job no longer takes the UI app version from docker/ui-app-version.sh"
+  run grep -E '<[[:space:]]*borg-ui/VERSION' <(build_workflow)
+  [ "$status" -ne 0 ] || fail "build.yml reads borg-ui/VERSION: $output"
 }
 
 @test "build.yml tags the server image with the version it builds" {

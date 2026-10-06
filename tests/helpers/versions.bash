@@ -21,9 +21,10 @@ RUNTIME_ENV="$REPO_ROOT/borg-ui/docker/runtime-base.env"
 SUBMODULE_DOCKERFILE="$REPO_ROOT/borg-ui/Dockerfile"
 
 # The version of the UI application, from the pinned submodule. This is the one
-# source of truth: the server image is built from this commit, so every place
-# that names a UI image tag has to agree with it.
-ui_app_version() { cat "$REPO_ROOT/borg-ui/VERSION" 2>/dev/null | tr -d '[:space:]'; }
+# source of truth: the server image is built from this commit and tagged with
+# this string (docker/ui-app-version.sh, `git describe` of the pin), so every
+# place that names a UI image tag has to agree with it.
+ui_app_version() { "$REPO_ROOT/docker/ui-app-version.sh" 2>/dev/null; }
 
 chart_version()     { sed -n 's/^version:[[:space:]]*"\{0,1\}\([^"[:space:]]*\).*/\1/p'    "$CHART" | head -1; }
 chart_app_version() { sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"[:space:]]*\).*/\1/p' "$CHART" | head -1; }

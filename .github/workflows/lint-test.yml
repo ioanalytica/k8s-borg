@@ -43,8 +43,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          submodules: recursive   # chart-versions.bats reads borg-ui/VERSION
+          submodules: recursive   # chart-versions.bats describes the borg-ui pin
           persist-credentials: false
+      # The UI image tag is `git describe` of the borg-ui pin; the fork the
+      # submodule comes from carries no tags, so they come from upstream.
+      - name: Fetch borg-ui release tags
+        run: ./docker/ui-app-version.sh --fetch-tags
       - name: Install bats
         # The suite uses `run --separate-stderr`, so bats must be >= 1.5.
         # ubuntu-latest ships 1.10; the version is printed to make a future

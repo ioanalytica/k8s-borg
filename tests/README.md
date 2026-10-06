@@ -44,11 +44,13 @@ bats tests/borg-rc.bats               # a single file
 | `chart-repo-base.bats` | the chart's repository base: `rest://` refused in `borg.repoBase.value` for Borg 2, a base from an existing Secret left to the wrapper, `BORG_REMOTE_PATH` for both majors, no object rendered by the validations |
 | `chart-encryption.bats` | the chart's `borg.encryption`: nothing rendered when empty, `BORG_ENCRYPTION` in the three workloads that create repositories, a mode the major lacks and the keyfile modes refused with the valid ones, and the chart's list per major equal to what `borg-encryption.sh` accepts (Borg 1: `BORG1_ENCRYPTION_MODES`, pinned to Borg 1.4.5), less the keyfile modes |
 | `borgstore-pin.bats` | the agent image installs exactly the borgstore the submodule states, with the `blake3` extra; the submodule's two statements of the Borg 2 version agree; `borg-versions.py` stops on a pin that belongs to another Borg 2 |
-| `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, and the chart version follows `appVersion[-N]` |
+| `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, the UI image tag is `git describe` of the borg-ui pin, and the chart version follows `appVersion[-N]` |
 
-`chart-versions.bats` reads `borg-ui/VERSION`, and `borgstore-pin.bats` the
-submodule's manifest and `runtime-base.env`, so the submodule has to be checked
-out. Its extractors are plain sed/awk rather than `yq`, so the check
+`chart-versions.bats` describes the borg-ui pin (`docker/ui-app-version.sh`),
+and `borgstore-pin.bats` reads the submodule's manifest and `runtime-base.env`,
+so the submodule has to be checked out — with borg-ui's release tags, which our
+fork does not carry: `./docker/ui-app-version.sh --fetch-tags` fetches them
+from upstream once. Its extractors are plain sed/awk rather than `yq`, so the check
 needs no setup; the first test pins the extractors themselves, because one that
 quietly stops finding its value would make every later assertion compare `""`
 with `""` and pass.

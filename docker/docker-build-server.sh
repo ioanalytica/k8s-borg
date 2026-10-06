@@ -38,13 +38,10 @@ done
 
 [ -d "$SUB/frontend" ] || { echo "✗ borg-ui submodule not initialized at $SUB"; exit 1; }
 
-# The app version comes from the pinned submodule's VERSION file — the same
-# single source build.yml's prep job uses. Deriving it from the newest stable
-# git tag (as this script once did) mis-tags any build where the pinned code
-# is ahead of the last release: with main on 2.3.0-alpha.1 it would still
-# label the image 2.2.6.
-APP_VERSION="$(tr -d '[:space:]' < "$SUB/VERSION")"
-[ -n "$APP_VERSION" ] || { echo "✗ $SUB/VERSION is empty"; exit 1; }
+# The app version is `git describe` of the pinned submodule (2.3.10, or
+# 2.3.10-27-gcdd5712c9 past that tag), computed by the same helper build.yml's
+# prep job calls. It needs borg-ui's release tags: ./ui-app-version.sh --fetch-tags.
+APP_VERSION="$("$ROOT/ui-app-version.sh")"
 TAG="${IMAGE}:${APP_VERSION}"
 
 echo "▶ k8s-borg-ui server build (hermetic)"
