@@ -641,7 +641,8 @@ borgUI:
     server: ""
   ## Reconcile Job (Helm post-install/upgrade hook): waits for the server, mints
   ## (and reuses) an admin PAT into a retained Secret, and reconciles OIDC/SSO,
-  ## the system SSH key and remote machines to match this HelmRelease every run.
+  ## the system SSH key, remote machines and notification channels to match this
+  ## HelmRelease every run.
   ## Runs the k8s-borg agent image (ships reconcile-borgui).
   reconcile:
     ## @param borgUI.reconcile.enabled Run the reconcile Job (only meaningful with borgUI.enabled)
@@ -718,6 +719,51 @@ borgUI:
   ##   (use_sftp_mode=true, Hetzner-friendly). Requires the system key (auto-imported).
   remoteMachines: []
   #  - { host: "borg01.example.com", username: "u12345", port: 23 }
+  ## @param borgUI.notifications Notification channels the reconcile Job provisions.
+  ##   Matched by name: a missing channel is created, an existing one is updated
+  ##   when its URL or a setting named here differs, an equal one is not written.
+  ##   Channels under other names (e.g. made in the UI) are never touched, and
+  ##   removing an entry here does NOT delete its channel. A channel the server
+  ##   rejects is a warning in the Job log, not a failed release. Per entry:
+  ##     name                    required, unique
+  ##     email                   an e-mail channel; the Job assembles the Apprise
+  ##                             mailto(s):// URL from these fields:
+  ##       smtp.host             required, the SMTP server
+  ##       smtp.port             optional (Apprise default: 587 starttls, 465 ssl, 25 insecure)
+  ##       smtp.mode             starttls (default) | ssl | insecure
+  ##       username              optional SMTP login
+  ##       password              the SMTP password: value (goes into the chart Secret)
+  ##                             or existingSecret+existingSecretKey; needs username
+  ##       from, fromName        sender address (required) and display name
+  ##       to, cc, bcc           lists of addresses (to: at least one)
+  ##       replyTo               optional address
+  ##     serviceUrl              instead of email: any other Apprise URL (slack://,
+  ##                             json://, …) as a whole, value or existingSecret+
+  ##                             existingSecretKey — it carries its credentials
+  ##     enabled                 default true; a channel disabled in the UI is
+  ##                             enabled again on the next reconcile
+  ##     titlePrefix, includeJobNameInTitle, monitorAllRepositories
+  ##     events                  overrides of the notify_on_* flags, camelCase:
+  ##                             backupStart backupSuccess backupWarning backupFailure
+  ##                             restoreSuccess restoreFailure checkSuccess checkFailure
+  ##                             restoreCheckSuccess restoreCheckFailure scheduleFailure
+  ##                             staleBackup backupReport
+  ##   Only the settings an entry names are enforced; the rest start at the API
+  ##   defaults (every failure event, stale backups and the backup report on; start,
+  ##   success and warning off) and keep what the UI sets later. The repository
+  ##   selection behind monitorAllRepositories=false is left to the UI.
+  notifications: []
+  #  - name: ops-mail
+  #    email:
+  #      smtp: { host: smtp.example.com, port: 587, mode: starttls }
+  #      username: alerts@example.com
+  #      password: { existingSecret: borgui-mail, existingSecretKey: password }
+  #      from: alerts@example.com
+  #      fromName: "Borg UI"
+  #      to: [ops@example.com]
+  #    titlePrefix: "[prod]"
+  #  - name: chat
+  #    serviceUrl: { existingSecret: borgui-notifications, existingSecretKey: chat }
 
 ## @section Persistence
 ## Operational volumes only: the Borg client cache, the Borg UI server state, and

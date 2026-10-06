@@ -39,3 +39,4 @@ refuses it at run time.
 {{- fail "borg.repoBase.value: rest:// repository URLs were removed in Borg 2.0.0b25, which reads one as a local directory. Use ssh://[user@]host[:port]/path (relative to the login directory; ssh://host//path is absolute) and create the repository anew. See \"Upgrading to Borg 2.0.0b25\" in chart/README.md." }}
 {{- end }}
 {{- include "k8s-borg.repoServer.validate" . }}
+{{- include "k8s-borg.ui.notifications.validate" . }}

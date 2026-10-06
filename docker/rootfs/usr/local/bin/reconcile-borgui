@@ -13,7 +13,8 @@
 #          rotate to the configured one), clearing the forced first-login change
 #        - revoke stale PATs of the same name, mint a fresh one, write it to the
 #          PAT Secret
-#   4. optionally (re)configure OIDC/SSO, the system SSH key and remote machines,
+#   4. optionally (re)configure OIDC/SSO, cache, license, the system SSH key,
+#      remote machines and notification channels,
 #      using the PAT as the admin credential
 #
 # So the admin username/password is only ever needed on the FIRST run (or if the
@@ -37,6 +38,10 @@
 #                              the system SSH key (+ _PUBLIC_PATH, _NAME)
 #   BORG_UI_REMOTE_MACHINES    optional; JSON list [{host,username,port}] to register
 #                              as SSH connections against the system key
+#   BORG_UI_NOTIFICATIONS      optional; JSON list of notification channels
+#                              [{name, settings, email+passwordEnv | urlEnv}]; the
+#                              SMTP password or the whole service URL is read from
+#                              the variable named there (fed from a Secret)
 #   RECONCILE_STATUS_CONFIGMAP optional; ConfigMap to publish the success marker to
 #   RECONCILE_TOKEN            optional; marker value (the release revision) agents wait for
 #
@@ -421,6 +426,106 @@ except Exception:
     print("error")' 2>/dev/null || echo "error")
         echo "  ${user}@${host}:${port} → ${status}"
       done
+fi
+
+# --- 6b) optional notification channels (declarative, best-effort) -----------
+# Matched by name: a missing channel is created, an existing one gets a PUT with
+# only the fields that differ, and an equal one is left alone. Only the settings
+# the values name are compared, so the rest keeps the API's defaults on creation
+# and whatever the UI sets later. Channels under other names are never touched
+# and nothing is deleted. A channel that cannot be written is a warning: a typo in
+# an Apprise URL must not hold back the agents that gate on the marker below.
+# A channel is either an email channel, whose Apprise mailto(s):// URL is
+# assembled here from its fields with every part percent-encoded, or a whole
+# service URL. Either way the credential (the SMTP password, or the URL) is read
+# from the environment inside Python and sent from there — never on a command
+# line, never printed (not even the server's error body, which FastAPI fills with
+# the rejected input).
+if [ -n "${BORG_UI_NOTIFICATIONS:-}" ] && [ "${BORG_UI_NOTIFICATIONS}" != "[]" ]; then
+  echo "Reconciling notification channels …"
+  BORG_UI_PAT="$pat" python3 -c '
+import json, os, sys, urllib.error, urllib.parse, urllib.request
+
+base = os.environ["BORG_UI_SERVER"].rstrip("/") + "/api/notifications"
+headers = {"Authorization": "Bearer " + os.environ["BORG_UI_PAT"],
+           "Content-Type": "application/json"}
+
+def warn(msg):
+    print("WARNING: " + msg, file=sys.stderr)
+
+def call(method, url, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError("HTTP %d" % e.code) from None
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise RuntimeError(type(e).__name__) from None
+
+try:
+    existing = call("GET", base)
+except RuntimeError as e:
+    warn("could not read the notification channels (%s) — leaving them as they are." % e)
+    sys.exit(0)
+
+def email_url(e, password):
+    # The parameters Apprise 1.x and 2.x read from a mailto(s):// URL. The
+    # host is the SMTP server itself; smtp= says so explicitly, so Apprise does
+    # not derive a server from the sender domain.
+    q = [("smtp", e["smtpHost"]), ("mode", e["mode"])]
+    if e.get("username"):
+        q.append(("user", e["username"]))
+    if password:
+        q.append(("pass", password))
+    q.append(("from", e["from"]))
+    if e.get("fromName"):
+        q.append(("name", e["fromName"]))
+    for key, param in (("to", "to"), ("cc", "cc"), ("bcc", "bcc")):
+        if e.get(key):
+            q.append((param, ",".join(e[key])))
+    if e.get("replyTo"):
+        q.append(("reply", e["replyTo"]))
+    netloc = e["smtpHost"] + (":%d" % e["port"] if e.get("port") else "")
+    scheme = "mailto" if e["mode"] == "insecure" else "mailtos"
+    return "%s://%s?%s" % (scheme, netloc,
+                           urllib.parse.urlencode(q, quote_via=urllib.parse.quote, safe=""))
+
+for want in json.loads(os.environ["BORG_UI_NOTIFICATIONS"]):
+    name = want["name"]
+    if "email" in want:
+        password = ""
+        if want.get("passwordEnv"):
+            password = os.environ.get(want["passwordEnv"], "")
+            if not password:
+                warn("channel %r: no password (%s is empty) — skipped." % (name, want["passwordEnv"]))
+                continue
+        url = email_url(want["email"], password)
+    else:
+        url = os.environ.get(want["urlEnv"], "")
+        if not url:
+            warn("channel %r: no service URL (%s is empty) — skipped." % (name, want["urlEnv"]))
+            continue
+    fields = {"service_url": url, **want.get("settings", {})}
+    found = [c for c in existing if c.get("name") == name]
+    try:
+        if not found:
+            call("POST", base, {"name": name, **fields})
+            print("  %s: created" % name)
+        elif len(found) > 1:
+            warn("channel %r: %d channels carry this name — rename or delete the extra ones in the UI; left alone."
+                 % (name, len(found)))
+        else:
+            diff = {k: v for k, v in fields.items() if found[0].get(k) != v}
+            if diff:
+                call("PUT", "%s/%d" % (base, found[0]["id"]), diff)
+                print("  %s: updated (%s)" % (name, ", ".join(diff)))
+            else:
+                print("  %s: unchanged" % name)
+    except RuntimeError as e:
+        warn("channel %r could not be written (%s) — left as it is." % (name, e))
+'
 fi
 
 # --- 7) publish the success marker so gated agent workloads can proceed -------

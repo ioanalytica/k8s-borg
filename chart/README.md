@@ -364,7 +364,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 > - `config` split into `node`/`cluster`: `config.clusterInclude`→`cluster.include`,
 >   `config.clusterExclude`→`cluster.exclude`, `config.s3Buckets`→`cluster.s3Buckets`,
 >   `config.nodeInclude`→`node.include`, `config.nodeExclude`→`node.exclude`.
-| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines`, `redis` (archive-listing cache: `mode: internal` deploys a dedicated Redis pod that survives UI-pod rolls, or `external` points at an existing instance) |
+| `borgUI` | optional server (Deployment/Service/Ingress), `agentConnection`, `reconcile` Job, `oidc`, `remoteMachines`, `notifications` (see [Notification channels](#notification-channels-borguinotifications)), `redis` (archive-listing cache: `mode: internal` deploys a dedicated Redis pod that survives UI-pod rolls, or `external` points at an existing instance) |
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 | `repoServer` | optional repository server: `sshd` + `borg serve`, clients from `authorized_keys` in the ssh Secret, `service`, `persistence` — see [Repository server](#repository-server-optional) |
 
@@ -425,6 +425,70 @@ copy from the release would roll that back.
 The activation service may still count the old instance as holding the license, so
 deactivate a paid license (Settings > Licensing) before deleting an instance you
 intend to rebuild.
+
+### Notification channels (`borgUI.notifications`)
+
+A fresh Borg UI has no notification channel, so every failed backup stays
+silent until somebody adds one in the UI. The reconcile Job can provision them
+from the release instead:
+
+```yaml
+borgUI:
+  notifications:
+    - name: ops-mail
+      email:
+        smtp: { host: smtp.example.com, port: 587, mode: starttls }   # mode: starttls | ssl | insecure
+        username: alerts@example.com
+        password:                       # the only secret: value or existingSecret+existingSecretKey
+          existingSecret: borgui-mail
+          existingSecretKey: password
+        from: alerts@example.com
+        fromName: "Borg UI prod"        # optional
+        to: [ops@example.com]           # cc, bcc, replyTo optional
+      titlePrefix: "[prod]"
+      events:                           # optional; omitted = the API defaults
+        backupWarning: true
+    - name: chat                        # anything that is not e-mail: a whole Apprise URL
+      serviceUrl:
+        existingSecret: borgui-notifications
+        existingSecretKey: chat
+```
+
+An `email` channel keeps everything but the password in plain values, visible
+in the release; the password reaches only a Secret and the Job. The Job assembles the Apprise `mailtos://` URL (`mailto://` for
+`mode: insecure`) at run time and percent-encodes every part itself, so the
+password needs no escaping. For any other Apprise service, `serviceUrl` takes
+the whole URL from a Secret, since such URLs carry their token in the URL:
+
+```bash
+kubectl create secret generic borgui-notifications -n borg \
+  --from-literal=chat='json://hooks.example.com/notify?token=…'
+```
+
+- **Matched by name.** A missing channel is created; an existing one is updated
+  with only the fields that differ; an equal one causes no write. Channels with
+  other names — made in the UI — are never touched.
+- **Nothing is deleted.** Removing an entry leaves its channel in Borg UI;
+  delete it in the UI.
+- **Only what an entry names is enforced.** Without `events` a new channel gets
+  the API defaults: every failure event, stale backups and the backup report on;
+  start, success and warning off. A flag the values do not name keeps whatever
+  the UI sets later. `enabled` defaults to `true`, so a channel switched off in
+  the UI is switched on again by the next reconcile — set `enabled: false` to
+  keep it off. `monitorAllRepositories: false` leaves the repository selection
+  to the UI: the repositories the agents register do not exist yet when the
+  reconcile Job runs.
+- **Best effort.** A channel the server rejects (a malformed URL, say), or
+  whose Secret or key does not exist, is a warning in the Job log; the release
+  still succeeds and agents still start.
+  The Job does not send a test message.
+- **Credentials stay out of the manifests.** The SMTP password or a whole
+  `serviceUrl` never lands in a ConfigMap or the Job's spec; the Job reads it
+  from a Secret-backed variable and never prints it. Given as `value`, it goes
+  into the chart Secret, but Helm also keeps it in the release's values, where
+  anyone with access to the release reads it (`helm get values`). Use
+  `existingSecret` when a credential must not be part of the release. A
+  changed Secret is applied on the next reconcile run (the next upgrade).
 
 ## Security posture
 
