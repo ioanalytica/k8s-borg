@@ -571,6 +571,10 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
   value: "$(BORG_REPO_BASE)/$(NODE_NAME)"
 - name: BORG_VERSION
   value: {{ .Values.borg.version | quote }}
+{{- if .Values.borg.encryption }}
+- name: BORG_ENCRYPTION
+  value: {{ .Values.borg.encryption | quote }}
+{{- end }}
 - name: BORG_TREAT_WARNINGS_AS_ERRORS
   value: {{ .Values.borg.treatWarningsAsErrors | quote }}
 {{- if .Values.borg.remotePath }}

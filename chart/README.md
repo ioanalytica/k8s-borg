@@ -261,10 +261,27 @@ The two majors read the same `ssh://` URL differently:
 | | Borg 1 | Borg 2 |
 | --- | --- | --- |
 | `borg.remotePath` (`BORG_REMOTE_PATH`) | the `borg` wrapper adds `--remote-path=<value>` to every call | read by Borg itself; the option no longer exists (removed in 2.0.0b22) |
-| `BORG_ENCRYPTION` (read by `borg-init`; the chart does not set it, its workloads get the default) | any Borg 1 mode, default `repokey-blake2` | `repokey-aes-ocb` (default), `repokey-chacha20-poly1305`, `keyfile-aes-ocb`, `keyfile-chacha20-poly1305`, `authenticated` (= `authenticated-sha256`), `authenticated-blake3`. No `none` |
+| `borg.encryption` (`BORG_ENCRYPTION`, read by `borg-init` and `register-repo`; empty = the default) | `repokey-blake2` (default), `repokey`, `authenticated-blake2`, `authenticated`, `none` | `repokey-aes-ocb` (default), `repokey-chacha20-poly1305`, `authenticated` (= `authenticated-sha256`). No `none`, no `authenticated-blake3` (Borg UI has no name for it) |
 | `borg.passphrase` | needed for the modes with a key | mandatory: from 2.0.0b25 on there is no repository without a key, and every command needs it, `break-lock` and `repo-delete` included |
 | port | taken from the URL | taken from the URL, unless a remote shell command is set (`BORG_RSH`, `BORGSTORE_RSH`): that command is used as it is and has to name the port, `ssh -p 2222`. The chart sets neither |
 | `rest://` | never a repository URL | the name of `ssh://` up to 2.0.0b24; refused from 2.0.0b25 on |
+
+`borg.encryption` sets the mode of the repositories the pods create. A mode the
+chosen `borg.version` does not have fails the render with the list of valid
+ones. It never changes a repository that exists: `borg-init` only creates one
+where there is none, and `register-repo` sends the mode only when it records a
+repository for the first time. A record it moves to a changed base keeps its
+mode: change `borg.repoBase` and `borg.encryption` in the same upgrade, and the
+new repository has the new mode while Borg UI still shows the old one for it.
+Correct the record in Borg UI afterwards, or remove it there before the
+upgrade (without deleting data), so that the pod registers the repository anew,
+with its mode.
+
+The chart refuses the keyfile modes (`keyfile`, `keyfile-blake2`,
+`keyfile-aes-ocb`, `keyfile-chacha20-poly1305`). Borg keeps their key in the
+pod's `~/.config/borg/keys`, and no volume of the chart persists that
+directory: the key would be gone with the pod, and the repository cannot be
+read without it. The passphrase does not replace the key.
 
 ### Upgrading to Borg 2.0.0b25
 

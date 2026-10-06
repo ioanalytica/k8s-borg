@@ -42,6 +42,7 @@ bats tests/borg-rc.bats               # a single file
 | `repo-server-entrypoint.bats` | `prepare-repo-server.sh` and `run-repo-server.sh`: what a plain `authorized_keys` line becomes, the client list, modes of what is staged, and every input that has to stop the start |
 | `chart-repo-server.bats` | the chart's repository server: nothing rendered by default, no other object touched when enabled, Service types, storage, and the values that are refused |
 | `chart-repo-base.bats` | the chart's repository base: `rest://` refused in `borg.repoBase.value` for Borg 2, a base from an existing Secret left to the wrapper, `BORG_REMOTE_PATH` for both majors, no object rendered by the validations |
+| `chart-encryption.bats` | the chart's `borg.encryption`: nothing rendered when empty, `BORG_ENCRYPTION` in the three workloads that create repositories, a mode the major lacks and the keyfile modes refused with the valid ones, and the chart's list per major equal to what `borg-encryption.sh` accepts, less the keyfile modes |
 | `borgstore-pin.bats` | the agent image installs exactly the borgstore the submodule states, with the `blake3` extra; the submodule's two statements of the Borg 2 version agree; `borg-versions.py` stops on a pin that belongs to another Borg 2 |
 | `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, and the chart version follows `appVersion[-N]` |
 
