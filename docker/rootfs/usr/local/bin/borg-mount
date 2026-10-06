@@ -2,6 +2,7 @@
 
 
 BORG_BACKUP_SET=$1
+MOUNTPOINT=/mnt/borg
 
 usage() {
     echo "Usage: $0 <borg backup set>"
@@ -15,9 +16,92 @@ if [ -z "$BORG_BACKUP_SET" ];  then
     usage
 fi
 
+# shellcheck source=../lib/borg-rc.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
+
+# end_mount PID — end the mount that mount_borg2 started: its whole process
+# group, which is that process's own (setsid), and nothing else.
+end_mount() {
+    kill -TERM -- "-$1" 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        kill -0 "$1" 2>/dev/null || break
+        sleep 0.5
+    done
+    kill -KILL -- "-$1" 2>/dev/null
+    wait "$1" 2>/dev/null
+}
+
+# mount_borg2 — run Borg 2's mount in the foreground and put it into the
+# background here; return once MOUNTPOINT is mounted (0) or the mount has ended
+# without it (Borg's exit code, never 0).
+#
+# Borg 2 (2.0.0b24, b25) leaves the process of a background mount of a remote
+# repository after `borg umount`: one thread, waiting for a lock, for good. The same mount with -f ends on the
+# unmount. Borg 2 is a beta: once a later one ends its background mount by
+# itself, the plain call can come back (tests/e2e/clients.bats: the remote
+# mount test asserts that no process is left).
+#
+# - setsid: a session and process group of its own, like Borg's own daemon.
+#   Otherwise a Ctrl-C to the caller (`borg-mount x && cp -a /mnt/borg/...`)
+#   reaches the mount too and unmounts it. It also lets a timeout or an
+#   interrupt here end exactly that group: the wrappers and Borg.
+# - stdin from /dev/null, stdout and stderr into files: an inherited descriptor
+#   keeps every caller that reads this script's output (a pipe, $(...), a test)
+#   waiting until the unmount. What Borg wrote until the mount is there or has
+#   ended is handed on, each stream to its own; later output is dropped, as
+#   Borg's own daemon sends it to /dev/null.
+# - BORG_MOUNT_TIMEOUT (seconds, default 300) bounds the wait. A mount that is
+#   not there by then is ended. A mount that comes up after that check and
+#   before the signal stays mounted without its process; `umount` clears it.
+mount_borg2() {
+    local timeout="${BORG_MOUNT_TIMEOUT:-300}" out err pid rc ticks=0
+
+    # Mounted before the start, MOUNTPOINT would count as this mount at once.
+    if mountpoint -q "$MOUNTPOINT"; then
+        echo "$MOUNTPOINT is mounted already; unmount it first: borg umount $MOUNTPOINT" >&2
+        return 2
+    fi
+    out="$(mktemp)" && err="$(mktemp)" || return 2
+
+    setsid borg mount -f -a "$BORG_BACKUP_SET" "$MOUNTPOINT" </dev/null >"$out" 2>"$err" &
+    pid=$!
+    trap 'end_mount "$pid"; cat "$out"; cat "$err" >&2; rm -f "$out" "$err"; exit 130' INT
+    trap 'end_mount "$pid"; cat "$out"; cat "$err" >&2; rm -f "$out" "$err"; exit 143' TERM HUP
+
+    while :; do
+        if mountpoint -q "$MOUNTPOINT"; then
+            rc=0
+            break
+        fi
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid"
+            rc=$?
+            # The borg wrapper turns a warning into 0. Either way the mount is
+            # not there.
+            [ "$rc" -ne 0 ] || rc=1
+            echo "borg mount ended without mounting $MOUNTPOINT (rc=$rc)" >>"$err"
+            break
+        fi
+        if [ "$ticks" -ge $((timeout * 5)) ]; then
+            end_mount "$pid"
+            echo "borg mount did not mount $MOUNTPOINT within ${timeout}s and was ended (BORG_MOUNT_TIMEOUT)" >>"$err"
+            rc=2
+            break
+        fi
+        sleep 0.2
+        ticks=$((ticks + 1))
+    done
+    trap - INT TERM HUP
+
+    cat "$out"
+    cat "$err" >&2
+    rm -f "$out" "$err"
+    return "$rc"
+}
+
 echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} ..."
 
-mkdir -p /mnt/borg
+mkdir -p "$MOUNTPOINT"
 # borg2 dropped the REPO::ARCHIVE syntax and takes the MOUNTPOINT as its only
 # positional argument — the archive is selected with -a, and passing it
 # positionally would make borg read it as the mountpoint. The repo comes from
@@ -26,20 +110,20 @@ mkdir -p /mnt/borg
 # -a takes a match pattern, so a name that repeats across a borg2 series mounts
 # every match; pass `aid:<id>` (from `borg-list --format '{id}{NL}'`) for one.
 if [ "${BORG_VERSION:-1}" = "2" ]; then
-  borg mount -a "${BORG_BACKUP_SET}" /mnt/borg
+  mount_borg2
+  mount_rc=$?
 else
-  borg mount ${BORG_REPO}::${BORG_BACKUP_SET} /mnt/borg
+  borg mount ${BORG_REPO}::${BORG_BACKUP_SET} "$MOUNTPOINT"
+  mount_rc=$?
+  # A borg warning still mounts fine, so treat it as success (mode-agnostic;
+  # see /usr/local/lib/borg-rc.sh). Only a real error is a mount failure.
+  borg_rc_is_warning "$mount_rc" && mount_rc=0
 fi
-mount_rc=$?
 
-# A borg warning still mounts fine, so treat it as success (mode-agnostic; see
-# /usr/local/lib/borg-rc.sh). Only a real error is a mount failure.
-# shellcheck source=../lib/borg-rc.sh
-. "${BORG_LIB_DIR:-/usr/local/lib}/borg-rc.sh"
-if [ "$mount_rc" -ne 0 ] && ! borg_rc_is_warning "$mount_rc"; then
+if [ "$mount_rc" -ne 0 ]; then
     echo "Mounting ${BORG_REPO}::${BORG_BACKUP_SET} failed!" >&2
     exit "$mount_rc"
 fi
-echo "Backup set ${BORG_REPO}::${BORG_BACKUP_SET} successfully mounted on /mnt/borg"
+echo "Backup set ${BORG_REPO}::${BORG_BACKUP_SET} successfully mounted on $MOUNTPOINT"
 
 # end
