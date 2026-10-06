@@ -50,16 +50,29 @@ jobs:
       - id: pins
         run: |
           . borg-ui/docker/runtime-base.env
+          # The UI app version comes from the pinned submodule, never from a
+          # literal here — a hardcoded copy silently drifts on a bump, and the
+          # chart would then reference an image tag that was never built. It is
+          # `git describe` of the pin (2.3.10-27-gcdd5712c9), not borg-ui/VERSION:
+          # VERSION stays the same across many main commits, and reusing a tag
+          # for another pin overwrites the image an older chart still names.
+          # The fork the submodule comes from has no tags, hence --fetch-tags.
+          app_version="$(./docker/ui-app-version.sh --fetch-tags)"
+          # The gate's bats suite checks this too; here it is the very string
+          # the image gets tagged with.
+          . tests/helpers/versions.bash
+          chart_ui_tag="$(values_tag ioanalytica/k8s-borg-ui)"
+          if [ "$chart_ui_tag" != "$app_version" ]; then
+            echo "✗ chart/values.yaml names k8s-borg-ui:$chart_ui_tag, the pinned borg-ui builds $app_version" >&2
+            exit 1
+          fi
           {
             echo "tag=$(./borg-ui/docker/runtime-base-tag.sh)"
             echo "borg1=$BORG1_VERSION"
             echo "borg2=$BORG2_VERSION"
             echo "borgstore=$BORGSTORE_VERSION"
             echo "python=$PYTHON_VERSION"
-            # The UI app version comes from the pinned submodule, never from a
-            # literal here — a hardcoded copy silently drifts on a bump, and the
-            # chart would then reference an image tag that was never built.
-            echo "app_version=$(tr -d '[:space:]' < borg-ui/VERSION)"
+            echo "app_version=$app_version"
           } >> "$GITHUB_OUTPUT"
 
   agent:

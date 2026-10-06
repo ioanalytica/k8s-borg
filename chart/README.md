@@ -355,7 +355,12 @@ for a new agent release, and gains a `-N` suffix for chart-only changes on top
 of it (`1.0.23-1`, `1.0.23-2`, …).
 
 The UI image is a different lifecycle: `borgUI.image.tag` follows the pinned
-`borg-ui` submodule, whose `VERSION` file is the single source of truth for it.
+`borg-ui` submodule. It is `git describe` of the pinned commit against
+borg-ui's release tags (`docker/ui-app-version.sh`): `2.3.10` when the pin is
+exactly tag `v2.3.10`, `2.3.10-27-gcdd5712c9` for a commit after it. Every pin
+gets its own image that way; borg-ui's `VERSION` file stays the same across
+many commits, and a tag reused for another pin would overwrite the image an
+older chart version still points at.
 The `annotations.images` block in `Chart.yaml` restates all of this for chart
 scanners, so it has to be updated along with any bump.
 

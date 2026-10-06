@@ -1,5 +1,98 @@
 # Changelog
 
+## 1.1.9-beta.7
+
+* **Borg UI follows upstream main: 2.3.10-27-gcdd5712c9, agent 0.1.19.**
+  The `borg-ui` submodule moves from our integration branch (54ee5563, UI
+  2.3.8, agent 0.1.17) to upstream main cdd5712c9, which contains everything
+  that branch carried. Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same
+  runtime base), and so is the database schema (Alembic head c8e1f4a7b2d9).
+* **The UI image tag names the pinned commit.** `borgUI.image.tag` is
+  `git describe` of the pin (`2.3.10-27-gcdd5712c9`); a plain `X.Y.Z` only
+  when the pin is exactly the release tag `vX.Y.Z`. borg-ui's `VERSION` file
+  says 2.3.10 for every main commit since that release, and a tag reused for
+  a new pin overwrote the image an older chart still pointed at.
+  `docker/ui-app-version.sh` computes the string for CI and
+  `docker-build-server.sh`; the release fails when the chart names another.
+* **New value `borg.encryption`**, the mode of the repositories the pods
+  create (empty = the major's default: `repokey-blake2` for Borg 1,
+  `repokey-aes-ocb` for Borg 2). A mode the chosen `borg.version` lacks fails
+  the render with the valid list. Keyfile modes are refused for now: their
+  key would live in the pod and be lost on restart (#20). An existing
+  repository is never touched.
+* **New value `borgUI.notifications`**: the reconcile Job creates or updates
+  Borg UI notification channels by name. An `email` entry is assembled from
+  relay, login, sender and recipients with the password from a Secret; any
+  other Apprise service takes its whole URL from a Secret (`serviceUrl`).
+  Only the settings an entry names are enforced, channels under other names
+  are never touched, nothing is deleted. Failures are warnings; the Job still
+  completes.
+* **`register-repo` records the mode `borg-init` created.** Borg 2
+  repositories were recorded as `repokey-blake2` (a Borg 1 name); they are
+  now recorded under Borg UI's name (`repokey-aes-ocb` by default,
+  `authenticated` for `authenticated-sha256`). `borg-init` and
+  `register-repo` share the mapping in `borg-encryption.sh`.
+  `authenticated-blake3` is refused: Borg UI has no name for it.
+* **A pod moves its own record to a changed `BORG_REPO`.** After a change of
+  the repository base the pod used to find its old record by name and keep
+  working on the old URL. Now it sends the new path to Borg UI and requests
+  a resync, as long as the record belongs to this node's agent, has the same
+  Borg major and the same encryption mode, and the new path is `ssh://`.
+* **`borg-init` blames a repository it cannot reach on the repository.**
+  Borg 2's run-time errors (denied key, refused path, host down) were
+  reported as "a bug in borg-init"; only a first line `usage: ` now counts as
+  a rejected command line.
+* **`borg-mount` no longer leaves a Borg 2 process behind after the
+  unmount.** Borg 2 now mounts in the foreground of its own session and
+  `borg-mount` returns once the mount is up; `BORG_MOUNT_TIMEOUT` (seconds,
+  default 300) ends a mount that does not come up.
+
+### Upgrade notes
+
+* `borg.encryption` and `borgUI.notifications` are empty by default; with
+  both empty the rendered manifests do not change.
+* A pod now **stops at start with a message** naming both sides where it
+  used to carry on silently: a record with its name but another path that
+  belongs to another agent or to none, has the other Borg major, or a local
+  `BORG_REPO`; `BORG_REPO` held by another record; Borg UI refusing the move;
+  and a move whose record carries another encryption mode. The last one hits
+  every Borg 2 record registered by an earlier release (stored as
+  `repokey-blake2`) as soon as the repository base changes: correct the
+  record's mode, or remove the record without deleting data so the pod
+  registers it anew. A pod whose record already has the path `BORG_REPO` is
+  not affected.
+* `BORG_ENCRYPTION=authenticated-blake3` now stops `borg-init` and
+  `register-repo`.
+* The UI image tag has the form `2.3.10-27-gcdd5712c9`. The UI itself still
+  shows 2.3.10 (it reads borg-ui's `VERSION`); the full string is in the
+  image tag and its `org.opencontainers.image.version` label.
+* Managed agents get an upgrade offer from 0.1.17 to 0.1.19; the pods' agent
+  comes with the 1.1.9-beta.7 agent image.
+
+### Borg UI changes since the previous pin
+
+* Repository wizard and archive views for Borg 2.0.0b25 (#1349).
+* Managed agents are a Community feature; the license gate is gone (#1317).
+* Agent 0.1.18: upload limit for Borg 2 repositories behind rclone (#1343);
+  agent 0.1.19: `set-server` moves the upgrade record when it may write it
+  (#1337); the reinstall dialog names this server for a moved endpoint
+  (#1340); manual installs land where the service templates start the
+  agent (#1339); disk usage measured portably on macOS (#1348).
+* Agent repositories and Borgmatic imports record their Borg major (#1350).
+* A backup reuses its live agent job instead of queuing a second (#1341); a
+  refused agent job keeps its parameters in background jobs (#1338).
+* A repository command that times out ends its Borg child (#1342); a local
+  repository directory that cannot be created answers 400 (#1356).
+* `--patterns-from` and `--exclude-from` allowed in custom flags (#1319);
+  the command preview shell-quotes path, sources and excludes (#1358).
+* 422 responses no longer echo the submitted input (#1318).
+* Await-less API handlers run in the threadpool, agent job completion I/O
+  off the event loop (#1321–#1325).
+* App templates for Vaultwarden, Plex, Paperless-ngx, Nginx Proxy Manager
+  and Jellyfin (#1310).
+* apprise 2.0.0 (#1334): notification URLs with the removed email options
+  `use_pgp=`/`pgpkey=` or invalid settings now fail instead of degrading.
+
 ## 1.1.9-beta.6
 
 * **New value `s3.region`**, the SigV4 region of the S3 endpoint. It reaches
