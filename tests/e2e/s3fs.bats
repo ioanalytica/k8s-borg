@@ -124,6 +124,16 @@ count() { find "$1" -maxdepth 1 -type f | wc -l; }
   [[ $stderr == *"    db-a"* ]] || fail "$stderr"
 }
 
+@test "s3-verify-listing mounts a bucket again whose s3fs died" {
+  s3-mount-bucket e2e-bucket
+  pkill -KILL -f "^s3fs e2e-bucket $MP( |\$)"
+  ! ls "$MP" >/dev/null 2>&1 || fail "the mount still answers after s3fs was killed"
+  run --separate-stderr s3-verify-listing "$TMP/buckets"
+  [ "$status" -eq 0 ] || fail "status $status: $output $stderr"
+  [[ $stderr == *"$MP is not mounted, mounting it again"* ]] || fail "$stderr"
+  [[ $output == *"e2e-bucket: $((3 * FILES_PER_DIR)) objects, all under $MP"* ]] || fail "$output"
+}
+
 @test "borg-backup checks the mount and archives every object" {
   s3-mount-bucket e2e-bucket
   write_patterns "R $MP"

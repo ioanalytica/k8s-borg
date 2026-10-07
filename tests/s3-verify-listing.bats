@@ -2,8 +2,9 @@
 #
 # `s3-verify-listing`: a key the S3 API lists but the mount does not show is
 # reported, the bucket is mounted again and checked once more, and only a bucket
-# that still misses objects fails. rclone, mountpoint, umount and
-# s3-mount-bucket are stubs; the mount is a plain directory. The real s3fs
+# that still misses objects fails; a bucket that lost its mount is mounted again
+# too. rclone, mountpoint, umount and s3-mount-bucket are stubs (sort and comm
+# can be made to fail); the mount is a plain directory. The real s3fs
 # against a real server is covered by tests/e2e/s3fs.bats.
 
 bats_require_minimum_version 1.5.0
@@ -25,7 +26,8 @@ teardown() { common_teardown; }
 # The rclone stub prints $TMP/api.N for its Nth call (falling back to $TMP/api),
 # records its argv and environment, and fails when $TMP/api.fail exists.
 # s3-mount-bucket copies $TMP/remount/ into the mount, as a new mount that
-# shows more would.
+# shows more would, or fails when $TMP/mount.fail exists. sort and comm fail
+# when $TMP/sort.fail or $TMP/comm.fail exists, as on a full disk.
 make_stubs() {
   cat >"$TMP/stubs/rclone" <<'EOF'
 #!/usr/bin/env bash
@@ -47,9 +49,15 @@ EOF
   cat >"$TMP/stubs/s3-mount-bucket" <<'EOF'
 #!/usr/bin/env bash
 echo "s3-mount-bucket $*" >>"$STUB/calls"
+[ -f "$STUB/mount.fail" ] && { echo "FATAL: S3 bucket '$1' cannot be listed" >&2; exit 1; }
+rm -f "$STUB/unmounted"
 [ -d "$STUB/remount" ] && cp -R "$STUB/remount/." "$S3_MOUNTPOINT/$1/"
 exit 0
 EOF
+  local cmd
+  for cmd in sort comm; do
+    printf '#!/usr/bin/env bash\n[ -f "$STUB/%s.fail" ] && exit 2\nexec %s "$@"\n' "$cmd" "$(command -v "$cmd")" >"$TMP/stubs/$cmd"
+  done
   chmod +x "$TMP/stubs/"*
 }
 
@@ -132,11 +140,44 @@ called() { grep -qxF -- "$1" "$TMP/calls" 2>/dev/null; }
   [[ $output == *"pg-backups: 0 objects"* ]] || fail "$output"
 }
 
-@test "a bucket that is not mounted is skipped" {
+@test "a bucket that lost its mount is mounted again and checked" {
+  objects a
   touch "$TMP/unmounted"
-  run "$BIN/s3-verify-listing" "$TMP/buckets"
-  [ "$status" -eq 0 ] || fail "status $status: $output"
-  [ ! -f "$TMP/rclone.calls" ] || fail "listed an unmounted bucket"
+  mkdir -p "$TMP/remount"; : >"$TMP/remount/a"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 0 ] || fail "status $status: $stderr"
+  [[ $stderr == *"pg-backups: $TMP/s3/pg-backups is not mounted, mounting it again"* ]] || fail "$stderr"
+  called "umount -l $TMP/s3/pg-backups" || fail "dead endpoint not detached: $(cat "$TMP/calls")"
+  called "s3-mount-bucket pg-backups" || fail "not mounted again: $(cat "$TMP/calls")"
+  [[ $output == *"pg-backups: 1 objects, all under"* ]] || fail "$output"
+}
+
+@test "a bucket that lost its mount and cannot be mounted again fails" {
+  objects a
+  touch "$TMP/unmounted" "$TMP/mount.fail"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 1 ] || fail "status $status: $stderr"
+  [[ $stderr == *"pg-backups: cannot mount again"* ]] || fail "$stderr"
+  [ ! -f "$TMP/rclone.calls" ] || fail "checked a bucket that is not mounted"
+}
+
+@test "a listing that cannot be written fails instead of passing as empty" {
+  objects a
+  touch "$TMP/sort.fail"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ $stderr == *"cannot write the listing of bucket 'pg-backups'"* ]] || fail "$stderr"
+  [ ! -f "$TMP/calls" ] || fail "mounted again"
+}
+
+@test "a comparison that fails does not pass as complete" {
+  objects a b
+  shown a
+  touch "$TMP/comm.fail"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ $stderr == *"cannot compare the listings of bucket 'pg-backups'"* ]] || fail "$stderr"
+  [[ $output != *"all under"* ]] || fail "$output"
 }
 
 @test "comments and blank lines in the bucket file are skipped" {

@@ -14,15 +14,18 @@
   not yet in a release) instead of installing the package.
 * **Cluster backups check the S3 mounts first.** Before `borg create`, each
   mounted bucket's files are compared with the bucket's listing through the
-  S3 API (rclone). A bucket whose mount misses objects is mounted again and
-  checked once more; if objects are still missing, the backup is written
+  S3 API (rclone). A bucket whose mount misses objects, or that is no longer
+  mounted, is mounted again and checked once more; if objects are still
+  missing, the backup is written
   anyway and the run fails, naming the bucket and some of the missing keys.
   `s3.verifyListing: false` switches the check off.
 
 ### Upgrade notes
 
-* New value `s3.verifyListing` (default `true`). It costs one listing of
-  each bucket through the S3 API and one walk of its mount per cluster run.
+* New value `s3.verifyListing` (default `true`). Each check costs two
+  listings of the bucket through the S3 API and one walk of its mount, once
+  per cluster run; a bucket that is mounted again is checked again, which
+  repeats all three.
 * A run that fails the check exits with an error after archiving, so the
   CronJob's pod restarts it (`backoffLimit: 5`) with a new mount.
 
