@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.1.9-beta.8
+
+* **Borg UI follows upstream main: 2.3.10-32-g62f8a6175, agent 0.1.20.**
+  The `borg-ui` submodule moves from cdd5712c9 to upstream main 62f8a6175.
+  Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is
+  the database schema (Alembic head c8e1f4a7b2d9).
+* **Usage analytics no longer go to Umami.** Borg UI's opt-in usage
+  analytics (per user, Preferences) now send their events to the Borg UI
+  project's own ingest service, described in borg-ui's `docs/trust.md`.
+  Instance and user are sent as hashed keys. A user who has analytics off
+  sends nothing, except one event at the moment they answer the consent
+  banner or switch analytics off.
+* CI runs on Ubuntu 26.04 with Helm 4.3.0 pinned; the chart and the image
+  contents are not affected.
+
+### Upgrade notes
+
+* No value changes; the rendered manifests differ only in the image tags.
+* The UI image tag is `2.3.10-32-g62f8a6175`; the UI itself still shows
+  2.3.10.
+* Managed agents get an upgrade offer from 0.1.19 to 0.1.20; the pods' agent
+  comes with the 1.1.9-beta.8 agent image. 0.1.20 changes only the macOS
+  installer; agents on Linux get the new version number and nothing else.
+* Repository updates through the API refuse keys Borg UI does not apply
+  (HTTP 422) instead of ignoring them. `register-repo` sends only the path
+  when it moves a record and is not affected.
+
+### Borg UI changes since the previous pin
+
+* A repository update reports what it stored: unknown keys are refused, the
+  edit form no longer sends the Borg major and encryption, a changed path is
+  initialized only when the new location holds no repository, a locked or
+  unreachable repository is refused instead of initialized over, and a
+  refused update keeps the old name (#1359).
+* Agent 0.1.20: a macOS install puts the directories where it found `borg`,
+  `borg2` and `rclone` on the launchd jobs' PATH, so a Borg installed outside
+  the fixed directories is found (#1355).
+* Prune preview for Borg 2: no size ranking, no per-candidate re-measure, and
+  "Space freed" reads "not available", since Borg 2 reports no size a
+  deletion would free (#1362).
+* Usage analytics move from Umami to Borg UI's own ingest (#1206, see above).
+* Frontend dependency updates (#1335).
+
 ## 1.1.9-beta.7
 
 * **Borg UI follows upstream main: 2.3.10-27-gcdd5712c9, agent 0.1.19.**
