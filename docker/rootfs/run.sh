@@ -60,13 +60,11 @@ if [[ "${s3_active}" = "true" && -f "${S3_BUCKETS}" ]]; then
   echo "Mounting S3 buckets listed in ${S3_BUCKETS} …"
   install -m 600 /dev/null /root/.s3fs
   printf '%s:%s\n' "${AWS_KEY}" "${AWS_SECRET_KEY}" > /root/.s3fs
-  while read -r bucket || [[ -n "${bucket}" ]]; do
-    # Skip blank lines and # comments (the file is never empty — see the ConfigMap).
-    [[ -n "${bucket}" && "${bucket}" != \#* ]] || continue
-    echo "  mounting ${bucket} …"
-    # Stops the start when the bucket does not answer (see the script).
-    s3-mount-bucket "${bucket}" </dev/null
-  done < "${S3_BUCKETS}"
+  # 1 = some buckets skipped (warned, s3.onMountFailure=skip); 2 = none mounted,
+  # or one not mounted under s3.onMountFailure=fail. See the script.
+  mount_rc=0
+  s3-mount-buckets "${S3_BUCKETS}" </dev/null || mount_rc=$?
+  (( mount_rc <= 1 )) || die "S3 buckets could not be mounted (see above)"
 fi
 
 echo "Configuration successfully completed."

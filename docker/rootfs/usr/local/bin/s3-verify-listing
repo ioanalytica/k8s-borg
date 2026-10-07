@@ -14,13 +14,17 @@
 # missing; an object created or deleted while the check runs is in only one API
 # listing and does not count. A bucket that misses objects is mounted again (a
 # new mount starts with empty caches) and checked once more; so is a bucket
-# that is no longer mounted, e.g. after its s3fs died.
+# that is not mounted, because its s3fs died or the start skipped it. With
+# S3_ON_MOUNT_FAILURE=skip a bucket that was not mounted and cannot be is left
+# to `s3-mount-buckets --check`, which borg-backup runs next and which reports
+# it as a warning; one found incomplete that cannot be mounted again fails.
 #
 # Usage: s3-verify-listing BUCKET_FILE
 #   BUCKET_FILE  one bucket per line, # comments (the chart's cluster-s3-buckets)
 #
-# Exit: 0 every bucket is mounted and complete; 1 a bucket still misses objects
-# after the new mount, or could not be checked or mounted again.
+# Exit: 0 every mounted bucket is complete; 1 a bucket still misses objects
+# after the new mount, misses them and cannot be mounted again, could not be
+# checked, or could not be mounted under S3_ON_MOUNT_FAILURE=fail.
 #
 # Environment: S3_ENDPOINT, S3_MOUNTPOINT, S3_REGION (optional), AWS_KEY and
 # AWS_SECRET_KEY, as for the mount. S3_VERIFY_SAMPLE (default 10) is how many
@@ -32,6 +36,7 @@ bucket_file=$1
 : "${S3_ENDPOINT:?S3_ENDPOINT must be set}"
 : "${S3_MOUNTPOINT:?S3_MOUNTPOINT must be set}"
 sample="${S3_VERIFY_SAMPLE:-10}"
+policy="${S3_ON_MOUNT_FAILURE:-skip}"
 
 # rclone takes the connection from the environment, so the credentials stay out
 # of the process list. ":s3:" is a remote without a config file entry.
@@ -89,11 +94,12 @@ failed=0
 while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
   [[ -n ${bucket} && ${bucket} != \#* ]] || continue
   mp="${S3_MOUNTPOINT}/${bucket}"
+  incomplete=false
   if mountpoint -q "${mp}"; then
     check "${bucket}"
     case $? in
       0) continue ;;
-      1) ;;
+      1) incomplete=true ;;
       *) failed=1; continue ;;
     esac
     echo "  ${bucket}: mounting again and checking once more …" >&2
@@ -103,15 +109,19 @@ while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
       continue
     fi
   else
-    # run.sh mounted every listed bucket, so this one lost its mount. Borg would
-    # archive an empty directory, or fail to read it and report only a warning.
+    # Its s3fs died, or the start skipped it. Borg would archive an empty
+    # directory, or fail to read it and report only a warning.
     echo "  ${bucket}: ${mp} is not mounted, mounting it again …" >&2
     # A dead s3fs leaves its FUSE endpoint behind.
     umount -l "${mp}" 2>/dev/null || true
   fi
   if ! s3-mount-bucket "${bucket}" </dev/null; then
-    echo "  ${bucket}: cannot mount again" >&2
-    failed=1
+    if [[ ${policy} == skip ]] && ! ${incomplete}; then
+      echo "  ${bucket}: cannot mount again, not checked (s3.onMountFailure=skip)" >&2
+    else
+      echo "  ${bucket}: cannot mount again" >&2
+      failed=1
+    fi
     continue
   fi
   check "${bucket}" || failed=1

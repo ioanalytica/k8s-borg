@@ -3,7 +3,8 @@
 # `s3-verify-listing`: a key the S3 API lists but the mount does not show is
 # reported, the bucket is mounted again and checked once more, and only a bucket
 # that still misses objects fails; a bucket that lost its mount is mounted again
-# too. rclone, mountpoint, umount and s3-mount-bucket are stubs (sort and comm
+# too, and one that cannot be is left to s3-mount-buckets under
+# S3_ON_MOUNT_FAILURE=skip. rclone, mountpoint, umount and s3-mount-bucket are stubs (sort and comm
 # can be made to fail); the mount is a plain directory. The real s3fs
 # against a real server is covered by tests/e2e/s3fs.bats.
 
@@ -49,7 +50,7 @@ EOF
   cat >"$TMP/stubs/s3-mount-bucket" <<'EOF'
 #!/usr/bin/env bash
 echo "s3-mount-bucket $*" >>"$STUB/calls"
-[ -f "$STUB/mount.fail" ] && { echo "FATAL: S3 bucket '$1' cannot be listed" >&2; exit 1; }
+[ -f "$STUB/mount.fail" ] && { echo "ERROR: S3 bucket '$1' cannot be listed" >&2; exit 1; }
 rm -f "$STUB/unmounted"
 [ -d "$STUB/remount" ] && cp -R "$STUB/remount/." "$S3_MOUNTPOINT/$1/"
 exit 0
@@ -152,13 +153,37 @@ called() { grep -qxF -- "$1" "$TMP/calls" 2>/dev/null; }
   [[ $output == *"pg-backups: 1 objects, all under"* ]] || fail "$output"
 }
 
-@test "a bucket that lost its mount and cannot be mounted again fails" {
+@test "a bucket that lost its mount and cannot be mounted again fails under fail" {
   objects a
   touch "$TMP/unmounted" "$TMP/mount.fail"
-  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  S3_ON_MOUNT_FAILURE=fail run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
   [ "$status" -eq 1 ] || fail "status $status: $stderr"
   [[ $stderr == *"pg-backups: cannot mount again"* ]] || fail "$stderr"
   [ ! -f "$TMP/rclone.calls" ] || fail "checked a bucket that is not mounted"
+}
+
+@test "a bucket that cannot be mounted is left to the mount check under skip" {
+  printf '%s
+' pg-backups other >"$TMP/buckets"
+  mkdir -p "$TMP/s3/other"
+  objects a
+  touch "$TMP/unmounted" "$TMP/mount.fail"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 0 ] || fail "status $status: $stderr"
+  [[ $stderr == *"pg-backups: cannot mount again, not checked (s3.onMountFailure=skip)"* ]] || fail "$stderr"
+  called "s3-mount-bucket other" || fail "stopped at the first bucket: $(cat "$TMP/calls")"
+  [ ! -f "$TMP/rclone.calls" ] || fail "checked a bucket that is not mounted"
+}
+
+@test "a bucket that misses objects and cannot be mounted again fails under skip" {
+  objects a b
+  shown a
+  touch "$TMP/mount.fail"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 1 ] || fail "status $status: $stderr"
+  [[ $stderr == *"pg-backups: 1 of 2 objects missing"* ]] || fail "$stderr"
+  [[ $stderr == *"pg-backups: cannot mount again"* ]] || fail "$stderr"
+  [[ $stderr != *"not checked (s3.onMountFailure=skip)"* ]] || fail "downgraded to the mount check: $stderr"
 }
 
 @test "a listing that cannot be written fails instead of passing as empty" {

@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 #
 # S3 sources against a real S3 server: the image's s3fs, s3-mount-bucket,
-# s3-verify-listing and borg-backup, with a single-node Garage in the container.
+# s3-mount-buckets, s3-verify-listing and borg-backup, with a single-node Garage
+# in the container.
 #
 # The objects are written the way rclone writes them, without directory
 # objects, so every directory is implicit. s3fs 1.96 and 1.97 listed two
@@ -163,4 +164,45 @@ count() { find "$1" -maxdepth 1 -type f | wc -l; }
   S3_ENABLED=true S3_VERIFY_LISTING=false S3_BUCKETS_FILE="$TMP/buckets" run borg-backup
   [ "$status" -eq 0 ] || fail "status $status: $output"
   [[ $output != *"Checking the S3 mounts"* ]] || fail "$output"
+}
+
+# A bucket that does not exist on the server: s3fs mounts it and then fails or
+# hangs on the first listing, as after a move to a new S3 server.
+@test "s3-mount-buckets skips a bucket that cannot be mounted and mounts the rest" {
+  printf '%s\n' e2e-bucket e2e-missing >"$TMP/buckets"
+  S3_PROBE_TIMEOUT=5 run --separate-stderr s3-mount-buckets "$TMP/buckets"
+  [ "$status" -eq 1 ] || fail "status $status: $output $stderr"
+  [[ $stderr == *"WARNING: S3 bucket 'e2e-missing' is skipped"* ]] || fail "$stderr"
+  mountpoint -q "$MP" || fail "e2e-bucket is not mounted"
+  ! grep -q ' /mnt/s3/e2e-missing ' /proc/mounts || fail "mount entry left: $(grep e2e-missing /proc/mounts)"
+  ! pgrep -f '^s3fs e2e-missing ' >/dev/null || fail "s3fs of the skipped bucket still runs"
+  [ ! -e /mnt/s3/e2e-missing ] || fail "the empty directory of the skipped bucket is left behind"
+}
+
+@test "s3-mount-buckets stops when no listed bucket can be mounted" {
+  echo e2e-missing >"$TMP/buckets"
+  S3_PROBE_TIMEOUT=5 run --separate-stderr s3-mount-buckets "$TMP/buckets"
+  [ "$status" -eq 2 ] || fail "status $status: $output $stderr"
+  [[ $stderr == *"none of the 1 listed S3 buckets is mounted"* ]] || fail "$stderr"
+}
+
+@test "borg-backup ends with a warning when a listed bucket is not mounted" {
+  s3-mount-bucket e2e-bucket
+  write_patterns "R /mnt/s3"
+  printf '%s\n' e2e-bucket e2e-missing >"$TMP/buckets"
+  S3_ENABLED=true S3_BUCKETS_FILE="$TMP/buckets" S3_PROBE_TIMEOUT=5 run borg-backup
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ $output == *"e2e-missing: cannot mount again, not checked (s3.onMountFailure=skip)"* ]] || fail "$output"
+  [[ $output == *"WARNING: 1 of 2 listed S3 buckets are not mounted and not backed up: e2e-missing"* ]] || fail "$output"
+  [[ $output == *"finished with a warning"* ]] || fail "$output"
+  [ "$(archive_count)" -eq 1 ] || fail "no archive written"
+}
+
+@test "borg-backup fails under s3.onMountFailure=fail when a listed bucket is not mounted" {
+  s3-mount-bucket e2e-bucket
+  write_patterns "R $MP"
+  printf '%s\n' e2e-bucket e2e-missing >"$TMP/buckets"
+  S3_ENABLED=true S3_ON_MOUNT_FAILURE=fail S3_VERIFY_LISTING=false S3_BUCKETS_FILE="$TMP/buckets" run borg-backup
+  [ "$status" -eq 2 ] || fail "status $status: $output"
+  [[ $output == *"ERROR: S3 buckets are missing from this backup"* ]] || fail "$output"
 }

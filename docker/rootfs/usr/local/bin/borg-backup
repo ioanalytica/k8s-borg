@@ -77,12 +77,26 @@ fc_mode="$(borg-files-cache-flag)"
 # but it fails the run. S3_VERIFY_LISTING=false (s3.verifyListing) skips this.
 S3_BUCKETS_FILE="${S3_BUCKETS_FILE:-/root/.borg/cluster-s3-buckets}"
 verify_exit=0
-if [ "${S3_ENABLED:-false}" = "true" ] && [ "${BORG_MODE}" != "node" ] \
-   && [ "${S3_VERIFY_LISTING:-true}" = "true" ] && [ -f "${S3_BUCKETS_FILE}" ]; then
-    info "Checking the S3 mounts against the bucket listings ..."
-    if ! s3-verify-listing "${S3_BUCKETS_FILE}"; then
-        verify_exit=2
-        info "ERROR: an S3 mount does not show every object of its bucket; the archive lacks them and this run fails."
+mounts_exit=0
+if [ "${S3_ENABLED:-false}" = "true" ] && [ "${BORG_MODE}" != "node" ] && [ -f "${S3_BUCKETS_FILE}" ]; then
+    if [ "${S3_VERIFY_LISTING:-true}" = "true" ]; then
+        info "Checking the S3 mounts against the bucket listings ..."
+        if ! s3-verify-listing "${S3_BUCKETS_FILE}"; then
+            verify_exit=2
+            info "ERROR: an S3 mount does not show every object of its bucket; the archive lacks them and this run fails."
+        fi
+    fi
+    # A bucket that is not mounted (skipped at the start, s3.onMountFailure=skip)
+    # is not archived: a warning while other buckets are mounted, an error when
+    # none is or under s3.onMountFailure=fail (see s3-mount-buckets).
+    info "Checking that every listed S3 bucket is mounted ..."
+    s3-mount-buckets --check "${S3_BUCKETS_FILE}"
+    mounts_exit=$?
+    if [ "${mounts_exit}" -eq 1 ]; then
+        info "WARNING: S3 buckets are missing from this backup (see above); this run ends with a warning."
+    elif [ "${mounts_exit}" -ne 0 ]; then
+        mounts_exit=2
+        info "ERROR: S3 buckets are missing from this backup (see above); this run fails."
     fi
 fi
 
@@ -134,11 +148,11 @@ borg compact                   \
 
 compact_exit=$?
 
-# Combine the exit codes (the S3 check counts as an error) with borg precedence
+# Combine the exit codes (the S3 checks count as borg codes) with borg precedence
 # (error > warning > ok), NOT numeric max: under modern codes a warning
 # (100..127) is numerically larger than an error (2..99), so a max() would hide
 # the error. See borg-rc.sh.
-global_exit="$(borg_rc_worst "$backup_exit" "$prune_exit" "$compact_exit" "$verify_exit")"
+global_exit="$(borg_rc_worst "$backup_exit" "$prune_exit" "$compact_exit" "$verify_exit" "$mounts_exit")"
 
 if borg_rc_is_warning "${global_exit}"; then
     info "Backup, Prune and/or Compact finished with a warning!"

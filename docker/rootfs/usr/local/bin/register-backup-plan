@@ -43,6 +43,12 @@
 #                             agent resolves each name against its own allow-list
 #                             (/etc/borg-ui-agent-scripts). Used for cluster DB
 #                             dumps (backup-cluster-mariadb / -postgres).
+#   BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE  optional; those of the names above
+#                             whose failure does not stop the backup: Borg UI
+#                             runs the backup and shows the failure as a
+#                             warning (continue_on_error). The S3 checks, so
+#                             that the other sources are archived as in the
+#                             CronJob. Any other failing hook stops the run.
 #   BORG_UI_AGENT_NAME        optional; repo/agent name. Default: pod hostname.
 #   BORG_PATTERNS_DIR         optional; default /root/.borg
 #   BORG_BACKUP_SCHEDULE_DIR  optional; default /etc/borg-backup-schedules
@@ -61,7 +67,8 @@
 #
 set -euo pipefail
 
-. /usr/local/lib/borgui-common.sh
+# shellcheck source=../lib/borgui-common.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borgui-common.sh"
 
 borgui_require_server
 : "${BORG_REPO:?set BORG_REPO to locate the repository record}"
@@ -144,6 +151,7 @@ if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              CHECK_EXTRA_FLAGS="${BORG_PLAN_CHECK_EXTRA_FLAGS:-}" \
              PLAN_CUSTOM_FLAGS="$plan_custom_flags" \
              PRE_AGENT_SCRIPTS="${BORG_PLAN_PRE_AGENT_SCRIPTS:-}" \
+             PRE_AGENT_SCRIPTS_CONTINUE="${BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE:-}" \
              python3 -c '
 import sys, json, os
 
@@ -228,6 +236,7 @@ if agent_mid:
     # Pre-backup hooks: agent scripts (resolved on the agent against its
     # allow-list) run before the borg create — e.g. cluster DB dumps.
     pre_scripts = (os.environ.get("PRE_AGENT_SCRIPTS") or "").split()
+    continue_on_error = set((os.environ.get("PRE_AGENT_SCRIPTS_CONTINUE") or "").split())
     if pre_scripts:
         plan["script_hooks"] = [
             {
@@ -235,6 +244,7 @@ if agent_mid:
                 "hook_type": "pre-backup",
                 "execution_order": i + 1,
                 "enabled": True,
+                "continue_on_error": name in continue_on_error,
             }
             for i, name in enumerate(pre_scripts)
         ]

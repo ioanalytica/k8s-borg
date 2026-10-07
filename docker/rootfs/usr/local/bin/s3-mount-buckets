@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# Mount every S3 bucket of the bucket file with s3-mount-bucket (pod start), or
+# with --check only report which of them are not mounted (before a backup).
+#
+# s3-mount-bucket cannot tell a missing bucket from wrong credentials or a
+# wrong region (s3fs reports neither, see that script), so the policy decides
+# by count: with S3_ON_MOUNT_FAILURE=skip a bucket that cannot be mounted is
+# skipped with a warning, and only a run in which no listed bucket is mounted
+# fails, since that points at the endpoint, the region or the credentials.
+# With S3_ON_MOUNT_FAILURE=fail every bucket has to be mounted.
+#
+# Usage: s3-mount-buckets [--check] BUCKET_FILE
+#   BUCKET_FILE  one bucket per line, # comments (the chart's cluster-s3-buckets)
+#
+# Exit (the Borg and Borg UI agent-script convention):
+#   0  every listed bucket is mounted (or none is listed)
+#   1  warning: some buckets are not mounted, at least one is (skip)
+#   2  no listed bucket is mounted, or one is not mounted under fail
+#
+# Environment: S3_MOUNTPOINT; S3_ON_MOUNT_FAILURE skip (default) or fail; the
+# variables of s3-mount-bucket.
+set -uo pipefail
+
+check=false
+[[ ${1:-} == --check ]] && { check=true; shift; }
+[[ $# -eq 1 && -f $1 ]] || { echo "usage: s3-mount-buckets [--check] BUCKET_FILE" >&2; exit 2; }
+bucket_file=$1
+: "${S3_MOUNTPOINT:?S3_MOUNTPOINT must be set}"
+policy="${S3_ON_MOUNT_FAILURE:-skip}"
+[[ ${policy} == skip || ${policy} == fail ]] \
+  || { echo "ERROR: S3_ON_MOUNT_FAILURE must be skip or fail, got '${policy}'" >&2; exit 2; }
+
+listed=0
+missing=()
+while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
+  [[ -n ${bucket} && ${bucket} != \#* ]] || continue
+  listed=$((listed + 1))
+  if ${check}; then
+    mountpoint -q "${S3_MOUNTPOINT}/${bucket}" || missing+=("${bucket}")
+    continue
+  fi
+  echo "  mounting ${bucket} …"
+  s3-mount-bucket "${bucket}" </dev/null && continue
+  missing+=("${bucket}")
+  if [[ ${policy} == fail ]]; then
+    echo "ERROR: S3 bucket '${bucket}' cannot be mounted (s3.onMountFailure=fail)" >&2
+    exit 2
+  fi
+  echo "WARNING: S3 bucket '${bucket}' is skipped and not backed up (s3.onMountFailure=skip)" >&2
+done 3<"${bucket_file}"
+
+[[ ${#missing[@]} -eq 0 ]] && exit 0
+if [[ ${#missing[@]} -eq ${listed} ]]; then
+  echo "ERROR: none of the ${listed} listed S3 buckets is mounted (${missing[*]}); check s3.endpoint, s3.region and the credentials" >&2
+  exit 2
+fi
+if [[ ${policy} == fail ]]; then
+  echo "ERROR: ${#missing[@]} of ${listed} listed S3 buckets are not mounted (s3.onMountFailure=fail): ${missing[*]}" >&2
+  exit 2
+fi
+echo "WARNING: ${#missing[@]} of ${listed} listed S3 buckets are not mounted and not backed up: ${missing[*]}" >&2
+exit 1

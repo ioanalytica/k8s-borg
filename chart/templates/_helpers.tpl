@@ -173,6 +173,9 @@ exec /usr/local/bin/backup-cluster-{{ .engine }} "$@"
 
 {{- define "k8s-borg.cluster.agentScripts" -}}
 {{- $scripts := .Values.cluster.agentScripts | default dict | deepCopy -}}
+{{- if .Values.s3.enabled -}}
+{{- $scripts = merge $scripts (dict "s3-check-mounts" "#!/bin/sh\nexec /usr/local/bin/s3-mount-buckets --check /root/.borg/cluster-s3-buckets") -}}
+{{- end -}}
 {{- if .Values.databases.mariadb.enabled -}}
 {{- $scripts = merge $scripts (dict "backup-cluster-mariadb" (include "k8s-borg.defaultDbDumpScript" (dict "engine" "mariadb"))) -}}
 {{- end -}}
@@ -618,6 +621,8 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
   value: {{ .Values.s3.mountPath | quote }}
 - name: S3_VERIFY_LISTING
   value: {{ .Values.s3.verifyListing | quote }}
+- name: S3_ON_MOUNT_FAILURE
+  value: {{ .Values.s3.onMountFailure | quote }}
 - name: AWS_KEY
   valueFrom:
     secretKeyRef:

@@ -24,6 +24,9 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- fail "cluster.backupMode=plan registers a server-side BackupPlan via the console pod — it requires cluster.mode=agent (or use cluster.backupMode=cronjob)" }}
 {{- end }}
 {{- end }}
+{{- if not (has .Values.s3.onMountFailure (list "skip" "fail")) }}
+{{- fail (printf "s3.onMountFailure must be \"skip\" or \"fail\" (got %q)" .Values.s3.onMountFailure) }}
+{{- end }}
 {{- if not (has .Values.borgUI.redis.mode (list "disabled" "internal" "external")) }}
 {{- fail (printf "borgUI.redis.mode must be \"disabled\", \"internal\" or \"external\" (got %q)" .Values.borgUI.redis.mode) }}
 {{- end }}
