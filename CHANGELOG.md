@@ -42,6 +42,20 @@
   shows a failed check as a warning. `s3.onMountFailure: fail` keeps the
   hard stop at the start.
 
+* **A failed reconcile Job says why, and the reason stays** (#29). Every
+  request of the Job is bounded in time; the health wait gives up on a single
+  attempt after 10 s instead of curl's own 300-s connect timeout, which let
+  one dropped connection use up the whole wait. A failed request names curl's
+  message or the HTTP status with what the server said (a validation error's
+  field and message, never the rejected input; known secrets masked), and the
+  `FATAL` line carries it. The health wait prints a progress line every 30 s.
+  The reason is kept in three places: the Job and its pod stay for a day
+  instead of 10 minutes, the last log lines land in the pod status
+  (`terminationMessagePolicy: FallbackToLogsOnError`), and the Job writes the
+  `FATAL` line with its revision to the reconcile-status ConfigMap as
+  `lastError`, which the gated agent pods print while they wait in
+  `wait-for-reconcile`. The next successful run removes it.
+
 ### Upgrade notes
 
 * New value `s3.verifyListing` (default `true`). Each check costs two
@@ -65,6 +79,13 @@
   then gone after the next start (with a database dump this was already so).
   The chart attaches only its own hooks; `cluster.agentScripts` publishes a
   script but does not attach it.
+* New value `borgUI.reconcile.ttlSecondsAfterFinished` (default `86400`,
+  until now fixed at 600): how long a finished reconcile Job and its pod are
+  kept. Each revision has its own Job, so a kept Job does not block the next
+  upgrade.
+* `borgUI.reconcile.waitSeconds`: image pull time plus this wait must stay
+  below the release timeout (HelmRelease `spec.timeout`, `helm --timeout`),
+  or raising it only moves the failure from the Job to the release.
 
 ## 1.1.9-beta.8
 

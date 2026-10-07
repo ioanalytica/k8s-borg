@@ -15,7 +15,8 @@ metadata:
   # A REGULAR resource (not a Helm hook) so agent workloads can gate their startup
   # on its completion — a hook runs AFTER Helm --wait blocks on those pods, which
   # would deadlock. Named per release revision because Jobs are immutable; old ones
-  # are pruned on the next upgrade and TTL-reaped meanwhile.
+  # are pruned on the next upgrade and TTL-reaped meanwhile. The TTL is long so a
+  # failed Job and its log are still there when somebody looks.
   name: {{ printf "%s-reconcile-%d" (include "common.names.fullname" .) .Release.Revision }}
   namespace: {{ .Release.Namespace | quote }}
   labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 4 }}
@@ -31,7 +32,7 @@ spec:
   # Single-shot: one attempt only. A failed reconcile leaves the Job failed, so
   # Flux/Helm --wait marks the release failed — never spin up retry pods.
   backoffLimit: 0
-  ttlSecondsAfterFinished: 600
+  ttlSecondsAfterFinished: {{ .Values.borgUI.reconcile.ttlSecondsAfterFinished }}
   template:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "reconcile") | nindent 8 }}
@@ -44,6 +45,8 @@ spec:
           image: {{ include "k8s-borg.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           command: ["/usr/local/bin/reconcile-borgui"]
+          # The FATAL line ends up in the pod status, readable without logs.
+          terminationMessagePolicy: FallbackToLogsOnError
           env:
             - name: TZ
               value: {{ .Values.timezone | quote }}

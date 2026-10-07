@@ -666,7 +666,14 @@ borgUI:
     ## @param borgUI.reconcile.patName Name of the PAT minted for admin/agent auth
     patName: "k8s-borg-reconcile"
     ## @param borgUI.reconcile.waitSeconds How long to wait for the server /health
+    ## The wait starts once the Job's own image is pulled. When the release waits
+    ## for the Job (Flux, helm --wait-for-jobs), image pull time plus waitSeconds
+    ## must stay below the release timeout (HelmRelease spec.timeout, helm
+    ## --timeout); otherwise a larger value only moves the failure from the Job to
+    ## the release. The gated agent pods wait this long for the Job, too.
     waitSeconds: 300
+    ## @param borgUI.reconcile.ttlSecondsAfterFinished Seconds a finished reconcile Job and its pod (with the log) are kept
+    ttlSecondsAfterFinished: 86400
   ## OIDC / SSO. Reconciled declaratively by the reconcile Job (all fields the Borg
   ## UI settings dialog exposes). Only applied when oidc.enabled and the reconcile
   ## Job runs. Empty string = leave the server default.

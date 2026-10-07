@@ -302,8 +302,10 @@ true
 {{/*
 Gating init container: blocks until the reconcile Job has published this release
 revision into the reconcile-status ConfigMap (which it only does after the server
-is healthy and fully reconciled). Needs the agent ServiceAccount's RBAC (get on
-that one ConfigMap). Uses the agent image (curl + python3).
+is healthy and fully reconciled). While it waits, it prints the failure the Job
+of this revision left there (data.lastError), once per change. Needs the agent
+ServiceAccount's RBAC (get on that one ConfigMap). Uses the agent image (curl +
+python3).
 */}}
 {{- define "k8s-borg.waitForReconcileInitContainer" -}}
 - name: wait-for-reconcile
@@ -317,11 +319,17 @@ that one ConfigMap). Uses the agent image (curl + python3).
       ns=$(cat "$SA/namespace")
       echo "Waiting for Borg UI reconcile (token ${RECONCILE_TOKEN}) …"
       deadline=$(( $(date +%s) + ${RECONCILE_WAIT_SECONDS:-600} ))
+      shown=""
       while :; do
-        val=$(curl -sS --cacert "$SA/ca.crt" -H "Authorization: Bearer $(cat "$SA/token")" \
-                "https://kubernetes.default.svc/api/v1/namespaces/${ns}/configmaps/${RECONCILE_STATUS_CONFIGMAP}" 2>/dev/null \
-              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("reconciled",""))' 2>/dev/null || true)
+        cm=$(curl -sS --connect-timeout 5 --max-time 10 --cacert "$SA/ca.crt" -H "Authorization: Bearer $(cat "$SA/token")" \
+               "https://kubernetes.default.svc/api/v1/namespaces/${ns}/configmaps/${RECONCILE_STATUS_CONFIGMAP}" 2>/dev/null || true)
+        val=$(printf %s "$cm" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("reconciled",""))' 2>/dev/null || true)
         [ "$val" = "${RECONCILE_TOKEN}" ] && break
+        err=$(printf %s "$cm" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("lastError",""))' 2>/dev/null || true)
+        case "$err" in
+          "revision ${RECONCILE_TOKEN} at "*)
+            [ "$err" = "$shown" ] || { echo "The reconcile Job failed: ${err}" >&2; shown=$err; } ;;
+        esac
         [ "$(date +%s)" -lt "$deadline" ] || { echo "reconcile not complete within ${RECONCILE_WAIT_SECONDS:-600}s" >&2; exit 1; }
         sleep 3
       done

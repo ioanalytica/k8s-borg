@@ -396,6 +396,29 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `persistence` | NFS source, cache, UI state PVCs (+ optional static NFS PVs) |
 | `repoServer` | optional repository server: `sshd` + `borg serve`, clients from `authorized_keys` in the ssh Secret, `service`, `persistence` — see [Repository server](#repository-server-optional) |
 
+### When the reconcile Job fails
+
+The reconcile Job (`<fullname>-reconcile-<revision>`, e.g.
+`k8s-borg-reconcile-12` for revision 12 of a release named `k8s-borg`) runs once
+per install/upgrade; the agent pods wait for it in their `wait-for-reconcile` init
+container. When it fails, the `FATAL` line names the request that failed and
+why (curl's message, or the HTTP status with what the server said). It can be
+read in four places:
+
+- the Job log, `kubectl logs job/<fullname>-reconcile-<revision>` —
+  the Job and its pod are kept for `borgUI.reconcile.ttlSecondsAfterFinished`
+  (a day by default);
+- the pod status, `.status.containerStatuses[0].state.terminated.message`;
+- the ConfigMap `<fullname>-reconcile-status`, `data.lastError`, with the revision and the
+  time — kept until the next successful run;
+- the log of a waiting agent pod's `wait-for-reconcile`, which prints that
+  `lastError` when it belongs to its revision.
+
+`borgUI.reconcile.waitSeconds` (default 300) is how long the Job waits for the
+server's `/health`, counted from the start of the Job's container. When the
+release waits for the Job, image pull time plus `waitSeconds` must stay below
+the release timeout (HelmRelease `spec.timeout`, `helm --timeout`).
+
 ### Licensing (`borgUI.licensing`)
 
 Borg UI evaluates its plan from a signed entitlement in its own database. By
