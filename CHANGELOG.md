@@ -51,6 +51,12 @@
 * In plan mode the cluster plan gains the pre-backup hook `s3-check-mounts`
   at the next start of the console pod. A bucket skipped at the start stays
   unmounted until the pod starts again, and each plan run warns until then.
+* In plan mode with S3 and no database dump, the console pod now sends the
+  plan's pre-backup hooks on every start, and Borg UI replaces all hooks of
+  the plan with that list. A hook added to the cluster plan in Borg UI is
+  then gone after the next start (with a database dump this was already so).
+  The chart attaches only its own hooks; `cluster.agentScripts` publishes a
+  script but does not attach it.
 
 ## 1.1.9-beta.8
 
