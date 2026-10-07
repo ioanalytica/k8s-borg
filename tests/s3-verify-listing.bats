@@ -175,6 +175,17 @@ called() { grep -qxF -- "$1" "$TMP/calls" 2>/dev/null; }
   [ ! -f "$TMP/rclone.calls" ] || fail "checked a bucket that is not mounted"
 }
 
+@test "a bucket that misses objects and cannot be mounted again fails under skip" {
+  objects a b
+  shown a
+  touch "$TMP/mount.fail"
+  run --separate-stderr "$BIN/s3-verify-listing" "$TMP/buckets"
+  [ "$status" -eq 1 ] || fail "status $status: $stderr"
+  [[ $stderr == *"pg-backups: 1 of 2 objects missing"* ]] || fail "$stderr"
+  [[ $stderr == *"pg-backups: cannot mount again"* ]] || fail "$stderr"
+  [[ $stderr != *"not checked (s3.onMountFailure=skip)"* ]] || fail "downgraded to the mount check: $stderr"
+}
+
 @test "a listing that cannot be written fails instead of passing as empty" {
   objects a
   touch "$TMP/sort.fail"
