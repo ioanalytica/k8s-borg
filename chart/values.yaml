@@ -652,7 +652,9 @@ borgUI:
   ## Reconcile Job (Helm post-install/upgrade hook): waits for the server, mints
   ## (and reuses) an admin PAT into a retained Secret, and reconciles OIDC/SSO,
   ## the system SSH key, remote machines and notification channels to match this
-  ## HelmRelease every run.
+  ## HelmRelease every run. It runs once per Helm revision: a changed Secret
+  ## referenced via existingSecret takes effect only with the next revision (forced
+  ## upgrade) — see "Changing a referenced Secret" in the chart README.
   ## Runs the k8s-borg agent image (ships reconcile-borgui).
   reconcile:
     ## @param borgUI.reconcile.enabled Run the reconcile Job (only meaningful with borgUI.enabled)
