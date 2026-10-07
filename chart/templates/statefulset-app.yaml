@@ -99,6 +99,13 @@ spec:
             - name: BORG_PLAN_PRE_AGENT_SCRIPTS
               value: {{ join " " $preScripts | quote }}
             {{- end }}
+            {{- /* A failing S3 check does not stop the backup: the other sources
+                   are archived and Borg UI shows the failure as a warning, as
+                   the CronJob archives them before it fails. */}}
+            {{- if .Values.s3.enabled }}
+            - name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE
+              value: "s3-check-mounts"
+            {{- end }}
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}

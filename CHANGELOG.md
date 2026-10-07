@@ -29,10 +29,12 @@
   directory of a skipped bucket is removed, so the archive does not show it
   as an empty bucket. Before `borg create`, `borg-backup` checks that every
   listed bucket is mounted: a bucket that is not mounted makes the run end
-  with a warning, and no bucket mounted is an error. In
-  `cluster.backupMode=plan` the same check runs as the plan's first
-  pre-backup hook, `s3-check-mounts`, and shows in Borg UI as a warning.
-  `s3.onMountFailure: fail` keeps the hard stop.
+  with a warning, and no bucket mounted is an error; the other sources are
+  archived either way. In `cluster.backupMode=plan` the same check runs as
+  the plan's first pre-backup hook, `s3-check-mounts`, registered with
+  `continue_on_error`: the backup runs whatever the check finds, and Borg UI
+  shows a failed check as a warning. `s3.onMountFailure: fail` keeps the
+  hard stop at the start.
 
 ### Upgrade notes
 

@@ -2,8 +2,9 @@
 #
 # s3.onMountFailure reaches the cluster CronJob and the console pod as
 # S3_ON_MOUNT_FAILURE (skip unless set to fail, anything else refused), and in
-# plan mode the cluster plan gets s3-check-mounts as a pre-backup hook, so that
-# a bucket that is not mounted shows as a warning in Borg UI.
+# plan mode the cluster plan gets s3-check-mounts as a pre-backup hook that
+# continues on error, so that a bucket that is not mounted shows as a warning in
+# Borg UI and the other sources are still backed up.
 
 setup() {
   load helpers/common
@@ -68,13 +69,15 @@ plan_args=(--set cluster.mode=agent --set cluster.backupMode=plan)
     || fail "got '$(env_of CronJob S3_ON_MOUNT_FAILURE --set s3.enabled=false)'"
 }
 
-@test "plan mode: s3-check-mounts is published and runs before the database dumps" {
+@test "plan mode: s3-check-mounts is published, runs before the database dumps and continues on error" {
   local out
   out="$(render "${plan_args[@]}" --set databases.postgres.enabled=true --set databases.postgres.existingSecret=pg)"
   grep -qx '    exec /usr/local/bin/s3-mount-buckets --check /root/.borg/cluster-s3-buckets' <<<"$out" \
     || fail "no s3-check-mounts script in the agent scripts"
   grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out" | grep -qx '              value: "s3-check-mounts backup-cluster-postgres"' \
     || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out")"
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out" | grep -qx '              value: "s3-check-mounts"' \
+    || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out")"
 }
 
 @test "plan mode without S3: no s3-check-mounts" {
