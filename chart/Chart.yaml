@@ -34,7 +34,7 @@ annotations:
     - name: k8s-borg
       image: ghcr.io/ioanalytica/k8s-borg:1.1.9-beta.8
     - name: k8s-borg-ui
-      image: ghcr.io/ioanalytica/k8s-borg-ui:2.3.10-32-g62f8a6175
+      image: ghcr.io/ioanalytica/k8s-borg-ui:2.3.10-34-g49099c8c0
     - name: redis
       image: docker.io/redis:7.4-alpine
 

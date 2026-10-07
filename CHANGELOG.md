@@ -2,8 +2,8 @@
 
 ## 1.1.9-beta.8
 
-* **Borg UI follows upstream main: 2.3.10-32-g62f8a6175, agent 0.1.20.**
-  The `borg-ui` submodule moves from cdd5712c9 to upstream main 62f8a6175.
+* **Borg UI follows upstream main: 2.3.10-34-g49099c8c0, agent 0.1.20.**
+  The `borg-ui` submodule moves from cdd5712c9 to upstream main 49099c8c0.
   Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is
   the database schema (Alembic head c8e1f4a7b2d9).
 * **Usage analytics no longer go to Umami.** Borg UI's usage analytics
@@ -19,7 +19,7 @@
 ### Upgrade notes
 
 * No value changes; the rendered manifests differ only in the image tags.
-* The UI image tag is `2.3.10-32-g62f8a6175`; the UI itself still shows
+* The UI image tag is `2.3.10-34-g49099c8c0`; the UI itself still shows
   2.3.10.
 * Managed agents get an upgrade offer from 0.1.19 to 0.1.20; the pods' agent
   comes with the 1.1.9-beta.8 agent image. 0.1.20 changes only the macOS
@@ -29,6 +29,10 @@
   when it moves a record and is not affected.
 * Usage analytics stay as each user set them. A user who never answered the
   banner, and every new user, has them on until declining.
+* Borg UI accepts only 1 or 2 as a repository's Borg major (an unset one
+  still counts as 1); another value used to run as Borg 1 and is now
+  refused. `register-repo` sends `borg.version` as the major, so a value
+  other than 1 or 2 now fails the registration.
 
 ### Borg UI changes since the previous pin
 
@@ -44,7 +48,9 @@
   "Space freed" reads "not available", since Borg 2 reports no size a
   deletion would free (#1362).
 * Usage analytics move from Umami to Borg UI's own ingest (#1206, see above).
-* Frontend dependency updates (#1335).
+* The server refuses a Borg major other than 1 or 2 instead of running it
+  as Borg 1 (#1347).
+* Frontend dependency updates (#1335); visual snapshot CI (#1364).
 
 ## 1.1.9-beta.7
 
