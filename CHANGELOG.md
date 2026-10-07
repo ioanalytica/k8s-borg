@@ -16,8 +16,8 @@
   mounted bucket's files are compared with the bucket's listing through the
   S3 API (rclone). A bucket whose mount misses objects, or that is no longer
   mounted, is mounted again and checked once more; if objects are still
-  missing, the backup is written
-  anyway and the run fails, naming the bucket and some of the missing keys.
+  missing, the backup is written anyway and the run fails, naming the bucket
+  and some of the missing keys.
   `s3.verifyListing: false` switches the check off.
 
 ### Upgrade notes

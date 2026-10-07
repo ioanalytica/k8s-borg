@@ -72,7 +72,7 @@ Core settings (standalone mode), supplied via env / mounted secrets:
 | `S3_ENDPOINT`, `S3_MOUNTPOINT`, `AWS_KEY`, `AWS_SECRET_KEY` | S3 sources (cluster/app jobs; never mounted for node backups) |
 | `S3_REGION` | SigV4 region of the S3 endpoint (s3fs `endpoint=`). Empty keeps s3fs's `us-east-1`; servers that check the region, such as Garage, need it |
 | `S3_PROBE_TIMEOUT` | Seconds a freshly mounted bucket may take to answer a listing (default 30). A bucket that fails or does not answer stops the start; s3fs itself reports success in that case and leaves a mount that blocks its first reader |
-| `S3_VERIFY_LISTING` | `true` (default) or `false`. Before `borg create`, `s3-verify-listing` compares each mounted bucket with its listing through the S3 API; a bucket whose mount misses objects is mounted again, and one that still misses them fails the run after archiving |
+| `S3_VERIFY_LISTING` | `true` (default) or `false`. Before `borg create`, `s3-verify-listing` compares each mounted bucket with its listing through the S3 API; a bucket whose mount misses objects, or that lost its mount, is mounted again, and one that still misses them fails the run after archiving |
 
 Mounted files the standalone flow expects: `/root/.borg/{cluster,node}-{include,exclude}.patterns`,
 `/root/.borg/cluster-s3-buckets`, and SSH material in `/root/.ssh/`
