@@ -519,10 +519,10 @@ kubectl create secret generic borgui-notifications -n borg \
 
 The reconcile Job copies what it reads from Secrets into the Borg UI database:
 the notification passwords and service URLs, the OIDC client secret, the
-license key and the entitlement document. It runs once per Helm revision, and
-only a change of the chart version or of the values makes a new revision. A
-changed Secret referenced through `existingSecret` / `existingSecretKey` is
-not part of that, so the server keeps the old content until the next
+license key and the entitlement document. It runs once per Helm revision. A
+changed Secret referenced through `existingSecret` / `existingSecretKey` does
+not make a new revision by itself: Flux upgrades only when the chart version
+or the values change, so the server keeps the old content until the next
 revision.
 
 To apply such a change, start a new revision with the same values:
