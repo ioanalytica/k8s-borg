@@ -69,15 +69,52 @@ RUN set -eu; \
         "borgbackup==${BORG2_VERSION}" \
         "borgstore[rclone,sftp,rest,s3,blake3]==${BORGSTORE_VERSION}" mfusepy
 
+# --- s3fs: the release plus one upstream fix ----------------------------------
+# s3fs 1.96 and 1.97 serve a two-entry listing for a directory that has no
+# directory object of its own (what rclone and most S3 writers leave behind)
+# once the directory's stat cache entry has expired: the implicit-directory
+# check stores its max-keys=2 probe as the directory's listing. Borg then
+# archives two files of such a directory. The fix is upstream (s3fs-fuse
+# #2929) but in no release yet, so the 1.97 release is built here with that
+# one change; Alpine's package is the same release without it. Drop this stage
+# and go back to the package once a release carries the fix.
+FROM python:${PYTHON_VERSION}-alpine AS s3fs-builder
+
+ARG S3FS_VERSION=1.97
+ARG S3FS_SHA512=24b70877a5c162252f08e55176a9e9fa2fd380ed3bbe8f51306f0e1489038a80cbd2a07699689431e3294661fa8d0f2434e7fc94cd14e6c9b4b8fa8be2e1f8a7
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+        build-base automake autoconf curl curl-dev libxml2-dev openssl-dev fuse3-dev
+
+COPY docker/s3fs/*.patch /build/s3fs-patches/
+
+WORKDIR /build
+RUN set -eu; \
+    curl -fsSL -o s3fs.tar.gz "https://github.com/s3fs-fuse/s3fs-fuse/archive/v${S3FS_VERSION}.tar.gz"; \
+    printf '%s  s3fs.tar.gz\n' "${S3FS_SHA512}" >s3fs.tar.gz.sha512; \
+    sha512sum -c s3fs.tar.gz.sha512; \
+    tar -xzf s3fs.tar.gz
+
+WORKDIR /build/s3fs-fuse-${S3FS_VERSION}
+RUN set -eu; \
+    for p in /build/s3fs-patches/*.patch; do patch -p1 --forward <"${p}"; done; \
+    ./autogen.sh; \
+    ./configure --prefix=/usr; \
+    make -j"$(nproc)"; \
+    install -D -s -m 0755 src/s3fs /out/usr/bin/s3fs
+
 # --- agent image -------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-alpine
 
 # `fuse` (the FUSE 2 library) is what mfusepy loads for `borg2 mount`; Alpine
-# already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs-fuse
-# covers the s3fs mounts some sources use. rclone is a separate Go program that
-# no Borg release bundles, and borgstore drives it over its rc API, so rclone:
-# repositories need it present. openssh-server is only started by the
-# repository server.
+# already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs comes
+# from its own stage (see above) for the s3fs mounts some sources use; it links
+# against libcurl, libxml2 and libstdc++, and fuse3 brings its library and
+# fusermount3. rclone is a separate Go program that no Borg release bundles, and
+# borgstore drives it over its rc API, so rclone: repositories need it present;
+# s3-verify-listing lists the mounted buckets with it as well. openssh-server is
+# only started by the repository server.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \
@@ -90,7 +127,9 @@ RUN apk add --no-cache \
         rclone \
         postgresql-client \
         mariadb-client \
-        s3fs-fuse \
+        libcurl \
+        libxml2 \
+        libstdc++ \
         fuse3 \
         fuse \
         acl \
@@ -106,6 +145,7 @@ RUN apk add --no-cache \
 # all of which the runtime packages above provide.
 COPY --from=borg-builder /opt/borg-ui-agent/borg1/venv /opt/borg-ui-agent/borg1/venv
 COPY --from=borg-builder /opt/borg-ui-agent/borg2/venv /opt/borg-ui-agent/borg2/venv
+COPY --from=s3fs-builder /out/usr/bin/s3fs /usr/bin/s3fs
 
 # Version-independent paths, so the wrappers resolve Borg even without this
 # image's environment (`env -i`, a cron with no environment, `su -`).
@@ -166,10 +206,11 @@ ENV BORG2_DEFAULT_PARAMS=""
 ENV BORG_STORE_CACHE=1
 ENV BORG_PACK_CACHE_SIZE=2147483648
 
-# Build-time self-test: both Borg majors (via the wrappers) and the agent CLI
-# must work, or the build fails.
+# Build-time self-test: both Borg majors (via the wrappers), s3fs and the agent
+# CLI must work, or the build fails.
 RUN borg --version \
     && borg2 --version \
+    && s3fs --version \
     && borg-ui-agent --help >/dev/null
 
 # The repository server's sshd_config must parse with the OpenSSH this image

@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+* **S3 sources list every file again.** The image's s3fs 1.97 (Alpine's
+  package) showed only two entries of a directory without a directory object
+  of its own, which is how rclone and most S3 writers leave directories,
+  once that directory's stat cache entry had expired (15 minutes by default):
+  the check that recognizes such a directory stored its two-key probe as the
+  directory's listing. Borg then archived those two files. This hit
+  long-lived mounts (the app pod) and any backup walk that reached a
+  directory more than 15 minutes after listing its parent. The image now
+  builds s3fs 1.97 from the release with the upstream fix (s3fs-fuse #2929,
+  not yet in a release) instead of installing the package.
+* **Cluster backups check the S3 mounts first.** Before `borg create`, each
+  mounted bucket's files are compared with the bucket's listing through the
+  S3 API (rclone). A bucket whose mount misses objects, or that is no longer
+  mounted, is mounted again and checked once more; if objects are still
+  missing, the backup is written anyway and the run fails, naming the bucket
+  and some of the missing keys.
+  `s3.verifyListing: false` switches the check off.
+
+### Upgrade notes
+
+* New value `s3.verifyListing` (default `true`). Each check costs two
+  listings of the bucket through the S3 API and one walk of its mount, once
+  per cluster run; a bucket that is mounted again is checked again, which
+  repeats all three.
+* A run that fails the check exits with an error after archiving, so the
+  CronJob's pod restarts it (`backoffLimit: 5`) with a new mount.
+
 ## 1.1.9-beta.8
 
 * **Borg UI follows upstream main: 2.3.10-34-g49099c8c0, agent 0.1.20.**
