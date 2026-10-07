@@ -6,12 +6,13 @@
   The `borg-ui` submodule moves from cdd5712c9 to upstream main 62f8a6175.
   Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is
   the database schema (Alembic head c8e1f4a7b2d9).
-* **Usage analytics no longer go to Umami.** Borg UI's opt-in usage
-  analytics (per user, Preferences) now send their events to the Borg UI
-  project's own ingest service, described in borg-ui's `docs/trust.md`.
-  Instance and user are sent as hashed keys. A user who has analytics off
-  sends nothing, except one event at the moment they answer the consent
-  banner or switch analytics off.
+* **Usage analytics no longer go to Umami.** Borg UI's usage analytics
+  (page views and feature usage, with hashed instance and user keys) now go
+  to the Borg UI project's own ingest service, described in borg-ui's
+  `docs/trust.md`. They start on for every user: a banner on first login
+  asks whether to keep them, and page views from before the answer are
+  sent. Declining, or switching analytics off in Preferences, stops them;
+  the banner answer and the switch-off are each sent as one event.
 * CI runs on Ubuntu 26.04 with Helm 4.3.0 pinned; the chart and the image
   contents are not affected.
 
@@ -26,6 +27,8 @@
 * Repository updates through the API refuse keys Borg UI does not apply
   (HTTP 422) instead of ignoring them. `register-repo` sends only the path
   when it moves a record and is not affected.
+* Usage analytics stay as each user set them. A user who never answered the
+  banner, and every new user, has them on until declining.
 
 ### Borg UI changes since the previous pin
 
