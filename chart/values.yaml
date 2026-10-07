@@ -190,6 +190,8 @@ s3:
   region: ""
   ## @param s3.mountPath Where buckets are mounted (must be under /mnt)
   mountPath: "/mnt/s3"
+  ## @param s3.verifyListing Before each cluster backup, compare every mount with its bucket's listing through the S3 API; a bucket that misses objects is mounted again, and if it still misses objects the run fails (it is archived anyway)
+  verifyListing: true
   ## S3 access key (sensitive).
   accessKey:
     value: ""

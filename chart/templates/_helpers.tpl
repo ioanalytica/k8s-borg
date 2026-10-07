@@ -616,6 +616,8 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
   value: {{ .Values.s3.region | quote }}
 - name: S3_MOUNTPOINT
   value: {{ .Values.s3.mountPath | quote }}
+- name: S3_VERIFY_LISTING
+  value: {{ .Values.s3.verifyListing | quote }}
 - name: AWS_KEY
   valueFrom:
     secretKeyRef:

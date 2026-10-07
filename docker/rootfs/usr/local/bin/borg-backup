@@ -70,6 +70,22 @@ files_cache_args=()
 fc_mode="$(borg-files-cache-flag)"
 [ -n "$fc_mode" ] && files_cache_args=(--files-cache="$fc_mode")
 
+# S3 sources: check that each mount shows every object of its bucket before
+# Borg archives it, since s3fs shows an incomplete directory without any error
+# (see s3-verify-listing). A bucket that stays incomplete does not stop the
+# backup, the other sources and the objects that are shown are still archived,
+# but it fails the run. S3_VERIFY_LISTING=false (s3.verifyListing) skips this.
+S3_BUCKETS_FILE="${S3_BUCKETS_FILE:-/root/.borg/cluster-s3-buckets}"
+verify_exit=0
+if [ "${S3_ENABLED:-false}" = "true" ] && [ "${BORG_MODE}" != "node" ] \
+   && [ "${S3_VERIFY_LISTING:-true}" = "true" ] && [ -f "${S3_BUCKETS_FILE}" ]; then
+    info "Checking the S3 mounts against the bucket listings ..."
+    if ! s3-verify-listing "${S3_BUCKETS_FILE}"; then
+        verify_exit=2
+        info "ERROR: an S3 mount does not show every object of its bucket; the archive lacks them and this run fails."
+    fi
+fi
+
 borg create \
     --verbose \
     --filter AME \
@@ -118,10 +134,11 @@ borg compact                   \
 
 compact_exit=$?
 
-# Combine the borg exit codes with borg precedence (error > warning > ok), NOT
-# numeric max: under modern codes a warning (100..127) is numerically larger
-# than an error (2..99), so a max() would hide the error. See borg-rc.sh.
-global_exit="$(borg_rc_worst "$backup_exit" "$prune_exit" "$compact_exit")"
+# Combine the exit codes (the S3 check counts as an error) with borg precedence
+# (error > warning > ok), NOT numeric max: under modern codes a warning
+# (100..127) is numerically larger than an error (2..99), so a max() would hide
+# the error. See borg-rc.sh.
+global_exit="$(borg_rc_worst "$backup_exit" "$prune_exit" "$compact_exit" "$verify_exit")"
 
 if borg_rc_is_warning "${global_exit}"; then
     info "Backup, Prune and/or Compact finished with a warning!"

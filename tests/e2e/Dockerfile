@@ -13,6 +13,9 @@ FROM ${BASE}
 # hadolint ignore=DL3018
 RUN apk add --no-cache bats
 
+# A single-node S3 server for s3fs.bats: Garage's image is one static binary.
+COPY --from=docker.io/dxflrs/garage:v2.4.1 /garage /usr/local/bin/garage
+
 COPY tests/e2e /tests/e2e
 
 # The agent image's entrypoint starts the agent; here the container is a test

@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+#
+# Check that each mounted S3 bucket shows, through its s3fs mount, every object
+# the S3 API lists for it, so that Borg archives the whole bucket.
+#
+# s3fs answers directory listings from caches, and a wrong cache entry is not an
+# error: the directory just lists fewer entries, and Borg archives what it is
+# shown. s3fs 1.96 and 1.97 listed two files of a directory that has no
+# directory object of its own (see docker/Dockerfile); the image carries the
+# fix, and this check catches the next bug of that kind.
+#
+# Per bucket: list the keys through the S3 API, list the files under the mount,
+# list the keys again. A key in both API listings but not under the mount is
+# missing; an object created or deleted while the check runs is in only one API
+# listing and does not count. A bucket that misses objects is mounted again (a
+# new mount starts with empty caches) and checked once more.
+#
+# Usage: s3-verify-listing BUCKET_FILE
+#   BUCKET_FILE  one bucket per line, # comments (the chart's cluster-s3-buckets)
+#
+# Exit: 0 every mounted bucket is complete; 1 a bucket still misses objects
+# after the new mount, or could not be checked or mounted again.
+#
+# Environment: S3_ENDPOINT, S3_MOUNTPOINT, S3_REGION (optional), AWS_KEY and
+# AWS_SECRET_KEY, as for the mount. S3_VERIFY_SAMPLE (default 10) is how many
+# missing keys are printed per bucket.
+set -uo pipefail
+
+[[ $# -eq 1 && -f $1 ]] || { echo "usage: s3-verify-listing BUCKET_FILE" >&2; exit 1; }
+bucket_file=$1
+: "${S3_ENDPOINT:?S3_ENDPOINT must be set}"
+: "${S3_MOUNTPOINT:?S3_MOUNTPOINT must be set}"
+sample="${S3_VERIFY_SAMPLE:-10}"
+
+# rclone takes the connection from the environment, so the credentials stay out
+# of the process list. ":s3:" is a remote without a config file entry.
+export RCLONE_S3_PROVIDER=Other RCLONE_S3_ENDPOINT="${S3_ENDPOINT}" \
+       RCLONE_S3_ACCESS_KEY_ID="${AWS_KEY:-}" RCLONE_S3_SECRET_ACCESS_KEY="${AWS_SECRET_KEY:-}" \
+       RCLONE_S3_FORCE_PATH_STYLE=true RCLONE_CONFIG=/dev/null
+[[ -n ${S3_REGION:-} ]] && export RCLONE_S3_REGION="${S3_REGION}"
+
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+export LC_ALL=C
+
+# api_keys BUCKET OUT — every object key, sorted, less the keys ending in
+# "_$folder$": directory markers of older S3 tools, not files.
+api_keys() {
+  rclone lsf -R --files-only --fast-list ":s3:$1" 2>"${work}/rclone.err" \
+    | grep -v '_\$folder\$$' | sort >"$2"
+  local rc=("${PIPESTATUS[@]}")
+  [[ ${rc[0]} -eq 0 ]] || { echo "  cannot list bucket '$1' through the S3 API: $(tr '\n' ' ' <"${work}/rclone.err")" >&2; return 1; }
+}
+
+# mount_files DIR OUT — every file and symlink under DIR, relative, sorted.
+mount_files() {
+  (cd "$1" && find . -type f -o -type l) 2>"${work}/find.err" | sed 's#^\./##' | sort >"$2"
+  local rc=("${PIPESTATUS[@]}")
+  [[ ${rc[0]} -eq 0 ]] || { echo "  cannot walk $1: $(tr '\n' ' ' <"${work}/find.err")" >&2; return 1; }
+}
+
+# check BUCKET — 0 complete, 1 objects missing, 2 the check itself failed.
+check() {
+  local bucket=$1 mp="${S3_MOUNTPOINT}/$1"
+  api_keys "${bucket}" "${work}/api1" || return 2
+  mount_files "${mp}" "${work}/mount" || return 2
+  api_keys "${bucket}" "${work}/api2" || return 2
+  comm -12 "${work}/api1" "${work}/api2" | comm -23 - "${work}/mount" >"${work}/missing"
+  local total missing
+  total=$(( $(wc -l <"${work}/api2") ))
+  missing=$(( $(wc -l <"${work}/missing") ))
+  if [[ ${missing} -eq 0 ]]; then
+    echo "  ${bucket}: ${total} objects, all under ${mp}"
+    return 0
+  fi
+  echo "  ${bucket}: ${missing} of ${total} objects missing under ${mp}, e.g.:" >&2
+  head -n "${sample}" "${work}/missing" | sed 's/^/    /' >&2
+  return 1
+}
+
+remount() {
+  local mp="${S3_MOUNTPOINT}/$1"
+  umount "${mp}" 2>/dev/null || fusermount3 -u "${mp}" 2>/dev/null || return 1
+  s3-mount-bucket "$1" </dev/null
+}
+
+failed=0
+while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
+  [[ -n ${bucket} && ${bucket} != \#* ]] || continue
+  # run.sh stops the start when a bucket cannot be mounted, so an unmounted one
+  # is not part of this run.
+  mountpoint -q "${S3_MOUNTPOINT}/${bucket}" || continue
+  check "${bucket}"
+  case $? in
+    0) continue ;;
+    1) ;;
+    *) failed=1; continue ;;
+  esac
+  echo "  ${bucket}: mounting again and checking once more …" >&2
+  if ! remount "${bucket}"; then
+    echo "  ${bucket}: cannot mount again" >&2
+    failed=1
+    continue
+  fi
+  check "${bucket}" || failed=1
+done 3<"${bucket_file}"
+
+exit "${failed}"
