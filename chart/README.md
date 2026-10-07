@@ -512,7 +512,34 @@ kubectl create secret generic borgui-notifications -n borg \
   into the chart Secret, but Helm also keeps it in the release's values, where
   anyone with access to the release reads it (`helm get values`). Use
   `existingSecret` when a credential must not be part of the release. A
-  changed Secret is applied on the next reconcile run (the next upgrade).
+  changed Secret is applied on the next reconcile run, see
+  [Changing a referenced Secret](#changing-a-referenced-secret).
+
+### Changing a referenced Secret
+
+The reconcile Job copies what it reads from Secrets into the Borg UI database:
+the notification passwords and service URLs, the OIDC client secret, the
+license key and the entitlement document. It runs once per Helm revision. A
+changed Secret referenced through `existingSecret` / `existingSecretKey` does
+not make a new revision by itself: Flux upgrades only when the chart version
+or the values change, so the server keeps the old content until the next
+revision.
+
+To apply such a change, start a new revision with the same values:
+
+```bash
+# Helm: every upgrade is a new revision
+helm upgrade <release> <chart> -n borg --reuse-values
+
+# Flux: an unchanged HelmRelease is not upgraded unless forced
+flux reconcile helmrelease <release> -n borg --force
+```
+
+The reconcile run writes only what differs, so the rest of the server's
+settings stay as they are. A new revision also rolls the agent pods (node and
+cluster), because they wait for the reconcile of their revision; a backup
+running in one of them is interrupted. Apply the change outside the backup
+windows.
 
 ## Security posture
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **The chart README explains how to apply a changed Secret** (#27). The
+  reconcile Job runs once per Helm revision, so a changed Secret referenced
+  through `existingSecret` (a notification password, the OIDC client secret,
+  the license) reaches Borg UI only with the next revision. The new section
+  *Changing a referenced Secret* gives the `helm upgrade` and
+  `flux reconcile … --force` commands and notes that the agent pods roll.
 * **S3 sources list every file again.** The image's s3fs 1.97 (Alpine's
   package) showed only two entries of a directory without a directory object
   of its own, which is how rclone and most S3 writers leave directories,
