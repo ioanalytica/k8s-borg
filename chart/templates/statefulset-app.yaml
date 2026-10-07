@@ -88,9 +88,11 @@ spec:
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
-            {{- /* DB dump scripts get attached to the cluster plan as pre-backup
-                   hooks (plan mode; register-backup-plan honours this). */}}
+            {{- /* DB dump scripts and the S3 mount check get attached to the
+                   cluster plan as pre-backup hooks (plan mode;
+                   register-backup-plan honours this). */}}
             {{- $preScripts := list }}
+            {{- if .Values.s3.enabled }}{{- $preScripts = append $preScripts "s3-check-mounts" }}{{- end }}
             {{- if .Values.databases.mariadb.enabled }}{{- $preScripts = append $preScripts "backup-cluster-mariadb" }}{{- end }}
             {{- if .Values.databases.postgres.enabled }}{{- $preScripts = append $preScripts "backup-cluster-postgres" }}{{- end }}
             {{- if $preScripts }}

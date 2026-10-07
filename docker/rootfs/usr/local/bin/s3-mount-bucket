@@ -10,7 +10,8 @@
 # the kernel until s3fs is gone. So the listing runs in the background with a
 # time limit; when it fails or does not come back, the FUSE connection is
 # aborted (umount -f frees the blocked listing), s3fs is ended, the mount is
-# detached, and the start stops with the reason.
+# detached and its empty directory removed, and the script fails with the
+# reason. Whether that stops the start is s3-mount-buckets' decision.
 #
 # Usage: s3-mount-bucket BUCKET
 #
@@ -22,7 +23,7 @@
 #   S3FS_PASSWD_FILE   credentials file (default /root/.s3fs)
 set -euo pipefail
 
-die() { echo "FATAL: $*" >&2; exit 1; }
+die() { echo "ERROR: $*" >&2; exit 1; }
 
 [[ $# -eq 1 && -n $1 ]] || die "usage: s3-mount-bucket BUCKET"
 bucket=$1
@@ -40,7 +41,10 @@ options="passwd_file=${S3FS_PASSWD_FILE:-/root/.s3fs},use_path_request_style,lis
 [[ -n ${region} ]] && options+=",endpoint=${region}"
 
 mkdir -p "${mountpoint}"
-s3fs "${bucket}" "${mountpoint}" -o "${options}"
+if ! s3fs "${bucket}" "${mountpoint}" -o "${options}"; then
+  rmdir "${mountpoint}" 2>/dev/null || true
+  die "s3fs refused to mount S3 bucket '${bucket}'"
+fi
 
 # The listing's stderr goes to a file, so that the reason can be quoted below.
 errfile="$(mktemp)"
@@ -72,6 +76,8 @@ pkill -KILL -f "^s3fs ${bucket} ${mountpoint}( |\$)" 2>/dev/null || true
 umount -l "${mountpoint}" 2>/dev/null || true
 kill -KILL "${probe}" 2>/dev/null || true
 wait "${probe}" 2>/dev/null || true
+# Without a mount the directory would go into the archive as an empty bucket.
+rmdir "${mountpoint}" 2>/dev/null || true
 
 where="${S3_ENDPOINT}, region ${region:-us-east-1 (s3fs default, s3.region empty)}"
 if [[ ${probe_rc} == timeout ]]; then

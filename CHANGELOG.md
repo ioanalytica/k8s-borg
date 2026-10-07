@@ -19,6 +19,20 @@
   missing, the backup is written anyway and the run fails, naming the bucket
   and some of the missing keys.
   `s3.verifyListing: false` switches the check off.
+* **One S3 bucket that cannot be mounted no longer stops the cluster backup**
+  (#26). Until now a bucket that did not answer its first listing stopped the
+  pod's start, so the app pod went into CrashLoopBackOff and no bucket was
+  backed up. s3fs cannot tell a missing bucket from a wrong region, wrong
+  credentials or an unreachable endpoint, so the new `s3-mount-buckets`
+  decides by count: such a bucket is skipped with a warning that names it,
+  and the start stops only when no listed bucket can be mounted. The mount
+  directory of a skipped bucket is removed, so the archive does not show it
+  as an empty bucket. Before `borg create`, `borg-backup` checks that every
+  listed bucket is mounted: a bucket that is not mounted makes the run end
+  with a warning, and no bucket mounted is an error. In
+  `cluster.backupMode=plan` the same check runs as the plan's first
+  pre-backup hook, `s3-check-mounts`, and shows in Borg UI as a warning.
+  `s3.onMountFailure: fail` keeps the hard stop.
 
 ### Upgrade notes
 
@@ -28,6 +42,15 @@
   repeats all three.
 * A run that fails the check exits with an error after archiving, so the
   CronJob's pod restarts it (`backoffLimit: 5`) with a new mount.
+* New value `s3.onMountFailure` (default `skip`, or `fail` for the previous
+  behaviour). A bucket that cannot be mounted costs `S3_PROBE_TIMEOUT` (30 s)
+  at the start, and with `s3.verifyListing` once more in each cluster run,
+  which tries to mount it again. A cluster run with a skipped bucket ends
+  with a warning: the CronJob logs it and exits 0, as for Borg's own
+  warnings.
+* In plan mode the cluster plan gains the pre-backup hook `s3-check-mounts`
+  at the next start of the console pod. A bucket skipped at the start stays
+  unmounted until the pod starts again, and each plan run warns until then.
 
 ## 1.1.9-beta.8
 

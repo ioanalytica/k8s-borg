@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 #
 # `s3-mount-bucket`: the s3fs options (region or not), and that a bucket which
-# does not answer stops the start instead of leaving a mount behind that blocks
-# its first reader. s3fs, ls, umount and pkill are stubs here; the behaviour of
+# does not answer fails, with neither a mount that blocks its first reader nor
+# an empty directory left behind (s3-mount-buckets decides whether that stops
+# the start). s3fs, ls, umount and pkill are stubs here; the behaviour of
 # the real s3fs against a server that checks the region is described in the
 # script's header.
 
@@ -78,15 +79,15 @@ called() { grep -qxF -- "$1" "$TMP/calls" 2>/dev/null; }
   ! grep -qE '^(umount|pkill)' "$TMP/calls" || fail "cleaned up a good mount: $(cat "$TMP/calls")"
 }
 
-@test "a listing that fails stops the start, names the bucket and quotes the error" {
+@test "a listing that fails names the bucket and quotes the error" {
   make_stubs fail
   S3_REGION=eu-central-1 run --separate-stderr "$BIN/s3-mount-bucket" pg-backups
   [ "$status" -eq 1 ] || fail "status $status"
-  [[ "$stderr" == "FATAL: S3 bucket 'pg-backups' at http://s3.example:3900, region eu-central-1 cannot be listed: "*"Input/output error"* ]] \
+  [[ "$stderr" == "ERROR: S3 bucket 'pg-backups' at http://s3.example:3900, region eu-central-1 cannot be listed: "*"Input/output error"* ]] \
     || fail "$stderr"
 }
 
-@test "a listing that does not come back stops the start within the time limit" {
+@test "a listing that does not come back fails within the time limit" {
   make_stubs hang
   SECONDS=0
   run --separate-stderr "$BIN/s3-mount-bucket" pg-backups
@@ -106,12 +107,15 @@ umount -f $TMP/s3/pg-backups
 pkill -KILL -f ^s3fs pg-backups $TMP/s3/pg-backups( |\$)
 umount -l $TMP/s3/pg-backups"
   [ "$(cat "$TMP/calls")" = "$expected" ] || fail "$(cat "$TMP/calls")"
+  [ ! -e "$TMP/s3/pg-backups" ] || fail "the empty mount directory is left behind"
 }
 
-@test "an s3fs that refuses to mount stops the start before any listing" {
-  FAKE_S3FS_RC=1 run "$BIN/s3-mount-bucket" pg-backups
-  [ "$status" -ne 0 ] || fail "status $status"
+@test "an s3fs that refuses to mount fails before any listing" {
+  FAKE_S3FS_RC=1 run --separate-stderr "$BIN/s3-mount-bucket" pg-backups
+  [ "$status" -eq 1 ] || fail "status $status"
+  [[ "$stderr" == "ERROR: s3fs refused to mount S3 bucket 'pg-backups'" ]] || fail "$stderr"
   ! called ls || fail "listed a mount that s3fs refused"
+  [ ! -e "$TMP/s3/pg-backups" ] || fail "the empty mount directory is left behind"
 }
 
 @test "a time limit that is not a positive number is refused before s3fs runs" {
