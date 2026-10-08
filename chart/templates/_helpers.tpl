@@ -175,6 +175,9 @@ exec /usr/local/bin/backup-cluster-{{ .engine }} "$@"
 {{- $scripts := .Values.cluster.agentScripts | default dict | deepCopy -}}
 {{- if .Values.s3.enabled -}}
 {{- $scripts = merge $scripts (dict "s3-check-mounts" "#!/bin/sh\nexec /usr/local/bin/s3-mount-buckets --check /root/.borg/cluster-s3-buckets") -}}
+{{- if .Values.s3.verifyListing -}}
+{{- $scripts = merge $scripts (dict "s3-verify-listing" "#!/bin/sh\nexec /usr/local/bin/s3-verify-listing /root/.borg/cluster-s3-buckets") -}}
+{{- end -}}
 {{- end -}}
 {{- if .Values.databases.mariadb.enabled -}}
 {{- $scripts = merge $scripts (dict "backup-cluster-mariadb" (include "k8s-borg.defaultDbDumpScript" (dict "engine" "mariadb"))) -}}

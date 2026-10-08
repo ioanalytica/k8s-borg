@@ -41,6 +41,19 @@
   `continue_on_error`: the backup runs whatever the check finds, and Borg UI
   shows a failed check as a warning. `s3.onMountFailure: fail` keeps the
   hard stop at the start.
+* **Plan-mode cluster backups check the S3 listings and mount lost buckets
+  again** (#34). In `cluster.backupMode=plan` the console pod keeps its S3
+  mounts for its whole life, and the listing check of the CronJob did not run:
+  the long-lived mount, the one the s3fs listing bug hit, went unchecked, and a
+  bucket skipped at the start or whose s3fs died stayed unmounted until the pod
+  started again. With `s3.verifyListing` on (the default) the chart publishes
+  `s3-verify-listing` to the cluster agent and attaches it as the plan's first
+  pre-backup hook, ahead of `s3-check-mounts`, so that a bucket it mounts again
+  counts as mounted. It continues on error like `s3-check-mounts`: a bucket
+  that still misses objects ends the run with a warning in Borg UI, after the
+  backup (the CronJob fails such a run; Borg UI cannot fail a plan run after
+  its backup). s3fs puts itself into a session of its own, so a bucket mounted
+  again from the hook stays mounted after the hook ends or is cancelled.
 
 * **A failed reconcile Job says why, and the reason stays** (#29). Every
   request of the Job is bounded in time; the health wait gives up on a single

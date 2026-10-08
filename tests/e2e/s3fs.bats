@@ -135,6 +135,85 @@ count() { find "$1" -maxdepth 1 -type f | wc -l; }
   [[ $output == *"e2e-bucket: $((3 * FILES_PER_DIR)) objects, all under $MP"* ]] || fail "$output"
 }
 
+# agent_script_run NAME — run allow-listed script NAME from $TMP/agent-scripts
+# the way the cluster agent runs a plan hook (script.run, the agent's own code
+# in the image), against a stand-in for the server. Prints the job's state, its
+# return code and its log lines. With CANCEL_ON set, the job is cancelled once a
+# log line contains that text.
+agent_script_run() {
+  local python
+  python="$(head -1 "$(command -v borg-ui-agent)" | sed 's/^#!//')"
+  BORG_UI_AGENT_SCRIPTS_DIR="$TMP/agent-scripts" timeout 120 "$python" - "$1" <<'PY'
+import sys, threading
+from agent.borg_ui_agent.scripts import execute_script_run_job
+
+class Server:
+    state = rc = None
+    cancel = threading.Event()
+    def send_log(self, job_id, sequence, stream, message):
+        print(f"[{stream}] {message}", flush=True)
+        on = __import__("os").environ.get("CANCEL_ON")
+        if on and on in message:
+            self.cancel.set()
+    def complete_job(self, job_id, result):
+        self.state, self.rc = "completed", result.get("return_code")
+    def fail_job(self, job_id, error_message):
+        self.state = "failed"
+    def cancel_job(self, job_id):
+        self.state = "canceled"
+
+server = Server()
+execute_script_run_job({"id": 1, "payload": {"script": {"name": sys.argv[1]}}},
+                       server, should_cancel=server.cancel.is_set)
+print(f"state={server.state} rc={server.rc}")
+PY
+}
+
+# assert_s3fs_detached — the bucket's s3fs runs in a session of its own and
+# holds none of the script's output pipes, so it outlives the script and the
+# agent reads the script's output to its end.
+assert_s3fs_detached() {
+  local pids pid sid
+  pids="$(pgrep -f "^s3fs e2e-bucket $MP( |\$)")" || fail "no s3fs for e2e-bucket after the script ended"
+  [ "$(wc -w <<<"$pids")" -eq 1 ] || fail "more than one s3fs: $pids"
+  pid=$pids
+  sid="$(sed 's/.*) //' "/proc/$pid/stat" | cut -d' ' -f4)"
+  [ "$sid" = "$pid" ] || fail "s3fs $pid is in session $sid, not its own"
+  [ "$(readlink "/proc/$pid/fd/1")" = /dev/null ] || fail "s3fs stdout: $(readlink "/proc/$pid/fd/1")"
+  [ "$(readlink "/proc/$pid/fd/2")" = /dev/null ] || fail "s3fs stderr: $(readlink "/proc/$pid/fd/2")"
+  [ "$(find "$MP" -type f | wc -l)" -eq $((3 * FILES_PER_DIR)) ] || fail "the new mount shows $(find "$MP" -type f | wc -l) files"
+}
+
+# Plan mode: the console pod's cluster agent runs s3-verify-listing as a
+# pre-backup hook (the chart's wrapper), and the bucket it mounts again must
+# still be mounted when borg create runs after the hook.
+@test "s3-verify-listing as an agent hook: the bucket it mounts again outlives the hook" {
+  s3-mount-bucket e2e-bucket
+  pkill -KILL -f "^s3fs e2e-bucket $MP( |\$)"
+  mkdir -p "$TMP/agent-scripts"
+  printf '#!/bin/sh\nexec s3-verify-listing %s\n' "$TMP/buckets" >"$TMP/agent-scripts/s3-verify-listing"
+  chmod 0555 "$TMP/agent-scripts/s3-verify-listing"
+  run agent_script_run s3-verify-listing
+  [ "$status" -eq 0 ] || fail "status $status (124: the agent still waits for the script's output): $output"
+  [[ $output == *"$MP is not mounted, mounting it again"* ]] || fail "$output"
+  [[ $output == *"e2e-bucket: $((3 * FILES_PER_DIR)) objects, all under $MP"* ]] || fail "$output"
+  [[ $output == *"state=completed rc=0"* ]] || fail "$output"
+  assert_s3fs_detached
+}
+
+@test "s3-verify-listing as an agent hook: a cancelled hook leaves the new mount in place" {
+  s3-mount-bucket e2e-bucket
+  pkill -KILL -f "^s3fs e2e-bucket $MP( |\$)"
+  mkdir -p "$TMP/agent-scripts"
+  # The agent cancels by signalling the script's process group.
+  printf '#!/bin/sh\ns3-verify-listing %s\nexec sleep 300\n' "$TMP/buckets" >"$TMP/agent-scripts/verify-then-wait"
+  chmod 0555 "$TMP/agent-scripts/verify-then-wait"
+  CANCEL_ON="objects, all under" run agent_script_run verify-then-wait
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ $output == *"state=canceled"* ]] || fail "$output"
+  assert_s3fs_detached
+}
+
 @test "borg-backup checks the mount and archives every object" {
   s3-mount-bucket e2e-bucket
   write_patterns "R $MP"

@@ -74,9 +74,10 @@ plan_args=(--set cluster.mode=agent --set cluster.backupMode=plan)
   out="$(render "${plan_args[@]}" --set databases.postgres.enabled=true --set databases.postgres.existingSecret=pg)"
   grep -qx '    exec /usr/local/bin/s3-mount-buckets --check /root/.borg/cluster-s3-buckets' <<<"$out" \
     || fail "no s3-check-mounts script in the agent scripts"
-  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out" | grep -qx '              value: "s3-check-mounts backup-cluster-postgres"' \
+  # s3-verify-listing goes first (chart-s3-verify-listing.bats).
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out" | grep -qx '              value: "s3-verify-listing s3-check-mounts backup-cluster-postgres"' \
     || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out")"
-  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out" | grep -qx '              value: "s3-check-mounts"' \
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out" | grep -qx '              value: "s3-verify-listing s3-check-mounts"' \
     || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out")"
 }
 

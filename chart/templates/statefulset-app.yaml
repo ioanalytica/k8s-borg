@@ -88,11 +88,17 @@ spec:
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
-            {{- /* DB dump scripts and the S3 mount check get attached to the
+            {{- /* DB dump scripts and the S3 checks get attached to the
                    cluster plan as pre-backup hooks (plan mode;
-                   register-backup-plan honours this). */}}
-            {{- $preScripts := list }}
-            {{- if .Values.s3.enabled }}{{- $preScripts = append $preScripts "s3-check-mounts" }}{{- end }}
+                   register-backup-plan honours this). The listing check
+                   comes first: a bucket it mounts again then counts as
+                   mounted for s3-check-mounts. */}}
+            {{- $s3Scripts := list }}
+            {{- if .Values.s3.enabled }}
+            {{- if .Values.s3.verifyListing }}{{- $s3Scripts = append $s3Scripts "s3-verify-listing" }}{{- end }}
+            {{- $s3Scripts = append $s3Scripts "s3-check-mounts" }}
+            {{- end }}
+            {{- $preScripts := $s3Scripts }}
             {{- if .Values.databases.mariadb.enabled }}{{- $preScripts = append $preScripts "backup-cluster-mariadb" }}{{- end }}
             {{- if .Values.databases.postgres.enabled }}{{- $preScripts = append $preScripts "backup-cluster-postgres" }}{{- end }}
             {{- if $preScripts }}
@@ -102,9 +108,9 @@ spec:
             {{- /* A failing S3 check does not stop the backup: the other sources
                    are archived and Borg UI shows the failure as a warning, as
                    the CronJob archives them before it fails. */}}
-            {{- if .Values.s3.enabled }}
+            {{- if $s3Scripts }}
             - name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE
-              value: "s3-check-mounts"
+              value: {{ join " " $s3Scripts | quote }}
             {{- end }}
             {{- end }}
           volumeMounts:
