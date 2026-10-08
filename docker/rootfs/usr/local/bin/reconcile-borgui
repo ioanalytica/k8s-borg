@@ -42,8 +42,15 @@
 #                              [{name, settings, email+passwordEnv | urlEnv}]; the
 #                              SMTP password or the whole service URL is read from
 #                              the variable named there (fed from a Secret)
-#   RECONCILE_STATUS_CONFIGMAP optional; ConfigMap to publish the success marker to
+#   RECONCILE_STATUS_CONFIGMAP optional; ConfigMap to publish the success marker to;
+#                              a failed run leaves its reason there as data.lastError
 #   RECONCILE_TOKEN            optional; marker value (the release revision) agents wait for
+#   K8S_API, SA_DIR            the k8s API and the ServiceAccount mount (defaults:
+#                              in-cluster); only the tests set them
+#
+# Every request is bounded in time. A request that fails leaves its reason (curl's
+# message, or the HTTP status with what the server said, secrets masked), and a
+# FATAL line carries the reason of the request that failed last.
 #
 set -euo pipefail
 
@@ -53,13 +60,148 @@ set -euo pipefail
 : "${RECONCILE_WAIT_SECONDS:=300}"
 : "${PAT_NAME:=k8s-borg-reconcile}"
 : "${PAT_SECRET_KEY:=BORG_UI_ADMIN_PAT}"
+: "${K8S_API:=https://kubernetes.default.svc}"
+: "${SA_DIR:=/var/run/secrets/kubernetes.io/serviceaccount}"
+
+WORK=$(mktemp -d)
+recorded=0
+pat="" jwt=""
+
+# describe.py FILE — what a failed request left in FILE (a response body or
+# curl's message), on one short line: a validation error's places and messages
+# (never the rejected input), an error key or message, else the text itself.
+# Known secret values are masked wherever they appear, also URL- or
+# JSON-encoded. The notification block imports describe() from here as well.
+cat >"$WORK/describe.py" <<'EOF'
+import json, os, sys, urllib.parse
+
+SECRET_ENV = ("BORG_UI_ADMIN_PASS", "BORG_UI_ADMIN_DEFAULT_PASS", "BORG_UI_ADMIN_PAT",
+              "OIDC_CLIENT_SECRET", "BORG_UI_LICENSE_KEY", "REDIS_PASSWORD", "REDIS_URL",
+              "MASK_PAT", "MASK_JWT")
+LIMIT = 300
+
+
+def mask(text, extra=()):
+    for value in [os.environ.get(k, "") for k in SECRET_ENV] + list(extra):
+        if len(value) < 4:
+            continue
+        for form in {value, urllib.parse.quote(value, safe=""), json.dumps(value)[1:-1]}:
+            text = text.replace(form, "***")
+    return text
+
+
+def describe(raw, extra=()):
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        text = " ".join(raw.split())
+    else:
+        detail = doc.get("detail", doc) if isinstance(doc, dict) else doc
+        if isinstance(detail, list):
+            text = "; ".join(
+                "%s: %s" % (".".join(str(p) for p in e.get("loc", []) if p != "body") or "request",
+                            e.get("msg", "")) if isinstance(e, dict) else str(e)
+                for e in detail)
+        elif isinstance(detail, str):
+            text = detail
+        elif isinstance(detail, dict) and detail.get("key"):
+            text = detail["key"]
+        elif isinstance(detail, dict) and detail.get("message"):  # a k8s Status
+            text = detail["message"]
+        else:
+            text = json.dumps(detail, separators=(",", ":"))
+    text = mask(text, extra)
+    return text if len(text) <= LIMIT else text[:LIMIT] + "…"
+
+
+if __name__ == "__main__":
+    with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
+        print(describe(f.read()))
+EOF
 
 api() { printf '%s/api/%s' "${BORG_UI_SERVER}" "$1"; }
 
+# record_reason TEXT_FILE DESC [HTTP_STATUS] — keep why DESC failed in $WORK/reason.
+record_reason() {
+  local said
+  said=$(MASK_PAT="$pat" MASK_JWT="$jwt" python3 "$WORK/describe.py" "$1" 2>/dev/null || true)
+  if [ -n "${3:-}" ]; then
+    printf '%s: HTTP %s%s' "$2" "$3" "${said:+: $said}" >"$WORK/reason"
+  else
+    printf '%s: %s' "$2" "${said:-request failed}" >"$WORK/reason"
+  fi
+}
+
+# request DESC URL [curl args …] — one HTTP request, bounded in time (a
+# --connect-timeout/--max-time among the args wins). A 2xx prints the response
+# body and returns 0; anything else returns 1 and leaves the reason in
+# $WORK/reason, where fatal and warn pick it up. DESC names the request in that
+# reason, so it never carries a query string or a credential.
+request() {
+  local desc=$1 url=$2 code
+  shift 2
+  rm -f "$WORK/reason"
+  if ! code=$(curl -sS --connect-timeout 10 --max-time 60 -o "$WORK/body" -w '%{http_code}' \
+                "$@" "$url" 2>"$WORK/curl-err"); then
+    record_reason "$WORK/curl-err" "$desc"
+    return 1
+  fi
+  case "$code" in
+    2??) cat "$WORK/body" ;;
+    *) record_reason "$WORK/body" "$desc" "$code"; return 1 ;;
+  esac
+}
+
+# k8s_patch RESOURCE NAME JSON — merge-patch one object in the pod's namespace.
+k8s_patch() {
+  request "PATCH $1/$2" "${K8S_API}/api/v1/namespaces/$(cat "$SA_DIR/namespace")/$1/$2" \
+    --cacert "$SA_DIR/ca.crt" -H "Authorization: Bearer $(cat "$SA_DIR/token")" \
+    -H "Content-Type: application/merge-patch+json" -X PATCH -d "$3" >/dev/null
+}
+
+# record_failure LINE — keep LINE as data.lastError in the status ConfigMap, so
+# the reason outlives the Job and the gated agent pods can show it.
+record_failure() {
+  recorded=1
+  [ -n "${RECONCILE_STATUS_CONFIGMAP:-}" ] && [ -n "${RECONCILE_TOKEN:-}" ] || return 0
+  local value
+  value="revision ${RECONCILE_TOKEN} at $(date -u +%Y-%m-%dT%H:%M:%SZ): $1"
+  k8s_patch configmaps "$RECONCILE_STATUS_CONFIGMAP" \
+      "$(LAST_ERROR="$value" python3 -c 'import json,os; print(json.dumps({"data": {"lastError": os.environ["LAST_ERROR"]}}))')" \
+    || echo "  (could not keep this failure in ${RECONCILE_STATUS_CONFIGMAP}: $(cat "$WORK/reason" 2>/dev/null))" >&2
+}
+
+# fatal MESSAGE — stop the reconcile, naming the reason of the request that
+# failed last (if any).
+fatal() {
+  local line="FATAL: $1"
+  [ -s "$WORK/reason" ] && line="${line} — $(cat "$WORK/reason")"
+  echo "$line" >&2
+  record_failure "$line"
+  exit 1
+}
+
+# warn MESSAGE — like fatal, but the reconcile goes on.
+warn() {
+  local line="WARNING: $1"
+  [ -s "$WORK/reason" ] && line="${line} — $(cat "$WORK/reason")"
+  echo "$line" >&2
+}
+
+# An exit that did not go through fatal (set -e, a bash error) is recorded too.
+on_exit() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "$recorded" = 0 ]; then
+    record_failure "FATAL: reconcile-borgui stopped with exit status ${rc} (see the Job log)"
+  fi
+  rm -rf "$WORK"
+}
+trap on_exit EXIT
+
 login_as() {  # $1=user $2=pass -> echoes access_token on success
   local t
-  t=$(curl -fsS -X POST "$(api auth/login)" \
-        --data-urlencode "username=$1" --data-urlencode "password=$2" 2>/dev/null \
+  t=$(request "POST /api/auth/login" "$(api auth/login)" -X POST \
+        --data-urlencode "username=$1" --data-urlencode "password=$2" \
       | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token") or "")' 2>/dev/null) || return 1
   [ -n "$t" ] || return 1
   printf '%s' "$t"
@@ -67,41 +209,38 @@ login_as() {  # $1=user $2=pass -> echoes access_token on success
 
 pat_authenticates() {  # $1=pat -> 0 if it authenticates as a user
   [ -n "${1:-}" ] || return 1
-  local code
-  code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $1" "$(api auth/me)" 2>/dev/null) || return 1
-  [ "$code" = "200" ]
+  request "GET /api/auth/me" "$(api auth/me)" -H "Authorization: Bearer $1" >/dev/null
 }
 
 write_pat_to_secret() {  # $1=pat ; writes to PAT_SECRET_NAME via the k8s API
-  local SA=/var/run/secrets/kubernetes.io/serviceaccount ns b64 code
-  ns=$(cat "$SA/namespace")
+  local b64
   b64=$(printf %s "$1" | base64 | tr -d '\n')
-  code=$(curl -sS -o /dev/null -w '%{http_code}' --cacert "$SA/ca.crt" \
-           -H "Authorization: Bearer $(cat "$SA/token")" \
-           -H "Content-Type: application/merge-patch+json" \
-           -X PATCH "https://kubernetes.default.svc/api/v1/namespaces/${ns}/secrets/${PAT_SECRET_NAME}" \
-           -d "{\"data\":{\"${PAT_SECRET_KEY}\":\"${b64}\"}}") \
-    || { echo "FATAL: could not reach the k8s API to write the PAT" >&2; return 1; }
-  [ "$code" = "200" ] || { echo "FATAL: writing PAT to secret ${PAT_SECRET_NAME} failed (HTTP ${code})" >&2; return 1; }
+  k8s_patch secrets "$PAT_SECRET_NAME" "{\"data\":{\"${PAT_SECRET_KEY}\":\"${b64}\"}}" \
+    || fatal "writing the PAT to secret ${PAT_SECRET_NAME} failed"
 }
 
-publish_reconcile_marker() {  # writes data.reconciled=$RECONCILE_TOKEN to the status ConfigMap
-  local SA=/var/run/secrets/kubernetes.io/serviceaccount ns code
-  ns=$(cat "$SA/namespace")
-  code=$(curl -sS -o /dev/null -w '%{http_code}' --cacert "$SA/ca.crt" \
-           -H "Authorization: Bearer $(cat "$SA/token")" \
-           -H "Content-Type: application/merge-patch+json" \
-           -X PATCH "https://kubernetes.default.svc/api/v1/namespaces/${ns}/configmaps/${RECONCILE_STATUS_CONFIGMAP}" \
-           -d "{\"data\":{\"reconciled\":\"${RECONCILE_TOKEN}\"}}") \
-    || { echo "FATAL: could not reach the k8s API to publish the reconcile marker" >&2; return 1; }
-  [ "$code" = "200" ] || { echo "FATAL: publishing reconcile marker to ${RECONCILE_STATUS_CONFIGMAP} failed (HTTP ${code})" >&2; return 1; }
+# Publishes this revision as reconciled and drops a failure an earlier run left.
+publish_reconcile_marker() {
+  k8s_patch configmaps "$RECONCILE_STATUS_CONFIGMAP" \
+      "{\"data\":{\"reconciled\":\"${RECONCILE_TOKEN}\",\"lastError\":null}}" \
+    || fatal "publishing the reconcile marker to ${RECONCILE_STATUS_CONFIGMAP} failed"
 }
 
 # --- 1) wait for health ------------------------------------------------------
+# Each attempt is bounded: curl's own connect timeout is 300 s, so a single
+# attempt whose connection is dropped rather than refused would otherwise use up
+# the whole wait without a word.
 echo "Waiting for ${BORG_UI_SERVER}/health (up to ${RECONCILE_WAIT_SECONDS}s) …"
-deadline=$(( $(date +%s) + RECONCILE_WAIT_SECONDS ))
-until curl -fsS -o /dev/null "${BORG_UI_SERVER}/health" 2>/dev/null; do
-  [ "$(date +%s)" -lt "$deadline" ] || { echo "FATAL: server not healthy within ${RECONCILE_WAIT_SECONDS}s" >&2; exit 1; }
+started=$(date +%s)
+deadline=$(( started + RECONCILE_WAIT_SECONDS ))
+next_note=$(( started + 30 ))
+until request "GET /health" "${BORG_UI_SERVER}/health" --connect-timeout 5 --max-time 10 >/dev/null; do
+  now=$(date +%s)
+  [ "$now" -lt "$deadline" ] || fatal "server not healthy within ${RECONCILE_WAIT_SECONDS}s"
+  if [ "$now" -ge "$next_note" ]; then
+    echo "  still waiting after $(( now - started ))s — $(cat "$WORK/reason")"
+    next_note=$(( now + 30 ))
+  fi
   sleep 3
 done
 echo "Server healthy."
@@ -113,7 +252,7 @@ if pat_authenticates "$pat"; then
 else
   # --- 3) (re)mint: the PAT is missing or no longer authenticates ------------
   if [ -n "$pat" ]; then echo "Existing PAT no longer valid — re-minting."; else echo "No PAT yet — minting."; fi
-  : "${BORG_UI_ADMIN_PASS:?set BORG_UI_ADMIN_PASS to mint a PAT}"
+  [ -n "${BORG_UI_ADMIN_PASS:-}" ] || fatal "set BORG_UI_ADMIN_PASS to mint a PAT"
 
   # admin login (configured password, else fresh-install default + rotate)
   if jwt=$(login_as "$BORG_UI_ADMIN_USER" "$BORG_UI_ADMIN_PASS"); then
@@ -121,47 +260,50 @@ else
   elif jwt=$(login_as "$BORG_UI_ADMIN_USER" "$BORG_UI_ADMIN_DEFAULT_PASS"); then
     rotate=1; echo "Admin login OK (default password) — will rotate to the configured one."
   else
-    echo "FATAL: cannot log in as '${BORG_UI_ADMIN_USER}' with the configured or default password." >&2
-    exit 1
+    fatal "cannot log in as '${BORG_UI_ADMIN_USER}' with the configured or default password"
   fi
   jauth=(-H "Authorization: Bearer ${jwt}")
 
   # clear forced password change / rotate to the configured value
   if [ "$rotate" = 1 ]; then
-    curl -fsS -X POST "$(api auth/change-password)" "${jauth[@]}" -H "Content-Type: application/json" \
+    request "POST /api/auth/change-password" "$(api auth/change-password)" -X POST "${jauth[@]}" \
+      -H "Content-Type: application/json" \
       -d "$(BORG_UI_ADMIN_DEFAULT_PASS="$BORG_UI_ADMIN_DEFAULT_PASS" BORG_UI_ADMIN_PASS="$BORG_UI_ADMIN_PASS" python3 -c '
 import json, os
 print(json.dumps({"current_password": os.environ["BORG_UI_ADMIN_DEFAULT_PASS"],
                   "new_password": os.environ["BORG_UI_ADMIN_PASS"]}))')" >/dev/null \
-      || { echo "FATAL: admin password rotation failed" >&2; exit 1; }
-    jwt=$(login_as "$BORG_UI_ADMIN_USER" "$BORG_UI_ADMIN_PASS") || { echo "FATAL: re-login after rotation failed" >&2; exit 1; }
+      || fatal "admin password rotation failed"
+    jwt=$(login_as "$BORG_UI_ADMIN_USER" "$BORG_UI_ADMIN_PASS") || fatal "re-login after rotation failed"
     jauth=(-H "Authorization: Bearer ${jwt}")
     echo "Admin password rotated to the configured value."
   else
-    curl -fsS -X POST "$(api auth/password-setup/skip)" "${jauth[@]}" >/dev/null 2>&1 || true
+    request "POST /api/auth/password-setup/skip" "$(api auth/password-setup/skip)" -X POST "${jauth[@]}" >/dev/null || true
   fi
 
   # revoke stale (dead) PATs of the same name, then mint a fresh one
-  for old_id in $(curl -fsS "$(api settings/tokens)" "${jauth[@]}" \
+  for old_id in $(request "GET /api/settings/tokens" "$(api settings/tokens)" "${jauth[@]}" \
                    | PAT_NAME="$PAT_NAME" python3 -c '
 import sys, json, os
 name = os.environ["PAT_NAME"]
 for t in json.load(sys.stdin):
     if t.get("name") == name:
         print(t["id"])' 2>/dev/null); do
-    curl -fsS -X DELETE "$(api settings/tokens)/${old_id}" "${jauth[@]}" >/dev/null 2>&1 || true
-    echo "Revoked stale PAT id ${old_id} ('${PAT_NAME}')."
+    if request "DELETE /api/settings/tokens/${old_id}" "$(api settings/tokens)/${old_id}" -X DELETE "${jauth[@]}" >/dev/null; then
+      echo "Revoked stale PAT id ${old_id} ('${PAT_NAME}')."
+    else
+      warn "could not revoke stale PAT id ${old_id} ('${PAT_NAME}')"
+    fi
   done
 
-  pat=$(curl -fsS -X POST "$(api settings/tokens)" "${jauth[@]}" -H "Content-Type: application/json" \
+  pat=$(request "POST /api/settings/tokens" "$(api settings/tokens)" -X POST "${jauth[@]}" -H "Content-Type: application/json" \
           -d "$(PAT_NAME="$PAT_NAME" python3 -c 'import json,os; print(json.dumps({"name": os.environ["PAT_NAME"]}))')" \
-        | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token") or "")') \
-    || { echo "FATAL: PAT minting failed" >&2; exit 1; }
-  [ -n "$pat" ] || { echo "FATAL: server returned no PAT" >&2; exit 1; }
+        | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token") or "")' 2>/dev/null) \
+    || fatal "PAT minting failed"
+  [ -n "$pat" ] || fatal "server returned no PAT"
   echo "Minted admin PAT '${PAT_NAME}' (prefix ${pat:0:12})."
 
   if [ -n "${PAT_SECRET_NAME:-}" ]; then
-    write_pat_to_secret "$pat" || exit 1
+    write_pat_to_secret "$pat"
     echo "PAT written to secret '${PAT_SECRET_NAME}' key '${PAT_SECRET_KEY}'."
   else
     echo "PAT_SECRET_NAME unset (test mode) — the PAT is:"
@@ -178,7 +320,7 @@ if [ -n "${OIDC_DISCOVERY_URL:-}" ]; then
   # yet (would lock everyone out). borg-ui exposes oidc_active_admin_count.
   want_disable="${OIDC_DISABLE_LOCAL_AUTH:-}"
   if [ "$(printf %s "$want_disable" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
-    active=$(curl -fsS "$(api settings/system)" "${auth[@]}" \
+    active=$(request "GET /api/settings/system" "$(api settings/system)" "${auth[@]}" \
               | python3 -c 'import sys,json; print(json.load(sys.stdin).get("settings",{}).get("oidc_active_admin_count",0) or 0)' 2>/dev/null || echo 0)
     if [ "${active:-0}" -lt 1 ]; then
       echo "  guard: oidc_active_admin_count=${active} — keeping local login ON (an OIDC admin must sign in first)." >&2
@@ -224,9 +366,9 @@ if wd is not None:
     p["oidc_disable_local_auth"] = wd
 print(json.dumps(p))')
 
-  curl -fsS -X PUT "$(api settings/system)" "${auth[@]}" -H "Content-Type: application/json" \
+  request "PUT /api/settings/system" "$(api settings/system)" -X PUT "${auth[@]}" -H "Content-Type: application/json" \
     -d "${oidc_payload}" >/dev/null \
-    || { echo "FATAL: OIDC configuration failed" >&2; exit 1; }
+    || fatal "OIDC configuration failed"
   ll="ON"; [ "$(printf %s "$want_disable" | tr '[:upper:]' '[:lower:]')" = "true" ] && ll="OFF"
   echo "OIDC reconciled — enabled; local login ${ll}."
 fi
@@ -256,8 +398,8 @@ if ttl:
 print(urllib.parse.urlencode(params))')
 if [ -n "$cache_qs" ]; then
   echo "Reconciling cache settings …"
-  curl -fsS -X PUT "$(api settings/cache/settings)?${cache_qs}" "${auth[@]}" >/dev/null \
-    || { echo "FATAL: cache settings reconciliation failed" >&2; exit 1; }
+  request "PUT /api/settings/cache/settings" "$(api settings/cache/settings)?${cache_qs}" -X PUT "${auth[@]}" >/dev/null \
+    || fatal "cache settings reconciliation failed"
   echo "Cache settings reconciled."
 fi
 
@@ -270,14 +412,14 @@ fi
 # document no longer fits. So the document is used only while it matches, and a
 # license key, being instance-independent, is what recovers a rebuilt instance.
 if [ -n "${BORG_UI_ENTITLEMENT:-}" ] || [ -n "${BORG_UI_LICENSE_KEY:-}" ]; then
-  lic=$(curl -fsS "$(api system/info)" "${auth[@]}" \
+  lic=$(request "GET /api/system/info" "$(api system/info)" "${auth[@]}" \
          | python3 -c '
 import sys, json
 e = (json.load(sys.stdin).get("entitlement") or {})
 print("%s\t%s\t%s\t%s\t%s" % (e.get("status") or "none", e.get("entitlement_id") or "",
                               "trial" if e.get("is_full_access") else "paid",
                               e.get("instance_id") or "", e.get("expires_at") or "")) ' 2>/dev/null) \
-    || { echo "FATAL: could not read the current licensing state" >&2; exit 1; }
+    || fatal "could not read the current licensing state"
   lic_status=$(printf %s "$lic" | cut -f1)
   lic_entitlement=$(printf %s "$lic" | cut -f2)
   lic_kind=$(printf %s "$lic" | cut -f3)
@@ -296,7 +438,7 @@ d = json.loads(os.environ["BORG_UI_ENTITLEMENT"])
 if not isinstance(d.get("payload"), dict) or not d.get("signature"):
     sys.exit("entitlement document needs a payload object and a signature")
 print(json.dumps({k: d[k] for k in ("payload", "signature", "key_id") if d.get(k) is not None}))') \
-      || { echo "FATAL: BORG_UI_ENTITLEMENT is not a valid entitlement document" >&2; exit 1; }
+      || fatal "BORG_UI_ENTITLEMENT is not a valid entitlement document"
     want_id=$(printf %s "$want" | python3 -c 'import sys,json; print(json.load(sys.stdin)["payload"].get("entitlement_id") or "")')
     want_instance=$(printf %s "$want" | python3 -c 'import sys,json; print(json.load(sys.stdin)["payload"].get("instance_id") or "")')
     want_expires=$(printf %s "$want" | python3 -c 'import sys,json; print(json.load(sys.stdin)["payload"].get("expires_at") or "")')
@@ -307,9 +449,7 @@ print(json.dumps({k: d[k] for k in ("payload", "signature", "key_id") if d.get(k
       echo "Entitlement was issued for instance ${want_instance}, this one is ${lic_instance}" \
            "— stale after a rebuild; falling back to the license key." >&2
     else
-      echo "FATAL: entitlement was issued for instance ${want_instance}, this one is ${lic_instance}." >&2
-      echo "       Have a document issued for this instance, or set borgUI.licensing.licenseKey." >&2
-      exit 1
+      fatal "entitlement was issued for instance ${want_instance}, this one is ${lic_instance}; have a document issued for this instance, or set borgUI.licensing.licenseKey"
     fi
   fi
 
@@ -347,9 +487,9 @@ except ValueError:
       # Purely local (the server checks signature and instance_id), so a failure
       # here is a broken document — fail the release, don't warn.
       echo "Importing offline entitlement ${want_id:-(unnamed)} …"
-      curl -fsS -X POST "$(api system/licensing/import)" "${auth[@]}" -H "Content-Type: application/json" \
-        -d "${want}" >/dev/null \
-        || { echo "FATAL: entitlement import rejected (signed with an unknown key?)" >&2; exit 1; }
+      request "POST /api/system/licensing/import" "$(api system/licensing/import)" -X POST "${auth[@]}" \
+          -H "Content-Type: application/json" -d "${want}" >/dev/null \
+        || fatal "entitlement import rejected (signed with an unknown key?)"
       echo "Entitlement imported."
     fi
   elif [ "$lic_status" = "active" ] && [ "$lic_kind" = "paid" ]; then
@@ -359,7 +499,8 @@ except ValueError:
     # fail the release: the instance keeps whatever plan it has and the next
     # reconcile retries.
     echo "Activating license key against the activation service …"
-    if curl -fsS -X POST "$(api system/licensing/activate)" "${auth[@]}" -H "Content-Type: application/json" \
+    if request "POST /api/system/licensing/activate" "$(api system/licensing/activate)" -X POST "${auth[@]}" \
+         -H "Content-Type: application/json" \
          -d "$(python3 -c 'import json,os; print(json.dumps({"license_key": os.environ["BORG_UI_LICENSE_KEY"]}))')" >/dev/null
     then
       echo "License activated."
@@ -368,7 +509,7 @@ except ValueError:
       [ -n "${BORG_UI_ENTITLEMENT:-}" ] && \
         echo "Re-export the entitlement (scripts/dump-entitlement.py) — the configured document is now stale."
     else
-      echo "WARNING: license activation failed — leaving the current plan in place." >&2
+      warn "license activation failed, leaving the current plan in place"
     fi
   fi
 fi
@@ -378,7 +519,7 @@ fi
 # machines), so import the pods' key once. The private key path is read by the
 # SERVER (its init container staged it); we only trigger the import via the API.
 if [ -n "${BORG_UI_SSH_IMPORT_PRIVATE_PATH:-}" ]; then
-  have=$(curl -fsS "$(api ssh-keys/system-key)" "${auth[@]}" \
+  have=$(request "GET /api/ssh-keys/system-key" "$(api ssh-keys/system-key)" "${auth[@]}" \
           | python3 -c 'import sys,json; print("yes" if json.load(sys.stdin).get("exists") else "no")' 2>/dev/null || echo no)
   if [ "$have" = "yes" ]; then
     echo "System SSH key already present — skipping import."
@@ -391,9 +532,9 @@ import json, os
 print(json.dumps({"name": os.environ["BORG_UI_SSH_IMPORT_NAME"],
                   "private_key_path": os.environ["PRIV"],
                   "public_key_path": os.environ["PUB"]}))')
-    curl -fsS -X POST "$(api ssh-keys/import)" "${auth[@]}" -H "Content-Type: application/json" \
+    request "POST /api/ssh-keys/import" "$(api ssh-keys/import)" -X POST "${auth[@]}" -H "Content-Type: application/json" \
       -d "${ssh_payload}" >/dev/null \
-      || { echo "FATAL: system SSH key import failed (is the key staged at ${BORG_UI_SSH_IMPORT_PRIVATE_PATH} on the server?)" >&2; exit 1; }
+      || fatal "system SSH key import failed (is the key staged at ${BORG_UI_SSH_IMPORT_PRIVATE_PATH} on the server?)"
     echo "System SSH key imported."
   fi
 fi
@@ -404,9 +545,9 @@ fi
 # existing connection for the same host is reused. Reachability failures are
 # recorded on the connection (status) but do not fail the reconcile.
 if [ -n "${BORG_UI_REMOTE_MACHINES:-}" ] && [ "${BORG_UI_REMOTE_MACHINES}" != "[]" ]; then
-  key_id=$(curl -fsS "$(api ssh-keys/system-key)" "${auth[@]}" \
+  key_id=$(request "GET /api/ssh-keys/system-key" "$(api ssh-keys/system-key)" "${auth[@]}" \
             | python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("ssh_key") or {}).get("id") or "")' 2>/dev/null || echo "")
-  [ -n "$key_id" ] || { echo "FATAL: remote machines requested but no system SSH key exists (set borgUI.systemSshKey.import)" >&2; exit 1; }
+  [ -n "$key_id" ] || fatal "remote machines requested but no system SSH key exists (set borgUI.systemSshKey.import)"
   echo "Reconciling remote machines against system key id ${key_id} …"
   printf '%s' "${BORG_UI_REMOTE_MACHINES}" \
     | python3 -c 'import sys,json
@@ -417,14 +558,17 @@ for m in json.load(sys.stdin):
         body=$(HOST="$host" USER_="$user" PORT="$port" python3 -c '
 import json, os
 print(json.dumps({"host": os.environ["HOST"], "username": os.environ["USER_"], "port": int(os.environ["PORT"])}))')
-        status=$(curl -sS -X POST "$(api ssh-keys/${key_id}/test-connection)" "${auth[@]}" \
-                   -H "Content-Type: application/json" -d "${body}" \
-                 | python3 -c 'import sys,json
+        if status=$(request "POST /api/ssh-keys/${key_id}/test-connection" "$(api ssh-keys/${key_id}/test-connection)" \
+                      -X POST "${auth[@]}" -H "Content-Type: application/json" -d "${body}" \
+                    | python3 -c 'import sys,json
 try:
     d = json.load(sys.stdin); print((d.get("connection") or {}).get("status") or "unknown")
 except Exception:
-    print("error")' 2>/dev/null || echo "error")
-        echo "  ${user}@${host}:${port} → ${status}"
+    print("error")' 2>/dev/null); then
+          echo "  ${user}@${host}:${port} → ${status}"
+        else
+          echo "  ${user}@${host}:${port} → error ($(cat "$WORK/reason" 2>/dev/null))"
+        fi
       done
 fi
 
@@ -439,12 +583,18 @@ fi
 # assembled here from its fields with every part percent-encoded, or a whole
 # service URL. Either way the credential (the SMTP password, or the URL) is read
 # from the environment inside Python and sent from there — never on a command
-# line, never printed (not even the server's error body, which FastAPI fills with
-# the rejected input).
+# line, never printed. A rejected write names what the server said through
+# describe(), which drops the rejected input and masks the channel's URL and
+# password.
 if [ -n "${BORG_UI_NOTIFICATIONS:-}" ] && [ "${BORG_UI_NOTIFICATIONS}" != "[]" ]; then
   echo "Reconciling notification channels …"
-  BORG_UI_PAT="$pat" python3 -c '
+  BORG_UI_PAT="$pat" DESCRIBE_DIR="$WORK" python3 -c '
 import json, os, sys, urllib.error, urllib.parse, urllib.request
+
+sys.path.insert(0, os.environ["DESCRIBE_DIR"])
+from describe import describe
+
+secrets = []  # URL and password of the current channel, masked in any error
 
 base = os.environ["BORG_UI_SERVER"].rstrip("/") + "/api/notifications"
 headers = {"Authorization": "Bearer " + os.environ["BORG_UI_PAT"],
@@ -460,9 +610,10 @@ def call(method, url, body=None):
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        raise RuntimeError("HTTP %d" % e.code) from None
+        said = describe(e.read().decode("utf-8", "replace"), secrets)
+        raise RuntimeError("HTTP %d%s" % (e.code, ": " + said if said else "")) from None
     except (urllib.error.URLError, OSError, ValueError) as e:
-        raise RuntimeError(type(e).__name__) from None
+        raise RuntimeError(describe("%s: %s" % (type(e).__name__, e), secrets)) from None
 
 try:
     existing = call("GET", base)
@@ -507,6 +658,7 @@ for want in json.loads(os.environ["BORG_UI_NOTIFICATIONS"]):
         if not url:
             warn("channel %r: no service URL (%s is empty) — skipped." % (name, want["urlEnv"]))
             continue
+    secrets[:] = [url] + ([password] if "email" in want and password else [])
     fields = {"service_url": url, **want.get("settings", {})}
     found = [c for c in existing if c.get("name") == name]
     try:
@@ -532,7 +684,7 @@ fi
 # Agents block on this ConfigMap (wait-for-reconcile init container), so a failure
 # here must fail the Job (Flux/Helm --wait then fails the release), not warn.
 if [ -n "${RECONCILE_STATUS_CONFIGMAP:-}" ] && [ -n "${RECONCILE_TOKEN:-}" ]; then
-  publish_reconcile_marker || exit 1
+  publish_reconcile_marker
   echo "Published reconcile marker '${RECONCILE_TOKEN}' to ${RECONCILE_STATUS_CONFIGMAP}."
 fi
 
