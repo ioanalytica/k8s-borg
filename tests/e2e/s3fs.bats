@@ -214,6 +214,57 @@ assert_s3fs_detached() {
   assert_s3fs_detached
 }
 
+# s3fs_pid — the pid of the bucket's s3fs, or nothing.
+s3fs_pid() { pgrep -f "^s3fs e2e-bucket $MP( |\$)"; }
+
+# gone PID — the process has ended within 5 s (a zombie counts: only its exit
+# status is left). s3fs ends on its own shortly after its unmount.
+gone() {
+  local _
+  for _ in $(seq 1 50); do
+    [ ! -e "/proc/$1" ] || [ "$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f1)" = Z ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# Plan mode: before each backup the cluster agent mounts every bucket fresh,
+# as each CronJob run does, so the console pod's long-lived mount is never
+# what Borg reads.
+@test "s3-remount-buckets as an agent hook: every bucket gets a new s3fs that outlives the hook" {
+  s3-mount-bucket e2e-bucket
+  local old
+  old="$(s3fs_pid)"
+  mkdir -p "$TMP/agent-scripts"
+  printf '#!/bin/sh\nexec s3-remount-buckets %s\n' "$TMP/buckets" >"$TMP/agent-scripts/s3-remount-buckets"
+  chmod 0555 "$TMP/agent-scripts/s3-remount-buckets"
+  run agent_script_run s3-remount-buckets
+  [ "$status" -eq 0 ] || fail "status $status (124: the agent still waits for the script's output): $output"
+  [[ $output == *"state=completed rc=0"* ]] || fail "$output"
+  gone "$old" || fail "the old s3fs $old still runs"
+  [ "$(s3fs_pid)" != "$old" ] || fail "no new s3fs"
+  assert_s3fs_detached
+}
+
+@test "s3-remount-buckets as an agent hook: a busy mount is detached and mounted fresh" {
+  s3-mount-bucket e2e-bucket
+  local old busy
+  old="$(s3fs_pid)"
+  # A shell standing in the mount keeps it busy.
+  (cd "$MP/db-a" && exec sleep 300) &
+  busy=$!
+  mkdir -p "$TMP/agent-scripts"
+  printf '#!/bin/sh\nexec s3-remount-buckets %s\n' "$TMP/buckets" >"$TMP/agent-scripts/s3-remount-buckets"
+  chmod 0555 "$TMP/agent-scripts/s3-remount-buckets"
+  run agent_script_run s3-remount-buckets
+  kill "$busy" 2>/dev/null; wait "$busy" 2>/dev/null || true
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ $output == *"$MP is busy, detaching it"* ]] || fail "$output"
+  [[ $output == *"state=completed rc=0"* ]] || fail "$output"
+  gone "$old" || fail "the old s3fs $old still runs"
+  assert_s3fs_detached
+}
+
 @test "borg-backup checks the mount and archives every object" {
   s3-mount-bucket e2e-bucket
   write_patterns "R $MP"

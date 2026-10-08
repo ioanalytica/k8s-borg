@@ -22,6 +22,11 @@ spec:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "app") | nindent 8 }}
     spec:
+      # The main process (the agent, or tail) does not collect the exit status
+      # of orphaned processes: an s3fs that ends after its unmount, busybox
+      # timeout's watcher. With a shared process namespace the pause container
+      # is PID 1 and reaps them, so they do not pile up as zombies.
+      shareProcessNamespace: true
       {{- if (include "k8s-borg.dbResolverEnabled" .) }}
       serviceAccountName: {{ include "k8s-borg.dbResolverSAName" . }}
       {{- else if and (eq .Values.cluster.mode "agent") (include "k8s-borg.ui.reconcileGate" .) }}
@@ -88,13 +93,15 @@ spec:
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
-            {{- /* DB dump scripts and the S3 checks get attached to the
+            {{- /* DB dump scripts and the S3 scripts get attached to the
                    cluster plan as pre-backup hooks (plan mode;
-                   register-backup-plan honours this). The listing check
-                   comes first: a bucket it mounts again then counts as
-                   mounted for s3-check-mounts. */}}
+                   register-backup-plan honours this). The buckets are
+                   mounted fresh first, as each CronJob run does (the pod's
+                   own mounts live as long as the pod); then the listing
+                   check, whose new mounts count for s3-check-mounts. */}}
             {{- $s3Scripts := list }}
             {{- if .Values.s3.enabled }}
+            {{- $s3Scripts = append $s3Scripts "s3-remount-buckets" }}
             {{- if .Values.s3.verifyListing }}{{- $s3Scripts = append $s3Scripts "s3-verify-listing" }}{{- end }}
             {{- $s3Scripts = append $s3Scripts "s3-check-mounts" }}
             {{- end }}

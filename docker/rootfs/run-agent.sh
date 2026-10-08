@@ -93,7 +93,7 @@ if [ "${BORG_UI_AGENT:-}" = "true" ]; then
   unset BORG_UI_JWT
 
   # --- 3) run ----------------------------------------------------------------
-  # hand over to the long-running agent as PID 1 (clean signal handling)
+  # hand over to the long-running agent (exec: it gets the container's signals)
   #
   # The agent-bin shim dir goes first on the agent's PATH: for the agent (and
   # everything it spawns) the bare name `borg` must always mean Borg 1 — the
