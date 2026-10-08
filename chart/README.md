@@ -268,7 +268,7 @@ The two majors read the same `ssh://` URL differently:
 | | Borg 1 | Borg 2 |
 | --- | --- | --- |
 | `borg.remotePath` (`BORG_REMOTE_PATH`) | the `borg` wrapper adds `--remote-path=<value>` to every call | read by Borg itself; the option no longer exists (removed in 2.0.0b22) |
-| `borg.encryption` (`BORG_ENCRYPTION`, read by `borg-init` and `register-repo`; empty = the default) | `repokey-blake2` (default), `repokey`, `authenticated-blake2`, `authenticated`, `none` | `repokey-aes-ocb` (default), `repokey-chacha20-poly1305`, `authenticated` (= `authenticated-sha256`). No `none`, no `authenticated-blake3` (Borg UI has no name for it) |
+| `borg.encryption` (`BORG_ENCRYPTION`, read by `borg-init` and `register-repo`; empty = the default) | `repokey-blake2` (default), `repokey`, `keyfile-blake2`, `keyfile`, `authenticated-blake2`, `authenticated`, `none` | `repokey-aes-ocb` (default), `repokey-chacha20-poly1305`, `keyfile-aes-ocb`, `keyfile-chacha20-poly1305`, `authenticated` (= `authenticated-sha256`). No `none`, no `authenticated-blake3` (Borg UI has no name for it) |
 | `borg.passphrase` | needed for the modes with a key | mandatory: from 2.0.0b25 on there is no repository without a key, and every command needs it, `break-lock` and `repo-delete` included |
 | port | taken from the URL | taken from the URL, unless a remote shell command is set (`BORG_RSH`, `BORGSTORE_RSH`): that command is used as it is and has to name the port, `ssh -p 2222`. The chart sets neither |
 | `rest://` | never a repository URL | the name of `ssh://` up to 2.0.0b24; refused from 2.0.0b25 on |
@@ -284,11 +284,53 @@ and both paths: change `borg.repoBase` and `borg.encryption` in the same
 upgrade, and you remove the record in Borg UI (without deleting data) so that
 the pod registers the repository anew, with its mode.
 
-The chart refuses the keyfile modes (`keyfile`, `keyfile-blake2`,
-`keyfile-aes-ocb`, `keyfile-chacha20-poly1305`). Borg keeps their key in the
-pod's `~/.config/borg/keys`, and no volume of the chart persists that
-directory: the key would be gone with the pod, and the repository cannot be
-read without it. The passphrase does not replace the key.
+### Keyfile modes and where the keys live
+
+The keyfile modes (`keyfile`, `keyfile-blake2` for Borg 1, `keyfile-aes-ocb`,
+`keyfile-chacha20-poly1305` for Borg 2) keep the repository's key outside the
+repository, in a file of the client. The passphrase does not replace that
+file: a repository without its key cannot be read.
+
+Every backup workload sets `BORG_KEYS_DIR=/etc/borg-ui-agent/borg-keys`, in
+every mode, so Borg writes its key files to the `persistence.uiAgent` volume,
+next to the agent's `config.toml`. That volume is mounted per node
+(`<volume>/<node>/borg-keys`), and the cluster CronJob and the console pod
+share the cluster's directory, so both read the key the first of them wrote.
+The volume is kept on `helm uninstall` (`persistence.uiAgent.retain`). Borg
+finds a key by the repository id inside the file, not by the file name.
+
+- **Export the key after the first backup** and keep it apart from the
+  cluster: a lost volume means repositories nobody can read.
+
+  ```sh
+  # Borg 1
+  kubectl -n <namespace> exec <pod> -- sh -c 'borg key export "$BORG_REPO"' > <node>.borg-key
+  # Borg 2
+  kubectl -n <namespace> exec <pod> -- sh -c 'borg2 key export' > <node>.borg-key
+  ```
+
+  Import brings it back into `BORG_KEYS_DIR` of a pod of the same node:
+
+  ```sh
+  # Borg 1
+  kubectl -n <namespace> exec -i <pod> -- sh -c 'borg key import "$BORG_REPO" -' < <node>.borg-key
+  # Borg 2
+  kubectl -n <namespace> exec -i <pod> -- sh -c 'borg2 key import --key-location=keyfile -' < <node>.borg-key
+  ```
+
+  Borg 2 needs `--key-location=keyfile`: without it, the imported key is stored
+  in the repository as a repokey key, not in `BORG_KEYS_DIR`.
+
+  A key the chart took from a Secret could only serve such a restore: Borg
+  creates the key when it creates the repository, so it cannot be supplied in
+  advance.
+- **An agent reset removes `config.toml` only.** Wiping the node's whole
+  directory on that volume deletes `borg-keys/` with it.
+- **Borg UI never gets the key**, just as it never gets the agent's SSH key:
+  `register-repo` records the repository without it, and Borg UI is meant to
+  run every operation on an agent's repository through the agent, which reads
+  the key in the pod. An operation Borg UI still runs on its own server for
+  such a repository fails for a keyfile repository.
 
 ### Upgrading to Borg 2.0.0b25
 

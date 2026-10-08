@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* **Keyfile modes for `borg.encryption`** (#20). Borg's key files now go to
+  the `persistence.uiAgent` volume, next to the agent's `config.toml`: every
+  backup workload sets `BORG_KEYS_DIR=/etc/borg-ui-agent/borg-keys`, in every
+  mode, so the key of a keyfile repository survives the pod (the cluster
+  CronJob's next run, a rollout of the DaemonSet or the console pod). The
+  chart therefore accepts `keyfile`, `keyfile-blake2` (Borg 1),
+  `keyfile-aes-ocb` and `keyfile-chacha20-poly1305` (Borg 2), which it
+  refused until now. Repositories that exist are not affected: none of them
+  can be a keyfile repository, and the repokey and authenticated modes keep
+  their key in the repository. The new env variable rolls the backup pods
+  once. The chart README's *Keyfile modes and where the keys live* says how
+  to export a key (do it after the first backup), that an agent reset removes
+  `config.toml` only, and that Borg UI never gets the key.
 * **The chart README explains how to apply a changed Secret** (#27). The
   reconcile Job runs once per Helm revision, so a changed Secret referenced
   through `existingSecret` (a notification password, the OIDC client secret,

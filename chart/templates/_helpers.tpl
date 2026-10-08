@@ -589,6 +589,14 @@ resolve to the chart Secret or a per-field existingSecret[+existingSecretKey].
 - name: BORG_ENCRYPTION
   value: {{ .Values.borg.encryption | quote }}
 {{- end }}
+{{- /*
+Borg's key files go to the uiAgent volume, next to the agent's config.toml
+(k8s-borg.volumeMounts.common mounts it per node): a keyfile repository stays
+readable after the pod is gone. Set for every mode, so that a later change of
+borg.encryption does not hide the key of a repository that exists.
+*/}}
+- name: BORG_KEYS_DIR
+  value: "/etc/borg-ui-agent/borg-keys"
 - name: BORG_TREAT_WARNINGS_AS_ERRORS
   value: {{ .Values.borg.treatWarningsAsErrors | quote }}
 {{- if .Values.borg.remotePath }}

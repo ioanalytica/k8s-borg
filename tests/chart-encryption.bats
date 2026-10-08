@@ -4,8 +4,9 @@
 # rendered as BORG_ENCRYPTION for borg-init and register-repo. Empty leaves the
 # manifests as they were. A mode the chosen Borg major does not have fails the
 # render, and the chart's list of modes is the one borg-encryption.sh accepts,
-# so that the render and the pods cannot disagree, less the keyfile modes: their
-# key would live in the pod's ~/.config/borg/keys, which no volume persists.
+# so that the render and the pods cannot disagree. Borg's key files go to the
+# uiAgent volume (BORG_KEYS_DIR) in every mode, so the keyfile modes survive the
+# pod.
 
 setup() {
   load helpers/common
@@ -101,16 +102,37 @@ lib_accepts() {
   [ "$(lib_labels | wc -l)" -ge 8 ] || fail "case labels: $(lib_labels)"
 }
 
-@test "keyfile modes are refused for both majors, with the reason" {
-  for vm in 1:keyfile 1:keyfile-blake2 2:keyfile-aes-ocb 2:keyfile-chacha20-poly1305; do
-    run render --set "borg.version=${vm%%:*}" --set "borg.encryption=${vm#*:}"
-    [ "$status" -ne 0 ] || fail "$vm rendered although it should not"
-    [[ "$output" == *"keeps the key in the pod"* ]] || fail "$vm: $output"
-    [[ "$output" == *"valid: repokey-"* ]] || fail "$vm: $output"
+@test "BORG_KEYS_DIR is on the uiAgent volume in every workload, whatever the mode" {
+  for args in "--set borg.version=1" "--set borg.version=2" \
+    "--set borg.version=1 --set borg.encryption=keyfile-blake2" \
+    "--set borg.version=2 --set borg.encryption=keyfile-aes-ocb"; do
+    # shellcheck disable=SC2086  # $args holds several options
+    run render $args --set cluster.mode=agent
+    [ "$status" -eq 0 ] || fail "$args: $output"
+    for kind in DaemonSet StatefulSet CronJob; do
+      doc=$(awk -v kind="$kind" '/^---/ { keep = 0 } $0 == "kind: " kind { keep = 1 } keep' <<<"$output")
+      [[ "$doc" == *$'- name: BORG_KEYS_DIR\n'*'value: "/etc/borg-ui-agent/borg-keys"'* ]] \
+        || fail "$args: $kind has no BORG_KEYS_DIR"
+      # The directory is below the per-node mount of the uiAgent claim.
+      ui=$(grep -A2 -E '^ *- name: ui-agent$' <<<"$doc" | sed 's/^ *//')
+      [[ "$ui" == *$'- name: ui-agent\nmountPath: /etc/borg-ui-agent\nsubPathExpr: $(NODE_NAME)'* ]] \
+        || fail "$args: $kind does not mount ui-agent at /etc/borg-ui-agent per node: $ui"
+      [[ "$ui" == *$'- name: ui-agent\npersistentVolumeClaim:\nclaimName: rel-k8s-borg-ui-agent'* ]] \
+        || fail "$args: $kind's ui-agent volume is not the uiAgent claim: $ui"
+    done
+    [ "$(grep -c 'name: BORG_KEYS_DIR' <<<"$output")" -eq 3 ] || fail "$args: BORG_KEYS_DIR outside the three workloads"
   done
 }
 
-@test "Borg 2: the chart accepts the modes borg-encryption.sh accepts, less the keyfile modes" {
+@test "keyfile modes render for both majors" {
+  for vm in 1:keyfile 1:keyfile-blake2 2:keyfile-aes-ocb 2:keyfile-chacha20-poly1305; do
+    run render --set "borg.version=${vm%%:*}" --set "borg.encryption=${vm#*:}"
+    [ "$status" -eq 0 ] || fail "$vm: $output"
+    [[ "$output" == *"value: \"${vm#*:}\""* ]] || fail "$vm not rendered"
+  done
+}
+
+@test "Borg 2: the chart accepts the modes borg-encryption.sh accepts" {
   chart=$(chart_modes 2 | sort)
   for mode in $chart; do
     lib_accepts 2 "$mode" || fail "the chart accepts $mode, borg-init refuses it"
@@ -118,21 +140,19 @@ lib_accepts() {
   for mode in $(lib_labels); do
     if ! lib_accepts 2 "$mode"; then
       ! grep -qxF "$mode" <<<"$chart" || fail "borg-init refuses $mode, the chart accepts it"
-    elif [[ "$mode" == keyfile-* ]]; then
-      ! grep -qxF "$mode" <<<"$chart" || fail "the chart accepts the keyfile mode $mode"
     else
       grep -qxF "$mode" <<<"$chart" || fail "borg-init accepts $mode, the chart refuses it"
     fi
   done
 }
 
-@test "Borg 1: the chart accepts the modes of Borg 1.4 but the keyfile ones, passed through by borg-encryption.sh" {
+@test "Borg 1: the chart accepts the modes of Borg 1.4, passed through by borg-encryption.sh" {
   # The choices of `borg init --encryption` in Borg 1.4.5.
   borg14="authenticated authenticated-blake2 keyfile keyfile-blake2 none repokey repokey-blake2"
   lib=$( . "$BORG_LIB_DIR/borg-encryption.sh"; printf '%s\n' $BORG1_ENCRYPTION_MODES | sort | tr '\n' ' ')
   [ "$lib" = "$borg14 " ] || fail "BORG1_ENCRYPTION_MODES: $lib"
   chart=$(chart_modes 1 | sort | tr '\n' ' ')
-  [ "$chart" = "authenticated authenticated-blake2 none repokey repokey-blake2 " ] || fail "chart: $chart"
+  [ "$chart" = "$borg14 " ] || fail "chart: $chart"
   for mode in $borg14; do
     lib_accepts 1 "$mode" || fail "borg-init refuses $mode"
   done
