@@ -83,19 +83,19 @@ agent_script() {
     || fail "got '$(agent_script s3-verify-listing)'"
 }
 
-@test "plan mode: s3-verify-listing is the first pre-backup hook and continues on error" {
-  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS)" = "s3-verify-listing s3-check-mounts backup-cluster-postgres" ] \
+@test "plan mode: s3-verify-listing runs right after the fresh mount and continues on error" {
+  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS)" = "s3-remount-buckets s3-verify-listing s3-check-mounts backup-cluster-postgres" ] \
     || fail "pre-backup: '$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS)'"
-  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE)" = "s3-verify-listing s3-check-mounts" ] \
+  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE)" = "s3-remount-buckets s3-verify-listing s3-check-mounts" ] \
     || fail "continue: '$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE)'"
 }
 
 @test "plan mode with s3.verifyListing=false: neither published nor attached" {
   [ -z "$(agent_script s3-verify-listing --set s3.verifyListing=false)" ] \
     || fail "published: '$(agent_script s3-verify-listing --set s3.verifyListing=false)'"
-  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS --set s3.verifyListing=false)" = "s3-check-mounts backup-cluster-postgres" ] \
+  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS --set s3.verifyListing=false)" = "s3-remount-buckets s3-check-mounts backup-cluster-postgres" ] \
     || fail "pre-backup: '$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS --set s3.verifyListing=false)'"
-  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE --set s3.verifyListing=false)" = "s3-check-mounts" ] \
+  [ "$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE --set s3.verifyListing=false)" = "s3-remount-buckets s3-check-mounts" ] \
     || fail "continue: '$(plan_env BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE --set s3.verifyListing=false)'"
 }
 

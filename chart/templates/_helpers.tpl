@@ -174,6 +174,7 @@ exec /usr/local/bin/backup-cluster-{{ .engine }} "$@"
 {{- define "k8s-borg.cluster.agentScripts" -}}
 {{- $scripts := .Values.cluster.agentScripts | default dict | deepCopy -}}
 {{- if .Values.s3.enabled -}}
+{{- $scripts = merge $scripts (dict "s3-remount-buckets" "#!/bin/sh\nexec /usr/local/bin/s3-remount-buckets /root/.borg/cluster-s3-buckets") -}}
 {{- $scripts = merge $scripts (dict "s3-check-mounts" "#!/bin/sh\nexec /usr/local/bin/s3-mount-buckets --check /root/.borg/cluster-s3-buckets") -}}
 {{- if .Values.s3.verifyListing -}}
 {{- $scripts = merge $scripts (dict "s3-verify-listing" "#!/bin/sh\nexec /usr/local/bin/s3-verify-listing /root/.borg/cluster-s3-buckets") -}}

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# Mount every S3 bucket of the bucket file fresh: unmount it and mount it again
+# with s3-mount-bucket, as at the pod start. Then report, like
+# `s3-mount-buckets --check`, which listed buckets are not mounted.
+#
+# The cluster agent runs this before each plan-mode backup. The console pod
+# mounts its buckets when it starts and keeps the mounts for its whole life,
+# and s3fs's caches go wrong on long-lived mounts (a directory that lists two
+# entries, a listing that no longer changes; see s3-verify-listing). The
+# CronJob starts a fresh pod, and so fresh mounts, for every run; this gives
+# the plan path the same.
+#
+# A mount that is busy (a shell inside it) cannot be unmounted: it is detached
+# lazily and its s3fs ended, so the new mount does not share the old caches.
+# A bucket that cannot be mounted again is reported, not retried; the other
+# buckets are mounted regardless of S3_ON_MOUNT_FAILURE, which only decides
+# the exit code (see s3-mount-buckets).
+#
+# Usage: s3-remount-buckets BUCKET_FILE
+#   BUCKET_FILE  one bucket per line, # comments (the chart's cluster-s3-buckets)
+#
+# Exit: that of `s3-mount-buckets --check` (0 all mounted, 1 warning: some
+# not mounted, 2 none mounted or one not mounted under fail).
+#
+# Environment: those of s3-mount-bucket and s3-mount-buckets.
+set -uo pipefail
+
+[[ $# -eq 1 && -f $1 ]] || { echo "usage: s3-remount-buckets BUCKET_FILE" >&2; exit 2; }
+bucket_file=$1
+: "${S3_MOUNTPOINT:?S3_MOUNTPOINT must be set}"
+
+while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
+  [[ -n ${bucket} && ${bucket} != \#* ]] || continue
+  mp="${S3_MOUNTPOINT}/${bucket}"
+  if mountpoint -q "${mp}"; then
+    if ! { umount "${mp}" 2>/dev/null || fusermount3 -u "${mp}" 2>/dev/null; }; then
+      echo "  ${bucket}: ${mp} is busy, detaching it" >&2
+      umount -l "${mp}" 2>/dev/null || true
+      pkill -KILL -f "^s3fs ${bucket} ${mp}( |\$)" 2>/dev/null || true
+    fi
+  else
+    # Its s3fs died (a FUSE endpoint is left behind), or the start skipped it.
+    umount -l "${mp}" 2>/dev/null || true
+  fi
+  echo "  mounting ${bucket} …"
+  s3-mount-bucket "${bucket}" </dev/null || true
+done 3<"${bucket_file}"
+
+exec s3-mount-buckets --check "${bucket_file}"

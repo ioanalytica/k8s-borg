@@ -422,7 +422,8 @@ cluster:
   ##   A wrapper for each enabled database is added automatically and DEEP-MERGED with the
   ##   entries below (yours win on a name collision): databases.mariadb.enabled ->
   ##   `backup-cluster-mariadb`, databases.postgres.enabled -> `backup-cluster-postgres`
-  ##   (each execs /usr/local/bin/backup-cluster-<engine>), and s3.enabled -> `s3-check-mounts`
+  ##   (each execs /usr/local/bin/backup-cluster-<engine>), and s3.enabled -> `s3-remount-buckets`
+  ##   (every listed bucket unmounted and mounted fresh) and `s3-check-mounts`
   ##   (`s3-mount-buckets --check`: a warning in Borg UI when a listed bucket is not mounted)
   ##   and, with s3.verifyListing, `s3-verify-listing` (the listing check of the CronJob; it
   ##   mounts a lost or skipped bucket again).

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+* **Plan-mode cluster backups mount the S3 buckets fresh before each run**
+  (#39). The console pod mounts its buckets when it starts and keeps the
+  mounts as long as it runs, often for days, and s3fs's caches go wrong on
+  such a mount: archives of plan-mode clusters showed directories with two
+  entries and directory listings that no longer changed (deleted files gone,
+  new ones never shown), while every CronJob archive of the same days was
+  complete, since each CronJob run mounts fresh. The new agent script
+  `s3-remount-buckets` unmounts every listed bucket and mounts it again with
+  the probe and the `s3.onMountFailure` policy of the start; a busy mount is
+  detached and its s3fs ended. In `cluster.backupMode=plan` it is the first
+  pre-backup hook, ahead of `s3-verify-listing` and `s3-check-mounts`, and
+  continues on error like them.
+* **The console pod reaps orphaned processes.** Its main process, the agent,
+  does not collect the exit status of processes left to it, such as an s3fs
+  that ends after its unmount or the watcher of busybox `timeout`; they stayed
+  as zombies until the pod restarted, and a remount on every plan run would
+  have added one per bucket per run. The pod now shares its process
+  namespace (`shareProcessNamespace: true`), so the pause container is PID 1
+  and reaps them.
+
 ## 1.1.9-beta.9
 
 * **Borg UI follows upstream main: 2.3.10-36-g5e15222d5, agent 0.1.20.**

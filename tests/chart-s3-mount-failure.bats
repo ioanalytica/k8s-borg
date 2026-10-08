@@ -2,8 +2,9 @@
 #
 # s3.onMountFailure reaches the cluster CronJob and the console pod as
 # S3_ON_MOUNT_FAILURE (skip unless set to fail, anything else refused), and in
-# plan mode the cluster plan gets s3-check-mounts as a pre-backup hook that
-# continues on error, so that a bucket that is not mounted shows as a warning in
+# plan mode the cluster plan gets s3-remount-buckets (a fresh mount of every
+# bucket before each backup) and s3-check-mounts as pre-backup hooks that
+# continue on error, so that a bucket that is not mounted shows as a warning in
 # Borg UI and the other sources are still backed up.
 
 setup() {
@@ -74,10 +75,10 @@ plan_args=(--set cluster.mode=agent --set cluster.backupMode=plan)
   out="$(render "${plan_args[@]}" --set databases.postgres.enabled=true --set databases.postgres.existingSecret=pg)"
   grep -qx '    exec /usr/local/bin/s3-mount-buckets --check /root/.borg/cluster-s3-buckets' <<<"$out" \
     || fail "no s3-check-mounts script in the agent scripts"
-  # s3-verify-listing goes first (chart-s3-verify-listing.bats).
-  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out" | grep -qx '              value: "s3-verify-listing s3-check-mounts backup-cluster-postgres"' \
+  # The fresh mount and the listing check go first (chart-s3-verify-listing.bats).
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out" | grep -qx '              value: "s3-remount-buckets s3-verify-listing s3-check-mounts backup-cluster-postgres"' \
     || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS' <<<"$out")"
-  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out" | grep -qx '              value: "s3-verify-listing s3-check-mounts"' \
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out" | grep -qx '              value: "s3-remount-buckets s3-verify-listing s3-check-mounts"' \
     || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out")"
 }
 
@@ -85,4 +86,21 @@ plan_args=(--set cluster.mode=agent --set cluster.backupMode=plan)
   local out
   out="$(render "${plan_args[@]}" --set s3.enabled=false --set databases.postgres.enabled=true --set databases.postgres.existingSecret=pg)"
   ! grep -q 's3-check-mounts' <<<"$out" || fail "$(grep -n 's3-check-mounts' <<<"$out")"
+}
+
+@test "plan mode: s3-remount-buckets is published and is the first pre-backup hook" {
+  local out
+  out="$(render "${plan_args[@]}" --set databases.postgres.enabled=true --set databases.postgres.existingSecret=pg)"
+  grep -qx '    exec /usr/local/bin/s3-remount-buckets /root/.borg/cluster-s3-buckets' <<<"$out" \
+    || fail "no s3-remount-buckets script in the agent scripts"
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS$' <<<"$out" | grep -q 'value: "s3-remount-buckets ' \
+    || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS$' <<<"$out")"
+  grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out" | grep -q 'value: "s3-remount-buckets ' \
+    || fail "$(grep -A1 'name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE' <<<"$out")"
+}
+
+@test "plan mode without S3: no s3-remount-buckets" {
+  local out
+  out="$(render "${plan_args[@]}" --set s3.enabled=false --set databases.postgres.enabled=true --set databases.postgres.existingSecret=pg)"
+  ! grep -q 's3-remount-buckets' <<<"$out" || fail "$(grep -n 's3-remount-buckets' <<<"$out")"
 }
