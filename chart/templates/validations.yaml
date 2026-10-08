@@ -45,24 +45,17 @@ refuses it at run time.
 borg.encryption names a mode the way borg-init reads BORG_ENCRYPTION
 (docker/rootfs/usr/local/lib/borg-encryption.sh): Borg 1 passes Borg's own
 names through, Borg 2 translates them and refuses none and authenticated-blake3.
-The keyfile modes are refused here although borg-init has them: their key lives
-in the pod's ~/.config/borg/keys, which no volume of the chart persists, and a
-repository without its key cannot be read. tests/chart-encryption.bats keeps
-these lists equal to what the script accepts. Any borg.version but 2 is Borg 1,
-as for the scripts.
+The keyfile modes keep their key in BORG_KEYS_DIR, on the uiAgent volume
+(k8s-borg.env.common). tests/chart-encryption.bats keeps these lists equal to
+what the script accepts. Any borg.version but 2 is Borg 1, as for the scripts.
 */}}
 {{- with .Values.borg.encryption }}
 {{- $major := ternary "2" "1" (eq (toString $.Values.borg.version) "2") }}
 {{- $valid := get (dict
-      "1" (list "repokey-blake2" "repokey" "authenticated-blake2" "authenticated" "none")
-      "2" (list "repokey-aes-ocb" "repokey-chacha20-poly1305" "authenticated" "authenticated-sha256")) $major }}
-{{- $keyfile := get (dict
-      "1" (list "keyfile-blake2" "keyfile")
-      "2" (list "keyfile-aes-ocb" "keyfile-chacha20-poly1305")) $major }}
+      "1" (list "repokey-blake2" "repokey" "keyfile-blake2" "keyfile" "authenticated-blake2" "authenticated" "none")
+      "2" (list "repokey-aes-ocb" "repokey-chacha20-poly1305" "keyfile-aes-ocb" "keyfile-chacha20-poly1305" "authenticated" "authenticated-sha256")) $major }}
 {{- $mode := toString . }}
-{{- if has $mode $keyfile }}
-{{- fail (printf "borg.encryption: %q keeps the key in the pod (~/.config/borg/keys), and no volume of the chart keeps it: the key would go with the pod, and a repository without its key cannot be read. The chart does not offer the keyfile modes; valid: %s. Empty selects the default, %s." $mode (join ", " $valid) (first $valid)) }}
-{{- else if not (has $mode $valid) }}
+{{- if not (has $mode $valid) }}
 {{- fail (printf "borg.encryption: %q is not a Borg %s mode; valid: %s. Empty selects the default, %s." $mode $major (join ", " $valid) (first $valid)) }}
 {{- end }}
 {{- end }}

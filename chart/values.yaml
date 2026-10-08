@@ -68,10 +68,13 @@ borg:
   ## @param borg.encryption Mode of the repositories the pods create (rendered as BORG_ENCRYPTION, read
   ## by borg-init and register-repo). Empty = the default of borg.version: repokey-blake2 (Borg 1),
   ## repokey-aes-ocb (Borg 2). Named as Borg UI names the modes:
-  ##   Borg 1   repokey-blake2, repokey, authenticated-blake2, authenticated, none
-  ##   Borg 2   repokey-aes-ocb, repokey-chacha20-poly1305, authenticated (= authenticated-sha256)
-  ## A mode the major does not have fails the render. So do the keyfile modes: their key would
-  ## live in the pod, and no volume of the chart keeps it. A repository that exists keeps its mode.
+  ##   Borg 1   repokey-blake2, repokey, keyfile-blake2, keyfile, authenticated-blake2,
+  ##            authenticated, none
+  ##   Borg 2   repokey-aes-ocb, repokey-chacha20-poly1305, keyfile-aes-ocb,
+  ##            keyfile-chacha20-poly1305, authenticated (= authenticated-sha256)
+  ## A mode the major does not have fails the render. A repository that exists keeps its mode.
+  ## Borg's key files (BORG_KEYS_DIR) live on the uiAgent volume, per node, in every mode: export
+  ## the key of a keyfile repository (`borg key export`), see "Keyfile modes" in the chart README.
   encryption: ""
   ## @param borg.treatWarningsAsErrors Propagate borg warnings (rc=1) as failures. Default false: the
   ## borg wrapper downgrades rc=1 (missing path, file changed mid-backup) to success so managed-agent
@@ -822,7 +825,8 @@ persistence:
     size: 5Gi
     storageClassName: ""
   uiAgent:
-    ## @param persistence.uiAgent.retain Keep the agent config PVC/PV on uninstall (avoids re-enrollment)
+    ## @param persistence.uiAgent.retain Keep the agent config PVC/PV on uninstall (avoids re-enrollment).
+    ## Holds, per node, the agent's config.toml and Borg's key files (borg-keys/).
     retain: true
     existingClaim: ""
     createPV: false

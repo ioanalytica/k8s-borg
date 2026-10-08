@@ -149,6 +149,33 @@ nothing_left() { [ -z "$(ls -A "$WORK")" ] || fail "left behind: $(find "$WORK" 
   nothing_left
 }
 
+@test "a keyfile repository stays readable in a new pod through BORG_KEYS_DIR alone" {
+  # The chart sets BORG_KEYS_DIR to the uiAgent volume and nothing else of the
+  # pod outlives it: a fresh HOME per "pod" drops ~/.config, ~/.local and
+  # ~/.cache, as a recreated pod does. ssh reads the passwd home, not HOME.
+  local mode=keyfile-blake2
+  [ "$BORG_VERSION" = "2" ] && mode=keyfile-aes-ocb
+  export BORG_ENCRYPTION="$mode" BORG_KEYS_DIR="$TMP/ui-agent/borg-keys"
+  for kind in local remote; do
+    on "$kind" "keys-$kind"
+    HOME="$TMP/pod1-$kind" run borg-init
+    [ "$status" -eq 0 ] || fail "$kind: borg-init: $output"
+    HOME="$TMP/pod1-$kind" run borg-backup
+    [ "$status" -eq 0 ] || fail "$kind: borg-backup: $output"
+    [ -z "$(find "$TMP/pod1-$kind" -path '*/borg/keys/*' -type f)" ] || fail "$kind: a key outside BORG_KEYS_DIR"
+
+    HOME="$TMP/pod2-$kind" run borg-backup
+    [ "$status" -eq 0 ] || fail "$kind: borg-backup in a new pod: $output"
+    [ "$(HOME="$TMP/pod2-$kind" archive_count)" -eq 2 ] || fail "$kind: archives: $(HOME="$TMP/pod2-$kind" archive_count)"
+
+    # Without the directory the key is gone: the repository does not hold it.
+    BORG_KEYS_DIR="$TMP/empty-keys" HOME="$TMP/pod3-$kind" run borg-list
+    [ "$status" -ne 0 ] || fail "$kind: readable without the key directory: $output"
+  done
+  [ "$(find "$BORG_KEYS_DIR" -type f | wc -l)" -eq 2 ] || fail "key files: $(ls -A "$BORG_KEYS_DIR")"
+  nothing_left
+}
+
 @test "BORG_ENCRYPTION=authenticated is authenticated-sha256 in Borg 2" {
   [ "$BORG_VERSION" = "2" ] || skip "Borg 1 has one authenticated mode"
   export BORG_ENCRYPTION=authenticated
