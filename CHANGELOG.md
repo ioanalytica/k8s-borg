@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.1.9-beta.10
 
+* **Borg UI unchanged: 2.3.10-36-g5e15222d5, agent 0.1.20.** Upstream main
+  has not moved since 1.1.9-beta.9; the `borg-ui` pin, the UI image, the
+  agent version, the database schema (Alembic head c8e1f4a7b2d9) and the
+  runtime base (Borg 1.4.5, Borg 2.0.0b25) stay as they are. This release
+  carries the chart and the agent image for #39.
 * **Plan-mode cluster backups mount the S3 buckets fresh before each run**
   (#39). The console pod mounts its buckets when it starts and keeps the
   mounts as long as it runs, often for days, and s3fs's caches go wrong on
@@ -23,6 +28,24 @@
   have added one per bucket per run. The pod now shares its process
   namespace (`shareProcessNamespace: true`), so the pause container is PID 1
   and reaps them.
+
+### Upgrade notes
+
+* The console pod rolls once (`shareProcessNamespace`). At its start the
+  cluster plan's pre-backup hooks become `s3-remount-buckets`,
+  `s3-verify-listing` (with `s3.verifyListing`), `s3-check-mounts`, the
+  database dumps; as before, hooks changed in Borg UI are replaced.
+* Each plan run now mounts every bucket fresh: about a second per bucket,
+  and for a bucket that cannot be mounted the probe's `S3_PROBE_TIMEOUT`
+  (30 s), once in `s3-remount-buckets` and once more in `s3-verify-listing`.
+  Such a bucket is reported twice in the run, by `s3-remount-buckets` and by
+  `s3-check-mounts`.
+* The tag `1.1.9-beta.9` was built again from the merge of #39, chart and
+  images under the same version. A cluster that had fetched the 1.1.9-beta.9
+  chart before keeps it, since Flux does not fetch a chart again under the
+  same version: its pods run the new image, which carries
+  `s3-remount-buckets`, but the old chart neither publishes nor attaches it.
+  Use 1.1.9-beta.10.
 
 ## 1.1.9-beta.9
 
