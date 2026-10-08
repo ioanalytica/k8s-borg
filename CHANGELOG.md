@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.1.9-beta.9
 
+* **Borg UI follows upstream main: 2.3.10-36-g5e15222d5, agent 0.1.20.**
+  The `borg-ui` submodule moves from 49099c8c0 to upstream main 5e15222d5:
+  a test change (#1369) and an agent fix without a version change (#1387).
+  Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is
+  the database schema (Alembic head c8e1f4a7b2d9).
 * **Keyfile modes for `borg.encryption`** (#20). Borg's key files now go to
   the `persistence.uiAgent` volume, next to the agent's `config.toml`: every
   backup workload sets `BORG_KEYS_DIR=/etc/borg-ui-agent/borg-keys`, in every
@@ -67,7 +72,6 @@
   backup (the CronJob fails such a run; Borg UI cannot fail a plan run after
   its backup). s3fs puts itself into a session of its own, so a bucket mounted
   again from the hook stays mounted after the hook ends or is cancelled.
-
 * **A failed reconcile Job says why, and the reason stays** (#29). Every
   request of the Job is bounded in time; the health wait gives up on a single
   attempt after 10 s instead of curl's own 300-s connect timeout, which let
@@ -84,6 +88,19 @@
 
 ### Upgrade notes
 
+* The UI image tag is `2.3.10-36-g5e15222d5`; the UI itself still shows
+  2.3.10. The agent version stays 0.1.20, so managed agents get no upgrade
+  offer: the pods' agent gets #1387 with the 1.1.9-beta.9 agent image, an
+  agent installed outside the cluster keeps its 0.1.20 without it. Borg UI
+  sends only 1 or 2 as the Borg major (since 1.1.9-beta.8), so such an agent
+  never meets the case #1387 changes.
+* The console pod and the DaemonSet roll once for the new `BORG_KEYS_DIR`;
+  the cluster CronJob picks it up with its next run.
+* Cluster archives written through a long-lived s3fs mount by an earlier
+  image (above all the console pod in `cluster.backupMode=plan`) can miss
+  files of a bucket. The first cluster run with this image archives the
+  bucket's full listing; archives from before the upgrade keep what they
+  hold, so compare them with the bucket before relying on them.
 * New value `s3.verifyListing` (default `true`). Each check costs two
   listings of the bucket through the S3 API and one walk of its mount, once
   per cluster run; a bucket that is mounted again is checked again, which
@@ -112,6 +129,13 @@
 * `borgUI.reconcile.waitSeconds`: image pull time plus this wait must stay
   below the release timeout (HelmRelease `spec.timeout`, `helm --timeout`),
   or raising it only moves the failure from the Job to the release.
+
+### Borg UI changes since the previous pin
+
+* The agent refuses a Borg major that a job names as 0 or an empty string
+  instead of running it as Borg 1; only a missing major still means 1, as on
+  the server (#1387, agent version unchanged).
+* Tests that assert on queued work hold the operations runner (#1369).
 
 ## 1.1.9-beta.8
 
