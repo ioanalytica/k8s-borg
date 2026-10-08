@@ -30,6 +30,10 @@ set -uo pipefail
 bucket_file=$1
 : "${S3_MOUNTPOINT:?S3_MOUNTPOINT must be set}"
 
+# re TEXT — TEXT as a literal in an extended regex (a dot in a bucket name
+# must not match another bucket's s3fs).
+re() { printf '%s' "$1" | sed 's/[][\.^$*+?(){}|]/\\&/g'; }
+
 while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
   [[ -n ${bucket} && ${bucket} != \#* ]] || continue
   mp="${S3_MOUNTPOINT}/${bucket}"
@@ -37,7 +41,7 @@ while read -r -u 3 bucket || [[ -n ${bucket} ]]; do
     if ! { umount "${mp}" 2>/dev/null || fusermount3 -u "${mp}" 2>/dev/null; }; then
       echo "  ${bucket}: ${mp} is busy, detaching it" >&2
       umount -l "${mp}" 2>/dev/null || true
-      pkill -KILL -f "^s3fs ${bucket} ${mp}( |\$)" 2>/dev/null || true
+      pkill -KILL -f "^s3fs $(re "${bucket}") $(re "${mp}")( |\$)" 2>/dev/null || true
     fi
   else
     # Its s3fs died (a FUSE endpoint is left behind), or the start skipped it.

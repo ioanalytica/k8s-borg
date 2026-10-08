@@ -24,6 +24,9 @@
 set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+# re TEXT — TEXT as a literal in an extended regex (a dot in a bucket name
+# must not match another bucket's s3fs).
+re() { printf '%s' "$1" | sed 's/[][\.^$*+?(){}|]/\\&/g'; }
 
 [[ $# -eq 1 && -n $1 ]] || die "usage: s3-mount-bucket BUCKET"
 bucket=$1
@@ -72,7 +75,7 @@ fi
 # other waiter), which a plain unmount cannot because the mount is busy. s3fs
 # itself survives the abort and keeps polling the server, so end it as well.
 umount -f "${mountpoint}" 2>/dev/null || true
-pkill -KILL -f "^s3fs ${bucket} ${mountpoint}( |\$)" 2>/dev/null || true
+pkill -KILL -f "^s3fs $(re "${bucket}") $(re "${mountpoint}")( |\$)" 2>/dev/null || true
 umount -l "${mountpoint}" 2>/dev/null || true
 kill -KILL "${probe}" 2>/dev/null || true
 wait "${probe}" 2>/dev/null || true

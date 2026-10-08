@@ -13,7 +13,9 @@
   the probe and the `s3.onMountFailure` policy of the start; a busy mount is
   detached and its s3fs ended. In `cluster.backupMode=plan` it is the first
   pre-backup hook, ahead of `s3-verify-listing` and `s3-check-mounts`, and
-  continues on error like them.
+  continues on error like them. Ending the s3fs of a busy or failed mount now
+  matches the bucket name literally: a dot in a bucket name no longer also
+  matches another bucket's s3fs (also in `s3-mount-bucket`).
 * **The console pod reaps orphaned processes.** Its main process, the agent,
   does not collect the exit status of processes left to it, such as an s3fs
   that ends after its unmount or the watcher of busybox `timeout`; they stayed

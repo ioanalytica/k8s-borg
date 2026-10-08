@@ -55,6 +55,9 @@ teardown() { common_teardown; }
 
 calls() { cat "$TMP/calls"; }
 
+# kills CMDLINE — the recorded `pkill -KILL -f` pattern matches CMDLINE.
+kills() { grep -qE -- "$(sed -n 's/^pkill -KILL -f //p' "$TMP/calls")" <<<"$1"; }
+
 @test "every listed bucket is unmounted and mounted again, in order" {
   run "$BIN/s3-remount-buckets" "$TMP/buckets"
   [ "$status" -eq 0 ] || fail "status $status: $output"
@@ -72,9 +75,20 @@ s3-mount-bucket logs" ] || fail "$(calls)"
   run --separate-stderr "$BIN/s3-remount-buckets" "$TMP/buckets"
   [ "$status" -eq 0 ] || fail "status $status: $stderr"
   [[ $stderr == *"media: $TMP/s3/media is busy, detaching it"* ]] || fail "$stderr"
-  grep -A4 -xF "umount $TMP/s3/media" "$TMP/calls" | tr '\n' '|' \
-    | grep -qxF "umount $TMP/s3/media|fusermount3 -u $TMP/s3/media|umount -l $TMP/s3/media|pkill -KILL -f ^s3fs media $TMP/s3/media( |\$)|s3-mount-bucket media|" \
+  grep -A4 -xF "umount $TMP/s3/media" "$TMP/calls" | sed 's/^pkill -KILL -f .*/pkill/' | tr '\n' '|' \
+    | grep -qxF "umount $TMP/s3/media|fusermount3 -u $TMP/s3/media|umount -l $TMP/s3/media|pkill|s3-mount-bucket media|" \
     || fail "$(calls)"
+  kills "s3fs media $TMP/s3/media -o url=x" || fail "the pattern misses media's s3fs: $(calls)"
+  ! kills "s3fs media2 $TMP/s3/media2 -o url=x" || fail "the pattern hits another bucket: $(calls)"
+}
+
+@test "a busy bucket with a dot in its name ends only its own s3fs" {
+  printf '%s\n' media.foo >"$TMP/buckets"
+  echo media.foo >"$TMP/mounted"; echo media.foo >"$TMP/busy"
+  run "$BIN/s3-remount-buckets" "$TMP/buckets"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  kills "s3fs media.foo $TMP/s3/media.foo -o url=x" || fail "the pattern misses media.foo's s3fs: $(calls)"
+  ! kills "s3fs mediaXfoo $TMP/s3/mediaXfoo -o url=x" || fail "the dot matches any character: $(calls)"
 }
 
 @test "a bucket that is not mounted is cleaned up and mounted" {

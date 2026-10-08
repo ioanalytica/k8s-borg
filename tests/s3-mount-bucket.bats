@@ -98,16 +98,29 @@ called() { grep -qxF -- "$1" "$TMP/calls" 2>/dev/null; }
   ! kill -0 "$(cat "$TMP/ls.pid")" 2>/dev/null || fail "the listing is still running"
 }
 
+# kills CMDLINE — the recorded `pkill -KILL -f` pattern matches CMDLINE.
+kills() { grep -qE -- "$(sed -n 's/^pkill -KILL -f //p' "$TMP/calls")" <<<"$1"; }
+
 @test "a failed mount is aborted, s3fs ended and the mount detached, in that order" {
   make_stubs hang
   run "$BIN/s3-mount-bucket" pg-backups
   [ "$status" -eq 1 ] || fail "status $status"
   expected="ls
 umount -f $TMP/s3/pg-backups
-pkill -KILL -f ^s3fs pg-backups $TMP/s3/pg-backups( |\$)
+pkill
 umount -l $TMP/s3/pg-backups"
-  [ "$(cat "$TMP/calls")" = "$expected" ] || fail "$(cat "$TMP/calls")"
+  [ "$(sed 's/^pkill -KILL -f .*/pkill/' "$TMP/calls")" = "$expected" ] || fail "$(cat "$TMP/calls")"
+  kills "s3fs pg-backups $TMP/s3/pg-backups -o url=x" || fail "the pattern misses the bucket's s3fs: $(cat "$TMP/calls")"
+  ! kills "s3fs pg-backups2 $TMP/s3/pg-backups2 -o url=x" || fail "the pattern hits another bucket: $(cat "$TMP/calls")"
   [ ! -e "$TMP/s3/pg-backups" ] || fail "the empty mount directory is left behind"
+}
+
+@test "a failed mount of a bucket with a dot in its name ends only its own s3fs" {
+  make_stubs hang
+  run "$BIN/s3-mount-bucket" pg.backups
+  [ "$status" -eq 1 ] || fail "status $status"
+  kills "s3fs pg.backups $TMP/s3/pg.backups -o url=x" || fail "the pattern misses the bucket's s3fs: $(cat "$TMP/calls")"
+  ! kills "s3fs pgXbackups $TMP/s3/pgXbackups -o url=x" || fail "the dot matches any character: $(cat "$TMP/calls")"
 }
 
 @test "an s3fs that refuses to mount fails before any listing" {
