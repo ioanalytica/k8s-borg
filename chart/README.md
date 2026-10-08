@@ -312,9 +312,14 @@ finds a key by the repository id inside the file, not by the file name.
   Import brings it back into `BORG_KEYS_DIR` of a pod of the same node:
 
   ```sh
+  # Borg 1
   kubectl -n <namespace> exec -i <pod> -- sh -c 'borg key import "$BORG_REPO" -' < <node>.borg-key
-  kubectl -n <namespace> exec -i <pod> -- sh -c 'borg2 key import -' < <node>.borg-key
+  # Borg 2
+  kubectl -n <namespace> exec -i <pod> -- sh -c 'borg2 key import --key-location=keyfile -' < <node>.borg-key
   ```
+
+  Borg 2 needs `--key-location=keyfile`: without it, it writes the key into
+  the repository and makes it a repokey repository.
 
   A key the chart took from a Secret could only serve such a restore: Borg
   creates the key when it creates the repository, so it cannot be supplied in
