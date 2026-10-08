@@ -16,8 +16,14 @@
 # new mount starts with empty caches) and checked once more; so is a bucket
 # that is not mounted, because its s3fs died or the start skipped it. With
 # S3_ON_MOUNT_FAILURE=skip a bucket that was not mounted and cannot be is left
-# to `s3-mount-buckets --check`, which borg-backup runs next and which reports
-# it as a warning; one found incomplete that cannot be mounted again fails.
+# to `s3-mount-buckets --check`, which borg-backup runs next (in plan mode the
+# next pre-backup hook, s3-check-mounts) and which reports it as a warning; one
+# found incomplete that cannot be mounted again fails.
+#
+# In plan mode the cluster agent runs this as a pre-backup hook. A bucket it
+# mounts again stays mounted after the hook: s3fs puts itself into a session of
+# its own with its output on /dev/null, so neither the end of the hook nor a
+# cancel (the agent signals the hook's process group) reaches it.
 #
 # Usage: s3-verify-listing BUCKET_FILE
 #   BUCKET_FILE  one bucket per line, # comments (the chart's cluster-s3-buckets)

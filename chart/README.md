@@ -71,9 +71,12 @@ secrets they need:
   the console pod. Use this for cluster-backup scripts (DB dumps etc.) — that pod is
   where the cluster source/DB secrets live. The chart adds `backup-cluster-<engine>`
   for each enabled database and, with `s3.enabled`, `s3-check-mounts` (exit `1`
-  when a listed bucket is not mounted); in `cluster.backupMode=plan` they are the
-  plan's pre-backup hooks. A failing `s3-check-mounts` does not stop the backup
-  (`continue_on_error`); a failing database dump does.
+  when a listed bucket is not mounted) and, with `s3.verifyListing` as well,
+  `s3-verify-listing` (the CronJob's listing check, which also mounts a lost or
+  skipped bucket again); in `cluster.backupMode=plan` they are the plan's
+  pre-backup hooks, in the order `s3-verify-listing`, `s3-check-mounts`, the
+  dumps. A failing S3 check does not stop the backup (`continue_on_error`); a
+  failing database dump does.
 - **`node.agentScripts`** (needs `node.backupMode=agent`) → each **node** agent.
   Use this for node-local scripts. Node pods do not have the cluster secrets.
 
@@ -380,7 +383,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | --- | --- |
 | `image`, `initImage` | agent image (defaults to appVersion) |
 | `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
-| `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run |
+| `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run. In plan mode the check is the pre-backup hook `s3-verify-listing`, ahead of `s3-check-mounts`; the console pod's mounts live as long as the pod, so each plan run checks them and mounts a lost or skipped bucket again, and a bucket that still misses objects ends the run with a warning in Borg UI (Borg UI has no way to fail a plan run after its backup) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
 | `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude` |
 
