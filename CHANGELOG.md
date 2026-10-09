@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.9-beta.11
+
+* **Borg UI follows upstream main: 2.3.10-43-gb45ce0f58, agent 0.1.20.**
+  The `borg-ui` submodule moves from 5e15222d5 to upstream main b45ce0f58.
+  Nothing under `agent/` changed, so the agent version stays 0.1.20; Borg
+  1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is the
+  database schema (Alembic head c8e1f4a7b2d9). The changes are in the UI
+  server:
+  * Agent compacts and other agent jobs are no longer recorded as failed
+    when the agent's last report races its completion: the operation keeps
+    its verdict (#1382).
+  * An agent hook's exit code is read by the script contract, not Borg's:
+    rc 1 is a warning, and a failing hook (rc 2 or higher) keeps its stdout
+    and stderr in the job (#1390).
+  * An unknown backup percentage stays unknown instead of showing 0 %; agent
+    backups, which have no source total, show the bytes read (#1391).
+  * A changed agent repository path is checked on the agent (#1379).
+  * The staged restore canary is replaced without crossing mounts (#1380).
+  * The agent uninstaller, which the server serves, refuses override paths
+    that do not belong to the agent (#1375).
+  * Tests only: a migration upgrade-path suite over every release's seeded
+    database (#1374).
+
 ## 1.1.9-beta.10
 
 * **Borg UI unchanged: 2.3.10-36-g5e15222d5, agent 0.1.20.** Upstream main
