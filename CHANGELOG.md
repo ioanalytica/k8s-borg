@@ -1,5 +1,76 @@
 # Changelog
 
+## 1.1.9-beta.12
+
+* **Integration test beta: Borg UI 2.3.10-52-g2e4031646, agent 0.1.21.**
+  This beta is meant to run for 24 hours to test fixes that are not merged
+  upstream yet. The `borg-ui` submodule leaves upstream main for once and
+  pins our fork's `io/integration` branch at 2e4031646: upstream main
+  b45ce0f58 (the beta.11 pin) plus nine commits, picked linearly in this
+  order, from seven open borg-ui pull requests and two fixes still under
+  review in our fork (stacked on borg-ui PR #1384). None of them is merged
+  upstream. The runtime base (Borg 1.4.5, Borg 2.0.0b25) is unchanged; the
+  database schema moves to Alembic head c4e532c20d7b, which only borg-ui PR
+  #1396 contains.
+  * CI only: pull requests that touch destructive code paths are labelled
+    (borg-ui PR #1370, issue #1367).
+  * Agent 0.1.21 keeps a finished job's outcome until the server has taken
+    it, retrying while the server is away, and lists such a job as running,
+    so a server outage no longer makes the server run the job again. After
+    a crash and restart (launchd's KeepAlive on macOS, or an agent started
+    by hand), the agent ends hook process groups left by its dead process
+    before its first hello. Every log line carries the run it belongs to,
+    and the server drops lines of an earlier attempt. Agent 0.1.21 also
+    carries the agent code of borg-ui #1387 (borg-ui PR #1400, issues #1377
+    and #1383).
+  * A started job the agent no longer runs is recovered at the agent's hello
+    instead of holding its repository until the reaper fails it 15 minutes
+    later, as an agent process restarted mid-job left it (borg-ui PR #1384,
+    issue #1363).
+  * A start report that reaches the server after the job's completion no
+    longer sets the completed agent job, and its operation, back to running
+    (borg-ui issue #1376; fork PR, not yet upstream).
+  * A requeued agent job's stored log lines are dropped before it runs
+    again, so the retry's log is no longer the first run's followed by the
+    retry's tail (borg-ui issue #1378; fork PR, not yet upstream).
+  * The archive of a backup that failed after `borg create`, for example by
+    a failing post-backup hook, is linked to the backup (borg-ui PR #1392,
+    issue #1328).
+  * An agent repository's own pre/post-backup hooks run on the agent, as
+    scripts the agent publishes and that are assigned by name; inline and
+    library scripts, which would run on the server, are refused for an
+    agent repository (borg-ui PR #1396, issue #1386). Adds
+    `repository_scripts.agent_script_name` and makes `script_id` nullable
+    (Alembic c4e532c20d7b on c8e1f4a7b2d9).
+  * The restore canary is no longer staged inside an SSH source mount,
+    where it wrote files on the source host (borg-ui PR #1397, issue
+    #1381).
+  * The scheduler starts after the startup sweeps, and the sweeps keep plan
+    runs this process is executing: catch-up runs after a restart were
+    dispatched first and then failed as interrupted by the restart
+    (borg-ui PR #1399, issue #1398).
+
+### Upgrade notes
+
+* Agents must run 0.1.21 for the agent fixes. Agents in this chart get it
+  with the agent image `k8s-borg:1.1.9-beta.12`; the server offers the
+  upgrade to separately installed agents (including macOS agents), which
+  can also be updated by hand.
+* The UI server migrates the database to c4e532c20d7b at its start
+  (reversible).
+* Going back to a plain upstream pin before borg-ui PR #1396 is merged:
+  while still on this image, either run `alembic downgrade -1`, which
+  deletes only the hooks that name an agent script (those created through
+  the new feature), or `alembic stamp c8e1f4a7b2d9`, which keeps the new
+  column and the nullable `script_id` and resets only the bookkeeping;
+  before a stamp, delete hooks that name an agent script, since the older
+  code expects a `script_id` on every hook. Without either, the older image
+  fails at startup with "Can't locate revision".
+* If #1396 is merged with the same revision, nothing needs doing. If its
+  revision changes, reconcile with a merge revision or a verified
+  `alembic stamp`; do not re-parent a revision that a database has
+  already applied.
+
 ## 1.1.9-beta.11
 
 * **Borg UI follows upstream main: 2.3.10-43-gb45ce0f58, agent 0.1.20.**
