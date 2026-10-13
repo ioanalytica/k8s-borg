@@ -1,5 +1,5 @@
-# Copyright IO ANALYTICA. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright IO ANALYTICA.
+# SPDX-License-Identifier: AGPL-3.0-only
 
 ## @section Global parameters
 ##
@@ -452,7 +452,7 @@ cluster:
     # - "my-bucket-1"
     # - "my-bucket-2"
 
-## @section Borg UI (optional; DEV/TEST)
+## @section Borg UI (optional)
 ##
 borgUI:
   ## @param borgUI.enabled Deploy the Borg UI server (Deployment/Service/Ingress)
@@ -838,7 +838,7 @@ persistence:
 
 ## @section Repository server (optional; Borg 2 over ssh)
 ## A Borg 2 repository server inside the release: sshd as the unprivileged user
-## `borg`, every client key bound to `borg serve --rest` for its own path below
+## `borg`, every client key bound to `borg serve` for its own path below
 ## the data directory. It runs from the agent image, so server and clients always
 ## carry the same Borg 2 and borgstore. One replica, data on one node.
 ##

@@ -1,12 +1,12 @@
-<!-- Copyright IO ANALYTICA. All Rights Reserved. SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright IO ANALYTICA. SPDX-License-Identifier: AGPL-3.0-only -->
 
 # k8s-borg
 
 Backup for Kubernetes clusters with [BorgBackup](https://www.borgbackup.org/).
 Deploys a node-backup **DaemonSet**, a cluster-data **CronJob**, and a console
 **StatefulSet** — each talking to its own Borg repository — plus an optional
-[Borg UI](https://github.com/karanhudia/borg-ui) server and managed-agent
-enrollment (DEV/TEST).
+[Borg UI](https://github.com/karanhudia/borg-ui) server with managed-agent
+enrollment, and an optional Borg 1/Borg 2 repository server.
 
 ## Install
 

@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 ServiceAccount + minimal Role for agent workloads (DaemonSet / console StatefulSet)
 so their wait-for-reconcile init container can read the reconcile-status ConfigMap.

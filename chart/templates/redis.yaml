@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 Dedicated Redis pod for the Borg UI server's archive-listing cache
 (borgUI.redis.mode=internal). Its own Deployment/Service — NOT a sidecar — so it

@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 The Borg UI can reach every repository — keep this Ingress restricted to trusted
 networks (VPN / cluster CIDRs) via borgUI.ingress.annotations and your ingress

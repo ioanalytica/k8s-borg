@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 Pre/post-backup scripts published to a managed agent's allow-list. Each scope
 (node DaemonSet, cluster console/agent StatefulSet) gets its own ConfigMap,

@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 Reconcile-status ConfigMap. The reconcile Job PATCHes data.reconciled=<revision>
 on success; agent workloads gate their startup on it (wait-for-reconcile init
