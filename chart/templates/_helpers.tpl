@@ -960,6 +960,21 @@ certificate refuses; `ssl-mode=DISABLED` for MySQL, together with
 `get-server-public-key`, without which a caching_sha2_password user cannot log
 in over a connection without TLS.
 */}}
+{{/*
+A value as one single-quoted Bash word, a ' in it written as '\''. Nothing in
+it expands or runs.
+*/}}
+{{- define "k8s-borg.shellQuote" -}}
+'{{ toString . | replace "'" "'\\''" }}'
+{{- end -}}
+
+{{/* A list of values as single-quoted Bash words (k8s-borg.shellQuote). */}}
+{{- define "k8s-borg.shellWords" -}}
+{{- $words := list -}}
+{{- range . }}{{ $words = append $words (include "k8s-borg.shellQuote" .) }}{{ end -}}
+{{- join " " $words -}}
+{{- end -}}
+
 {{- define "k8s-borg.dbResolverInitContainer" -}}
 {{- if (include "k8s-borg.dbResolverEnabled" .) }}
 - name: resolve-db-credentials
@@ -980,18 +995,37 @@ in over a connection without TLS.
       set -euo pipefail
       # A '.' in a key (connectionString.standard) is escaped for jsonpath.
       get_key() { kubectl get secret -n "$1" "$2" -o "jsonpath={.data.${3//./\\.}}" | base64 -d; }
+      # key NS SECRET KEY — the value followed by an x, which the caller strips:
+      # a command substitution would drop the value's trailing line breaks.
+      key() { get_key "$@" && printf x; }
+      # one_line WHAT VALUE — refuse a line break where the file cannot carry one.
+      one_line() {
+        case "$2" in
+          *$'\n'*|*$'\r'*) echo "$1 holds a line break, which its file cannot carry" >&2; return 1 ;;
+        esac
+      }
+      pgpass_field() { local v=${1//\\/\\\\}; printf '%s' "${v//:/\\:}"; } # '\' and ':' escaped
       pg() { # ns secret userKey passKey host port user name
-        local u p
-        if [ -n "$3" ]; then u=$(get_key "$1" "$2" "$3"); else u=$7; fi
-        p=$(get_key "$1" "$2" "$4"); p=${p//\\/\\\\}; p=${p//:/\\:}
-        printf '%s:%s:*:%s:%s\n' "$5" "$6" "$u" "$p" > "/out/postgres/$8.conf"
-        chmod 600 "/out/postgres/$8.conf"
+        local u p f="/out/postgres/$8.conf"
+        if [ -n "$3" ]; then u=$(key "$1" "$2" "$3"); u=${u%x}; else u=$7; fi
+        p=$(key "$1" "$2" "$4"); p=${p%x}
+        one_line "postgres instance $8: user" "$u"; one_line "postgres instance $8: password" "$p"
+        one_line "postgres instance $8: host" "$5"; one_line "postgres instance $8: port" "$6"
+        printf '%s:%s:*:%s:%s\n' "$(pgpass_field "$5")" "$(pgpass_field "$6")" "$(pgpass_field "$u")" "$(pgpass_field "$p")" > "$f"
+        chmod 600 "$f"
+      }
+      # opt VALUE — a double-quoted option file value: '\' and '"' escaped, line
+      # breaks as \n and \r, which MySQL's and MariaDB's clients read back.
+      opt() {
+        local v=${1//\\/\\\\}
+        v=${v//\"/\\\"}; v=${v//$'\n'/\\n}; v=${v//$'\r'/\\r}
+        printf '"%s"' "$v"
       }
       my() { # engine ns secret userKey passKey host port user name extraOptions
         local u p f="/out/$1/$9.conf"
-        if [ -n "$4" ]; then u=$(get_key "$2" "$3" "$4"); else u=$8; fi
-        p=$(get_key "$2" "$3" "$5"); p=${p//\\/\\\\}; p=${p//\"/\\\"}
-        printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$6" "$7" "$u" "$p" > "$f"
+        if [ -n "$4" ]; then u=$(key "$2" "$3" "$4"); u=${u%x}; else u=$8; fi
+        p=$(key "$2" "$3" "$5"); p=${p%x}
+        printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword=%s\n' "$(opt "$6")" "$(opt "$7")" "$(opt "$u")" "$(opt "$p")" > "$f"
         # extraOptions unquoted on purpose: one option per line.
         if [ -n "${10}" ]; then printf '%s\n' ${10} >> "$f"; fi
         chmod 600 "$f"
@@ -1011,13 +1045,15 @@ in over a connection without TLS.
       mo() { # ns secret uriKey userKey passKey host port user options name
         local u p uri f="/out/mongodb/${10}.conf"
         if [ -n "$3" ]; then
-          uri=$(get_key "$1" "$2" "$3")
+          uri=$(key "$1" "$2" "$3"); uri=${uri%x}
           [ -n "$uri" ] || { echo "secret $1/$2 has no $3" >&2; return 1; }
+          one_line "mongodb instance ${10}: $3" "$uri"
           printf 'uri: %s\n' "$(yq1 "$uri")" > "$f"
         else
-          if [ -n "$4" ]; then u=$(get_key "$1" "$2" "$4"); else u=$8; fi
-          p=$(get_key "$1" "$2" "$5")
+          if [ -n "$4" ]; then u=$(key "$1" "$2" "$4"); u=${u%x}; else u=$8; fi
+          p=$(key "$1" "$2" "$5"); p=${p%x}
           [ -n "$u" ] && [ -n "$p" ] || { echo "secret $1/$2 has no user or password" >&2; return 1; }
+          one_line "mongodb instance ${10}: password" "$p"
           uri="mongodb://$(urlenc "$u")@$6:$7/?$9"
           printf 'uri: %s\npassword: %s\n' "$(yq1 "$uri")" "$(yq1 "$p")" > "$f"
         fi
@@ -1035,7 +1071,7 @@ in over a connection without TLS.
       {{- if has $engine $engines }}
       {{- range (index $.Values.databases $engine).instances }}
       {{- if .secretRef }}
-      my {{ $engine }} {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 3306 | quote }} {{ .user | default "" | quote }} {{ .name | quote }} {{ ternary $noTls "" (and (hasKey . "tls") (not .tls)) | quote }}
+      my {{ include "k8s-borg.shellWords" (list $engine .secretRef.namespace .secretRef.name (.secretRef.usernameKey | default "") .secretRef.passwordKey .host (.port | default 3306) (.user | default "") .name (ternary $noTls "" (and (hasKey . "tls") (not .tls)))) }}
       {{- end }}
       {{- end }}
       {{- end }}
@@ -1043,14 +1079,14 @@ in over a connection without TLS.
       {{- if has "postgres" $engines }}
       {{- range .Values.databases.postgres.instances }}
       {{- if .secretRef }}
-      pg {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 5432 | quote }} {{ .user | default "" | quote }} {{ .name | quote }}
+      pg {{ include "k8s-borg.shellWords" (list .secretRef.namespace .secretRef.name (.secretRef.usernameKey | default "") .secretRef.passwordKey .host (.port | default 5432) (.user | default "") .name) }}
       {{- end }}
       {{- end }}
       {{- end }}
       {{- if has "mongodb" $engines }}
       {{- range .Values.databases.mongodb.instances }}
       {{- if .secretRef }}
-      mo {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.uriKey | default "" | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | default "" | quote }} {{ .host | default "" | quote }} {{ .port | default 27017 | quote }} {{ .user | default "" | quote }} {{ .options | default "authSource=admin" | quote }} {{ .name | quote }}
+      mo {{ include "k8s-borg.shellWords" (list .secretRef.namespace .secretRef.name (.secretRef.uriKey | default "") (.secretRef.usernameKey | default "") (.secretRef.passwordKey | default "") (.host | default "") (.port | default 27017) (.user | default "") (.options | default "authSource=admin") .name) }}
       {{- end }}
       {{- end }}
       {{- end }}

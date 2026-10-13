@@ -8,9 +8,8 @@
 MYSQL=${MYSQL_CLIENT_DIR:-/opt/mysql/bin}/mysql
 
 # write_conf FILE HOST [USER [PASSWORD [OPTION…]]] — a defaults file in the
-# chart's format, the password in double quotes with '\' and '"' escaped
-# (what the chart's credentials resolver writes), each OPTION on a line of its
-# own. Without options TLS is left to the client: used when the server offers
+# chart's format, every value in double quotes with '\' and '"' escaped (what
+# the chart's credentials resolver writes), each OPTION on a line of its own. Without options TLS is left to the client: used when the server offers
 # it, the certificate unchecked.
 write_conf() {
   local file=$1 host=$2 user=${3:-root} p=${4:-$DB_PASSWORD}
@@ -18,7 +17,7 @@ write_conf() {
   p=${p//\\/\\\\}
   p=${p//\"/\\\"}
   mkdir -p "$(dirname "$file")"
-  printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$host" 3306 "$user" "$p" >"$file"
+  printf '[client]\nhost="%s"\nport="%s"\nuser="%s"\npassword="%s"\n' "$host" 3306 "$user" "$p" >"$file"
   [ $# -eq 0 ] || printf '%s\n' "$@" >>"$file"
   chmod 600 "$file"
 }

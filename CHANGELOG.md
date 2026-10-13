@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* **Credentials resolver: values passed as they are** (issue #61). Every
+  instance value reaches the resolver's script as one single-quoted word: a
+  `$(…)`, a backtick or a `$VAR` in a host or user no longer runs or expands
+  in the init container. Secret values keep their trailing line breaks: the
+  MariaDB and MySQL files write every value double-quoted with `\n`/`\r`
+  escapes, which both clients read back; pgpass and MongoDB's file cannot
+  carry a line break, and the resolver stops with the instance and field
+  named, not the value. pgpass now also escapes `:` and `\` in host and port.
+
 * **MySQL and Percona Server 8.4: `databases.mysql`** (issue #51).
   * A new engine, configured like `databases.mariadb` (static `config`,
     `secretRef` or `existingSecret`), off by default. `backup-mysql`,

@@ -5,7 +5,7 @@
 # database to compare a restore with its source.
 
 # write_conf FILE HOST [USER [PASSWORD]] — a defaults file in the chart's
-# format, the password in double quotes with '\' and '"' escaped (what the
+# format, every value in double quotes with '\' and '"' escaped (what the
 # chart's credentials resolver writes). The client of the image asks for TLS
 # by default; a server before 11.4 has no certificate of its own, so its file
 # turns TLS off as the resolver does for an instance with `tls: false`.
@@ -14,7 +14,7 @@ write_conf() {
   p=${p//\\/\\\\}
   p=${p//\"/\\\"}
   mkdir -p "$(dirname "$1")"
-  printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$2" 3306 "${3:-root}" "$p" >"$1"
+  printf '[client]\nhost="%s"\nport="%s"\nuser="%s"\npassword="%s"\n' "$2" 3306 "${3:-root}" "$p" >"$1"
   case "$DB_VERSION" in
     10.*|11.[0-3]) echo skip-ssl >>"$1" ;;
   esac
