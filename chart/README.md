@@ -203,8 +203,9 @@ datastores of k3s (kine with PostgreSQL or MySQL).
 > `R /node/var/lib/rancher/rke2/server/db/snapshots`. Archive the server
 > token with it (`<data-dir>/server/token`, or the `token` in the server's
 > config file, or the file its `token-file` names): the restore refuses
-> without it. Such a snapshot is as old as
-> the last scheduled one, and it stays on the node's disk. This feature is
+> without it. Snapshot and token together give the cluster's Secrets and
+> keys, so the repository must encrypt (see below). Such a snapshot is as old
+> as the last scheduled one, and it stays on the node's disk. This feature is
 > for datastores without built-in snapshots, k3s with SQLite and kubeadm, or
 > for a snapshot taken at backup time.
 
@@ -218,9 +219,14 @@ sets any other URL.
 **The snapshot holds every Secret of the cluster in clear text.** It is written
 to a memory-backed volume of the pod (`node.datastoreSnapshot.sizeLimit`,
 default `2Gi`, counts against the pod's memory), never to the node's disk,
-archived from there into the encrypted repository, and removed after the run.
+archived from there into the repository, and removed after the run.
 A run that ends early (a failed pre-backup hook before it, a cancelled run)
 leaves it in that memory until the next run or the pod's end.
+
+**Use it only with an encrypting repository mode** (`borg.encryption`: the
+`repokey*` and `keyfile*` modes, the default). `authenticated*` and `none` do
+not encrypt the archive contents: anyone who can read the repository reads the
+snapshot, the token and the PKI without the passphrase.
 
 - **Interval mode:** `run.sh` takes the snapshot before `borg-backup` and
   removes it on every way out.
@@ -839,7 +845,8 @@ every repository.
 
 With `node.datastoreSnapshot` the node archives hold every Secret of the
 cluster, and with kubeadm its certificate authority's keys: whoever can read
-the repository and has its passphrase holds the cluster.
+the repository and has its passphrase holds the cluster, and in an
+`authenticated*` or `none` repository whoever can read it.
 
 The repository server is the exception: unprivileged, no capabilities, read-only
 root filesystem. It shares the ssh Secret with the backup pods, so those pods
