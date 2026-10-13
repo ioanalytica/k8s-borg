@@ -166,3 +166,26 @@ password: 'rootpw'" ] || fail "$(cat "$TMP/out/mongodb/bitnami.conf")"
   run render_one "${base[@]}" --set databases.mongodb.instances[0].secretRef.uriKey=u
   [ "$status" -eq 0 ] || fail "uriKey alone: $output"
 }
+
+@test "host, port and options that would change how the URI splits fail the render" {
+  base=(--set databases.mongodb.instances[0].name=x --set databases.mongodb.instances[0].secretRef.namespace=db
+        --set databases.mongodb.instances[0].secretRef.name=s --set databases.mongodb.instances[0].secretRef.passwordKey=p
+        --set databases.mongodb.instances[0].user=u)
+  for host in 'evil@h' 'h/admin' 'h?x=1' 'h:27017' 'a\,b' 'h#x'; do
+    run render_one "${base[@]}" --set-string "databases.mongodb.instances[0].host=$host"
+    [ "$status" -ne 0 ] && [[ "$output" == *"host must be one host name or IP address"* ]] || fail "host '$host': $output"
+  done
+  for port in 0 65536 '27017/x' 'x'; do
+    run render_one "${base[@]}" --set databases.mongodb.instances[0].host=h --set-string "databases.mongodb.instances[0].port=$port"
+    [ "$status" -ne 0 ] && [[ "$output" == *"port must be a port number"* ]] || fail "port '$port': $output"
+  done
+  for options in '?authSource=admin' 'a=1#x' 'a=1 &b=2'; do
+    run render_one "${base[@]}" --set databases.mongodb.instances[0].host=h --set-string "databases.mongodb.instances[0].options=$options"
+    [ "$status" -ne 0 ] && [[ "$output" == *"options is the URI's query"* ]] || fail "options '$options': $output"
+  done
+  for host in mongo.db.svc.cluster.local 10.0.0.5 '[fd00::1]'; do
+    run render_one "${base[@]}" --set-string "databases.mongodb.instances[0].host=$host" --set databases.mongodb.instances[0].port=27018 \
+      --set-string 'databases.mongodb.instances[0].options=authSource=admin&replicaSet=rs0&tlsCAFile=/etc/ca%20file.pem'
+    [ "$status" -eq 0 ] || fail "host '$host': $output"
+  done
+}

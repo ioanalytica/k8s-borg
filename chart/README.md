@@ -215,7 +215,10 @@ of two ways:
 | Bitnami chart | `passwordKey: mongodb-root-password` with `user: root` and `host` | as above |
 
 `port` defaults to 27017 and `options` (the URI's query) to
-`authSource=admin`; the user is percent-encoded. With `uriKey`, `host`,
+`authSource=admin`; the user is percent-encoded. `host` is one host name or
+IP address (an IPv6 address in brackets; a seed list goes into a `uriKey` or a
+static config), and special characters in an option's value are
+percent-encoded; the chart refuses anything else. With `uriKey`, `host`,
 `port`, `options` and the user and password keys go without.
 
 A database in the URI's path (`…:27017/admin?…`, as in the Community

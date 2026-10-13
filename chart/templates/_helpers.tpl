@@ -888,6 +888,12 @@ engines, a host with a password key and a user. */}}
 {{- if or $instance.host $instance.port $instance.user $instance.options $instance.secretRef.usernameKey $instance.secretRef.passwordKey -}}{{- fail (printf "%s: secretRef.uriKey is the whole connection string; host, port, options, user, usernameKey and passwordKey go without it" $path) -}}{{- end -}}
 {{- else -}}
 {{- if not $instance.host -}}{{- fail (printf "%s.host is required with secretRef%s" $path (ternary " (or secretRef.uriKey)" "" (eq $engine "mongodb"))) -}}{{- end -}}
+{{- if eq $engine "mongodb" -}}
+{{- /* host, port and options go into the URI as they are: nothing in them may change where it splits */ -}}
+{{- if not (regexMatch "^([A-Za-z0-9.-]+|\\[[0-9A-Fa-f:.]+\\])$" (toString $instance.host)) -}}{{- fail (printf "%s.host must be one host name or IP address (an IPv6 address in brackets); a seed list goes into secretRef.uriKey or a static config" $path) -}}{{- end -}}
+{{- if and (hasKey $instance "port") (not (regexMatch "^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$" (toString $instance.port))) -}}{{- fail (printf "%s.port must be a port number (1-65535)" $path) -}}{{- end -}}
+{{- if and $instance.options (regexMatch "^[?&]|[#[:space:]]" (toString $instance.options)) -}}{{- fail (printf "%s.options is the URI's query (name=value&…, special characters in a value percent-encoded): no leading '?' or '&', no '#' or whitespace" $path) -}}{{- end -}}
+{{- end -}}
 {{- if not $instance.secretRef.passwordKey -}}{{- fail (printf "%s.secretRef.passwordKey is required" $path) -}}{{- end -}}
 {{- if eq (empty $instance.user) (empty $instance.secretRef.usernameKey) -}}{{- fail (printf "%s must define exactly one of user or secretRef.usernameKey" $path) -}}{{- end -}}
 {{- end -}}
