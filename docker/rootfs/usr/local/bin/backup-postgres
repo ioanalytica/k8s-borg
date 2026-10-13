@@ -6,8 +6,8 @@
 #
 #   globals.sql   pg_dumpall --globals-only: roles, password hashes,
 #                 memberships, role settings, tablespaces
-#   <db>.dump     pg_dump -Fc -Z0, one per database, postgres and template1
-#                 included (template0 cannot be connected to and never changes)
+#   <db>.dump     pg_dump -Fc -Z0, one per database that allows connections,
+#                 postgres and template1 included (template0 does not)
 #
 # Together this is what pg_dumpall covers, with each database in a file of its
 # own. restore-postgres reads these files.
@@ -85,7 +85,12 @@ while IFS=':' read -r HOST PORT DB USER PASS <&3; do
     rc=1
   fi
 
-  databases=$(psql "${pg[@]}" -X -A -q -t -d postgres -c "SELECT datname FROM pg_database WHERE datname <> 'template0' ORDER BY datname")
+  # A database that does not allow connections (template0, or one switched
+  # off with ALLOW_CONNECTIONS false) cannot be dumped and is skipped, as
+  # pg_dumpall does; the log names any other than template0.
+  skipped=$(psql "${pg[@]}" -X -A -q -t -d postgres -c "SELECT string_agg(datname, ', ' ORDER BY datname) FROM pg_database WHERE NOT datallowconn AND datname <> 'template0'")
+  [ -z "$skipped" ] || echo "Skipping databases that do not allow connections: $skipped"
+  databases=$(psql "${pg[@]}" -X -A -q -t -d postgres -c "SELECT datname FROM pg_database WHERE datallowconn ORDER BY datname")
   while IFS= read -r db; do
     [ -n "$db" ] || continue
     echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.dump"

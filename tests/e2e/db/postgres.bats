@@ -265,3 +265,12 @@ SQL
   [ "$unchanged" -lt $((first / 2)) ] || fail "unchanged: $unchanged bytes new, the first archive added $first"
   [ "$changed" -lt $((first / 2)) ] || fail "changed: $changed bytes new, the first archive added $first"
 }
+
+@test "a database that does not allow connections is skipped and named in the log" {
+  pg src postgres -c "CREATE DATABASE closed" -c "ALTER DATABASE closed ALLOW_CONNECTIONS false"
+  run env DB_BACKUP_LOCATION="$E2E_TMP/closed-dumps" backup-postgres /root/.postgres/e2e.conf
+  pg src postgres -c "DROP DATABASE closed"
+  [ "$status" -eq 0 ] || fail "rc=$status: $output"
+  [[ "$output" == *"Skipping databases that do not allow connections: closed"* ]] || fail "$output"
+  assert_dump_dir "$E2E_TMP/closed-dumps/e2e" globals.sql appdb.dump postgres.dump straße.dump template1.dump
+}

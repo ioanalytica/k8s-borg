@@ -112,7 +112,7 @@ them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 | Engine | File | Content |
 | --- | --- | --- |
 | PostgreSQL | `globals.sql` | `pg_dumpall --globals-only`: roles, password hashes, memberships, role settings, tablespaces |
-| PostgreSQL | `<db>.dump` | `pg_dump -Fc -Z0`, one per database, `postgres` and `template1` included: schema, data, privileges, extensions, the database's owner, settings and grants |
+| PostgreSQL | `<db>.dump` | `pg_dump -Fc -Z0`, one per database that allows connections (as `pg_dumpall`; others are named in the log), `postgres` and `template1` included: schema, data, privileges, extensions, the database's owner, settings and grants |
 | MariaDB | `<db>.sql` | one per database, with routines, events and triggers |
 | MariaDB | `<instance>-full-dump.sql` | every database (`-A`), the `mysql` schema with the users and grants included |
 
