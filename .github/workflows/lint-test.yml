@@ -98,7 +98,8 @@ jobs:
     # Ubuntu 24.04's kernel 6.8: MongoDB 8.0.21+, 8.3 and 9.0 refuse to start on
     # a Linux kernel 6.19 or newer (SERVER-121912), and 26.04 reports its patched
     # kernel as 7.0.0, which their exemption for 7.0.14+ does not match
-    # (SERVER-136848). Back to the current runner once MongoDB starts there.
+    # (SERVER-136848). Back to the current runner once MongoDB starts there:
+    # see #68.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
