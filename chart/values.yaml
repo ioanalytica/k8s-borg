@@ -298,6 +298,37 @@ databases:
     #      name: postgres.example-db.credentials.postgresql.acid.zalan.do
     #      usernameKey: username
     #      passwordKey: password
+  mongodb:
+    ## @param databases.mongodb.enabled Back up MongoDB instances
+    enabled: false
+    ## @param databases.mongodb.existingSecret Use an existing Secret (one *.conf per instance)
+    existingSecret: ""
+    ## @param databases.mongodb.instances MongoDB instances (static config or secretRef)
+    ## A *.conf file is the YAML file mongodump/mongorestore read with --config: `uri`
+    ## (a connection string) and, optionally, `password` for the user in the URI. A
+    ## secretRef takes the whole connection string from one key (uriKey, e.g. the MongoDB
+    ## Community operator's connectionString.standard), or builds one from host, port,
+    ## options and the user (as for the other engines). The user needs the backup role
+    ## to dump, the restore role to restore (see chart/README.md "MongoDB").
+    instances: []
+    #  - name: mongodb-example
+    #    config: |
+    #      uri: mongodb://backup@mongodb.databases.svc:27017/?authSource=admin
+    #      password: 'CHANGE_ME'
+    #  - name: community-example
+    #    secretRef:
+    #      namespace: databases
+    #      name: example-mongodb-admin-backup   # <resource>-<auth db>-<user>
+    #      uriKey: connectionString.standard
+    #  - name: percona-example
+    #    host: example-rs0.databases.svc
+    #    port: 27017              # default 27017
+    #    options: authSource=admin&replicaSet=rs0  # URI query; default authSource=admin
+    #    secretRef:
+    #      namespace: databases
+    #      name: percona-server-mongodb-users   # the cluster's spec.secrets.users
+    #      usernameKey: MONGODB_BACKUP_USER   # or a literal `user:` on the instance
+    #      passwordKey: MONGODB_BACKUP_PASSWORD
   ## @param databases.credentialsResolver Image for the secretRef resolver init container
   credentialsResolver:
     image:

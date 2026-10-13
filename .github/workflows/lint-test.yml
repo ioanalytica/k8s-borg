@@ -112,5 +112,5 @@ jobs:
           cache-from: type=gha,scope=k8s-borg-e2e
       - name: Build the test layer
         run: docker build -f tests/e2e/Dockerfile --build-arg BASE=k8s-borg:test -t k8s-borg:e2e .
-      - name: Run the database suite, PostgreSQL 13–18 and MariaDB 10.11/11.4/11.8
+      - name: Run the database suite, PostgreSQL 13–18, MariaDB 10.11/11.4/11.8 and MongoDB 7/8
         run: ./tests/e2e/db/run.sh

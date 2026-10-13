@@ -841,7 +841,7 @@ decides whether an engine's dump runs, is published or is attached goes by
 k8s-borg.databases.configured below.
 */}}
 {{- define "k8s-borg.databases.supported" -}}
-mariadb postgres
+mariadb postgres mongodb
 {{- end -}}
 
 {{/*
@@ -864,7 +864,10 @@ neither fails the render (k8s-borg.validateDatabases).
 {{- join " " $engines -}}
 {{- end -}}
 
-{{/* Validate database instances before rendering volumes or credentials. */}}
+{{/* Validate database instances before rendering volumes or credentials.
+A MongoDB secretRef either names the key of a whole connection string (uriKey,
+e.g. the Community operator's connectionString.standard) or, like the other
+engines, a host with a password key and a user. */}}
 {{- define "k8s-borg.validateDatabases" -}}
 {{- range $engine := splitList " " (include "k8s-borg.databases.supported" .) -}}
 {{- $database := index $.Values.databases $engine | default dict -}}
@@ -879,11 +882,21 @@ neither fails the render (k8s-borg.validateDatabases).
 {{- if and $instance.config $instance.secretRef -}}{{- fail (printf "%s must define either config or secretRef, not both" $path) -}}{{- end -}}
 {{- if and (not $instance.config) (not $instance.secretRef) (not $database.existingSecret) -}}{{- fail (printf "%s must define either config or secretRef" $path) -}}{{- end -}}
 {{- if $instance.secretRef -}}
-{{- if not $instance.host -}}{{- fail (printf "%s.host is required with secretRef" $path) -}}{{- end -}}
 {{- if not $instance.secretRef.namespace -}}{{- fail (printf "%s.secretRef.namespace is required" $path) -}}{{- end -}}
 {{- if not $instance.secretRef.name -}}{{- fail (printf "%s.secretRef.name is required" $path) -}}{{- end -}}
+{{- if and (eq $engine "mongodb") $instance.secretRef.uriKey -}}
+{{- if or $instance.host $instance.port $instance.user $instance.options $instance.secretRef.usernameKey $instance.secretRef.passwordKey -}}{{- fail (printf "%s: secretRef.uriKey is the whole connection string; host, port, options, user, usernameKey and passwordKey go without it" $path) -}}{{- end -}}
+{{- else -}}
+{{- if not $instance.host -}}{{- fail (printf "%s.host is required with secretRef%s" $path (ternary " (or secretRef.uriKey)" "" (eq $engine "mongodb"))) -}}{{- end -}}
+{{- if eq $engine "mongodb" -}}
+{{- /* host, port and options go into the URI as they are: nothing in them may change where it splits */ -}}
+{{- if not (regexMatch "^([A-Za-z0-9.-]+|\\[[0-9A-Fa-f:.]+\\])$" (toString $instance.host)) -}}{{- fail (printf "%s.host must be one host name or IP address (an IPv6 address in brackets); a seed list goes into secretRef.uriKey or a static config" $path) -}}{{- end -}}
+{{- if and (hasKey $instance "port") (not (regexMatch "^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$" (toString $instance.port))) -}}{{- fail (printf "%s.port must be a port number (1-65535)" $path) -}}{{- end -}}
+{{- if and $instance.options (regexMatch "^[?&]|[#[:space:]]" (toString $instance.options)) -}}{{- fail (printf "%s.options is the URI's query (name=value&…, special characters in a value percent-encoded): no leading '?' or '&', no '#' or whitespace" $path) -}}{{- end -}}
+{{- end -}}
 {{- if not $instance.secretRef.passwordKey -}}{{- fail (printf "%s.secretRef.passwordKey is required" $path) -}}{{- end -}}
 {{- if eq (empty $instance.user) (empty $instance.secretRef.usernameKey) -}}{{- fail (printf "%s must define exactly one of user or secretRef.usernameKey" $path) -}}{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -936,6 +949,10 @@ copies static confs from the chart/existing Secret (if any) and resolves
 secretRef instances by reading the referenced Secret from its namespace via
 the API (needs the get-only ClusterRole from db-credentials-rbac.yaml).
 Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
+A MongoDB file is the YAML mongodump/mongorestore read with --config: the
+connection string from uriKey as is, or one built from host, port, options and
+the user (percent-encoded), the password in a field of its own; every value a
+single-quoted YAML scalar.
 A MariaDB instance with `tls: false` gets `skip-ssl`: the image's client asks
 for TLS by default, which a server without a certificate refuses.
 */}}
@@ -957,7 +974,8 @@ for TLS by default, which a server without a certificate refuses.
     - -c
     - |
       set -euo pipefail
-      get_key() { kubectl get secret -n "$1" "$2" -o "jsonpath={.data.$3}" | base64 -d; }
+      # A '.' in a key (connectionString.standard) is escaped for jsonpath.
+      get_key() { kubectl get secret -n "$1" "$2" -o "jsonpath={.data.${3//./\\.}}" | base64 -d; }
       pg() { # ns secret userKey passKey host port user name
         local u p
         if [ -n "$3" ]; then u=$(get_key "$1" "$2" "$3"); else u=$7; fi
@@ -973,7 +991,34 @@ for TLS by default, which a server without a certificate refuses.
         if [ -n "$9" ]; then printf '%s\n' "$9" >> "/out/mariadb/$8.conf"; fi
         chmod 600 "/out/mariadb/$8.conf"
       }
-      for d in /static/mariadb /static/postgres; do
+      yq1() { local v=${1//\'/\'\'}; printf "'%s'" "$v"; } # a single-quoted YAML scalar
+      urlenc() { # percent-encode all but RFC 3986 unreserved characters, byte by byte
+        local LC_ALL=C s=$1 out="" c i
+        for ((i = 0; i < ${#s}; i++)); do
+          c=${s:i:1}
+          case "$c" in
+            [A-Za-z0-9._~-]) out+=$c ;;
+            *) printf -v c '%%%02X' "'$c"; out+=$c ;;
+          esac
+        done
+        printf '%s' "$out"
+      }
+      mo() { # ns secret uriKey userKey passKey host port user options name
+        local u p uri f="/out/mongodb/${10}.conf"
+        if [ -n "$3" ]; then
+          uri=$(get_key "$1" "$2" "$3")
+          [ -n "$uri" ] || { echo "secret $1/$2 has no $3" >&2; return 1; }
+          printf 'uri: %s\n' "$(yq1 "$uri")" > "$f"
+        else
+          if [ -n "$4" ]; then u=$(get_key "$1" "$2" "$4"); else u=$8; fi
+          p=$(get_key "$1" "$2" "$5")
+          [ -n "$u" ] && [ -n "$p" ] || { echo "secret $1/$2 has no user or password" >&2; return 1; }
+          uri="mongodb://$(urlenc "$u")@$6:$7/?$9"
+          printf 'uri: %s\npassword: %s\n' "$(yq1 "$uri")" "$(yq1 "$p")" > "$f"
+        fi
+        chmod 600 "$f"
+      }
+      for d in /static/mariadb /static/postgres /static/mongodb; do
         [ -d "$d" ] || continue
         for f in "$d"/*.conf; do
           [ -e "$f" ] || continue
@@ -992,6 +1037,13 @@ for TLS by default, which a server without a certificate refuses.
       {{- range .Values.databases.postgres.instances }}
       {{- if .secretRef }}
       pg {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 5432 | quote }} {{ .user | default "" | quote }} {{ .name | quote }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- if has "mongodb" $engines }}
+      {{- range .Values.databases.mongodb.instances }}
+      {{- if .secretRef }}
+      mo {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.uriKey | default "" | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | default "" | quote }} {{ .host | default "" | quote }} {{ .port | default 27017 | quote }} {{ .user | default "" | quote }} {{ .options | default "authSource=admin" | quote }} {{ .name | quote }}
       {{- end }}
       {{- end }}
       {{- end }}

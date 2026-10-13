@@ -42,7 +42,7 @@
 #                             attach as pre-backup hooks (agent repos only). The
 #                             agent resolves each name against its own allow-list
 #                             (/etc/borg-ui-agent-scripts). Used for cluster DB
-#                             dumps (backup-cluster-mariadb / -postgres).
+#                             dumps (backup-cluster-mariadb / -postgres / -mongodb).
 #   BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE  optional; those of the names above
 #                             whose failure does not stop the backup: Borg UI
 #                             runs the backup and shows the failure as a

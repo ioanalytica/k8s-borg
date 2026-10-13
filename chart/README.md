@@ -115,6 +115,7 @@ them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 | PostgreSQL | `<db>.dump` | `pg_dump -Fc -Z0`, one per database that allows connections (as `pg_dumpall`; others are named in the log), `postgres` and `template1` included: schema, data, privileges, extensions, the database's owner, settings and grants |
 | MariaDB | `<db>.sql` | one per database, with routines, events and triggers |
 | MariaDB | `<instance>-full-dump.sql` | every database (`-A`), the `mysql` schema with the users and grants included |
+| MongoDB | `<instance>.archive` | one `mongodump` archive of every database, users and roles included, with the oplog on a replica set — see [MongoDB dumps](#mongodb-dumps) |
 
 Every file is mode `600`. The dumps are **not compressed**: a compressed
 stream differs from the first changed byte on, so every dump would be new data
@@ -174,6 +175,103 @@ that offers none, as a MariaDB before 11.4 without a certificate of its own
 does. For such a server, set `tls: false` on a `secretRef` instance (the
 resolver writes `skip-ssl` into its credentials file), or add a `skip-ssl`
 line to the `[client]` section of a static `config`.
+
+## MongoDB dumps
+
+When MongoDB is configured (see [Database dumps](#database-dumps)),
+`backup-cluster-mongodb` dumps every instance with `mongodump` into
+`borg.dbBackupLocation/<instance>/<instance>.archive`, one archive of every
+database, the users and roles (`admin.system.users`, `admin.system.roles`)
+included. On a replica set the dump carries the oplog of its own run
+(`--oplog`), so that a restore of the whole instance is consistent to the end
+of the dump; a standalone server is dumped without one. A sharded cluster
+(`mongos`) is refused: dump the shards' replica sets instead.
+
+The archive is mode `600` and **not compressed**, and its collections are
+written one after the other (`--numParallelCollections=1`): two dumps of
+unchanged data are then the same bytes but for the oplog, so Borg
+deduplicates them (with mongodump's default of four collections at a time,
+interleaved, 20 of 25 MB differed between two dumps of the same data). A
+failing dump fails the backup (rc ≥ 2) and leaves the previous archive in
+place.
+
+### Credentials
+
+An instance's `*.conf` file is the YAML file `mongodump` / `mongorestore`
+read with `--config`, so the password never shows on a command line:
+
+```yaml
+uri: mongodb://backup@mongodb.databases.svc:27017/?authSource=admin
+password: 'CHANGE_ME'   # for the user in the URI; may also be in the URI
+```
+
+A `secretRef` instance gets this file from the credentials resolver, in one
+of two ways:
+
+| Operator / chart | `secretRef` | Resolved to |
+| --- | --- | --- |
+| MongoDB Community operator | `name: <resource>-<auth db>-<user>`, `uriKey: connectionString.standard` | the connection string as is |
+| Percona Server for MongoDB | `name:` the cluster's `spec.secrets.users` (default `percona-server-mongodb-users`), `usernameKey: MONGODB_BACKUP_USER`, `passwordKey: MONGODB_BACKUP_PASSWORD`, with `host: <cluster>-rs0.<ns>.svc` and `options: authSource=admin&replicaSet=rs0` | `mongodb://<user>@<host>:<port>/?<options>` and the password |
+| Bitnami chart | `passwordKey: mongodb-root-password` with `user: root` and `host` | as above |
+
+`port` defaults to 27017 and `options` (the URI's query) to
+`authSource=admin`; the user is percent-encoded. `host` is one host name or
+IP address (an IPv6 address in brackets; a seed list goes into a `uriKey` or a
+static config), and special characters in an option's value are
+percent-encoded; the chart refuses anything else. With `uriKey`, `host`,
+`port`, `options` and the user and password keys go without.
+
+A database in the URI's path (`…:27017/admin?…`, as in the Community
+operator's connection strings) is the one to authenticate against when the
+URI has credentials and no `authSource` (an `authSource` takes precedence),
+but `mongodump` and `mongorestore` would also dump or restore that database
+alone. The scripts therefore hand the tools the file through
+`mongodb-admin config`, which drops the path and, for a URI with credentials
+and no `authSource`, makes the database its `authSource` — through a pipe, so
+the password is not written anywhere.
+
+### Restoring
+
+From the console pod, after the archive is extracted into
+`DB_BACKUP_LOCATION`:
+
+| Command | Restores |
+| --- | --- |
+| `restore-mongodb /root/.mongodb/<instance>.conf --all` | the whole instance: each dumped collection dropped and restored, the users and roles, which replace the server's (the one in the credentials file included), and, for a replica set's dump, the oplog replayed. Databases the dump does not hold are left alone |
+| `restore-mongodb /root/.mongodb/<instance>.conf --all --no-oplog` | the same without replaying the oplog |
+| `restore-mongodb /root/.mongodb/<instance>.conf <db>` | one database, dropped and created again |
+| `restore-mongodb /root/.mongodb/<instance>.conf <db> --as <name>` | the dump of `<db>` into `<name>` (dropped first), to compare before replacing |
+
+With an oplog, `--all` restores the users and roles first, on their own:
+a user replaced by its dumped self (on another server, with another
+`userId`) loses the session it is logged in with, which the replay after
+them would then lack. The full restore after it logs in anew, as the
+restored user of the credentials file, whose password must therefore be the
+one in the dump; `--all --no-oplog` restores in one pass.
+
+`mongorestore` replays the oplog only for the whole instance: a single
+database comes back as each of its collections was when it was dumped. The
+users and roles, also those defined on a database, and the `admin` database
+are only restored with `--all`. A database the archive does not hold is
+refused before anything is dropped. Every error ends a restore with rc ≥ 2.
+Covered by the database end-to-end tests against MongoDB 7 and 8, replica set
+and standalone (`tests/e2e/db/mongodb.bats`).
+
+### Privileges
+
+- **Dump:** the built-in `backup` role, which also reads the users and roles.
+- **Restore:** the built-in `restore` role for a single database. For
+  `--all` from a replica set's dump, `root` or a role with `anyAction` on
+  `anyResource` as well, as MongoDB documents for `mongorestore
+  --oplogReplay`: replaying a command takes it, and the replayed oplog starts
+  with the last entry before the dump, which on a quiet server is often one
+  (an index, a collection or a view created or dropped). With `restore`
+  alone such a replay fails after the collections are back (rc ≥ 2, with a
+  hint); `--all --no-oplog` restores without it.
+
+The same credentials file serves both, so its user needs both roles. The
+Percona operator's backup user has them, `anyAction` included (its role
+`pbmAnyAction`).
 
 ## Cluster datastore snapshot
 
@@ -649,7 +747,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `image`, `initImage` | agent image (defaults to appVersion) |
 | `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
 | `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run. In plan mode the console pod's mounts live as long as the pod, so each plan run first mounts every bucket fresh (pre-backup hook `s3-remount-buckets`, the same mount and policy as at the start), then runs the check as the hook `s3-verify-listing`, ahead of `s3-check-mounts`, and a bucket that still misses objects ends the run with a warning in Borg UI (Borg UI has no way to fail a plan run after its backup) |
-| `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
+| `ssh`, `databases` | SSH key + MariaDB/PostgreSQL/MongoDB logical-dump configs (→ Secrets) |
 | `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude`. `node.datastoreSnapshot` adds the cluster datastore — see [Cluster datastore snapshot](#cluster-datastore-snapshot) |
 
 > **Upgrade note (1.0.21):** two breaking value renames — the chart fails fast if

@@ -144,7 +144,9 @@ FROM python:${PYTHON_VERSION}-alpine
 # fusermount3. rclone is a separate Go program that no Borg release bundles, and
 # borgstore drives it over its rc API, so rclone: repositories need it present;
 # s3-verify-listing lists the mounted buckets with it as well. openssh-server is
-# only started by the repository server.
+# only started by the repository server. mongodb-tools brings mongodump and
+# mongorestore for the MongoDB dumps; the package's six other tools, ~13 MB
+# each and unused here, are removed in the same layer.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \
@@ -157,6 +159,7 @@ RUN apk add --no-cache \
         rclone \
         postgresql-client \
         mariadb-client \
+        mongodb-tools \
         libcurl \
         libxml2 \
         libstdc++ \
@@ -168,7 +171,9 @@ RUN apk add --no-cache \
         libxxhash \
         openssl \
         libffi \
-    && update-ca-certificates
+    && update-ca-certificates \
+    && rm -f /usr/bin/bsondump /usr/bin/mongoexport /usr/bin/mongofiles \
+        /usr/bin/mongoimport /usr/bin/mongostat /usr/bin/mongotop
 
 # The compiled virtualenvs, without the toolchain that produced them. Their
 # extensions link against acl, lz4, zstd, xxhash, openssl, libffi and libfuse3,
@@ -209,6 +214,19 @@ RUN python -m venv "${BORG_UI_AGENT_VENV}" \
     && "${BORG_UI_AGENT_VENV}/bin/pip" install --no-cache-dir /src/borg-ui \
     && rm -rf /src
 
+# mongodb-admin (topology, dropping a database before a restore, reading an
+# archive's prelude) speaks to MongoDB through pymongo: the image has no
+# MongoDB shell, and mongosh would add a Node runtime. PyPI has no musl wheel
+# of pymongo, so it is installed without its optional C extensions (NO_EXT),
+# which only speed up BSON for large volumes. PyYAML reads the credentials
+# file. Pinned, dnspython (pymongo's only dependency) included.
+ARG PYMONGO_VERSION=4.18.3
+ARG DNSPYTHON_VERSION=2.9.0
+ARG PYYAML_VERSION=6.0.3
+RUN python -m venv /opt/mongodb-admin/venv \
+    && NO_EXT=1 /opt/mongodb-admin/venv/bin/pip install --no-cache-dir \
+        "pymongo==${PYMONGO_VERSION}" "dnspython==${DNSPYTHON_VERSION}" "PyYAML==${PYYAML_VERSION}"
+
 # Agent config dir; config.toml is written by `borg-ui-agent register`. The whole
 # image runs as root, so no service user or sudo is needed.
 RUN install -d -m 0750 /etc/borg-ui-agent
@@ -238,12 +256,15 @@ ENV BORG_STORE_CACHE=1
 ENV BORG_PACK_CACHE_SIZE=2147483648
 
 # Build-time self-test: both Borg majors (via the wrappers), s3fs, the etcd
-# client and the agent CLI must work, or the build fails.
+# client, the MongoDB tools and the agent CLI must work, or the build fails.
 RUN borg --version \
     && borg2 --version \
     && s3fs --version \
     && etcdctl version \
     && etcdutl version \
+    && mongodump --version \
+    && mongorestore --version \
+    && mongodb-admin --help >/dev/null \
     && borg-ui-agent --help >/dev/null
 
 # The repository server's sshd_config must parse with the OpenSSH this image

@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+#
+# Restore what backup-mongodb dumped to
+# $DB_BACKUP_LOCATION/<instance>/<instance>.archive, <instance> being the
+# config file's name without its extension:
+#
+#   restore-mongodb CONFIG --all [--no-oplog]
+#       the whole instance: every database in the dump, each of its
+#       collections dropped and restored, and the users and roles, which
+#       replace the server's, the one in CONFIG included (it needs the source
+#       server's password afterwards). A replica set's dump carries the oplog
+#       of its own run, which is replayed: the instance as it was at the end
+#       of the dump. --no-oplog leaves it out (see below). Databases the dump
+#       does not hold are left alone.
+#       With an oplog, the users and roles are restored first, on their own:
+#       a user replaced by its dumped self (on another server, another
+#       userId) loses the session it is logged in with, which the replay
+#       after them then lacks. The full restore after it logs in anew, as
+#       the restored user of CONFIG, whose password must therefore be the
+#       one in the dump; --no-oplog needs no second login.
+#   restore-mongodb CONFIG DATABASE
+#       one database, dropped and created again
+#   restore-mongodb CONFIG DATABASE --as NAME
+#       the dump of DATABASE into the database NAME, which is dropped and
+#       created again first; DATABASE itself is not touched
+#
+# mongorestore replays the oplog only for the whole instance: a single
+# database comes back as each of its collections was when it was dumped.
+# The users and roles (also those defined on a database) and the admin
+# database are only restored with --all.
+#
+# The user in CONFIG needs the restore role (backup-mongodb: the backup role).
+# Replaying an oplog that holds a command takes more: root, or a role with
+# anyAction on anyResource, as MongoDB documents for mongorestore
+# --oplogReplay. The replayed oplog starts with the last entry before the
+# dump, which on a quiet server is often a command (an index, a collection
+# or a view created or dropped). With the restore role alone such a replay
+# fails after the collections are back; --no-oplog then restores without it.
+# Every error fails with rc >= 2.
+set -Eeo pipefail
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mongodb restore failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: restore-mongodb CONFIG --all [--no-oplog]
+       restore-mongodb CONFIG DATABASE [--as NAME]
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 2
+}
+
+config_file=${1:-}
+[ -n "$config_file" ] || { usage; die "No mongodb config file specified!"; }
+[ -f "$config_file" ] || die "config file $config_file not found"
+shift
+
+mode="" database_name="" target_name="" replay=yes
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all)
+      [ -z "$mode" ] || { usage; die "either --all or a database name"; }
+      mode=all
+      ;;
+    --no-oplog)
+      replay=no
+      ;;
+    --as)
+      [ -n "${2:-}" ] || { usage; die "--as needs a database name"; }
+      target_name=$2
+      shift
+      ;;
+    -*)
+      usage
+      die "unknown option $1"
+      ;;
+    *)
+      [ -z "$mode" ] || { usage; die "either --all or a database name"; }
+      mode=database
+      database_name=$1
+      ;;
+  esac
+  shift
+done
+
+[ -n "$mode" ] || { usage; die "No database name specified (or --all)!"; }
+[ -z "$target_name" ] || [ "$mode" = database ] || { usage; die "--as goes with a database name"; }
+[ "$replay" = yes ] || [ "$mode" = all ] || { usage; die "--no-oplog goes with --all"; }
+[ -n "$target_name" ] || target_name=$database_name
+
+[ -n "$DB_BACKUP_LOCATION" ] || die "environment variable DB_BACKUP_LOCATION not set!"
+
+xbase=${config_file##*/}
+instance_name=${xbase%.*}
+archive=${DB_BACKUP_LOCATION}/${instance_name}/${instance_name}.archive
+[ -f "$archive" ] || die "Backup $archive not found!"
+
+# The config as mongodb-admin config hands it to the tools (a database in the
+# URI's path would make mongorestore restore that database alone). Generated
+# here, so that a failure stops the restore before anything is dropped;
+# mongorestore reads it through a pipe, so the password is not written
+# anywhere.
+config=$(mongodb-admin config "$config_file")
+
+# mongorestore ARGS… from the archive.
+restore() {
+  mongorestore --config=<(printf '%s\n' "$config") --archive="$archive" "$@"
+}
+
+case "$mode" in
+  all)
+    oplog=""
+    if [ "$replay" = yes ]; then
+      # Assigned, not tested in the condition: a failure must stop here.
+      has_oplog=$(mongodb-admin archive-oplog "$archive")
+      [ "$has_oplog" != yes ] || oplog=--oplogReplay
+    fi
+    echo "Restoring instance: $instance_name from $archive${oplog:+ (replaying its oplog)} ..."
+    if [ -n "$oplog" ]; then
+      echo "Restoring the users and roles first ..."
+      # admin.system.version holds the auth schema, which mongorestore
+      # compares before it restores users (MongoDB 7 has it there).
+      restore --drop --nsInclude=admin.system.users --nsInclude=admin.system.roles --nsInclude=admin.system.version
+    fi
+    if ! restore --drop ${oplog:+"$oplog"}; then
+      [ -z "$oplog" ] \
+        || echo "Hint: if the oplog replay was refused (Unauthorized), the collections are back; replaying a command needs root or anyAction on anyResource, --no-oplog restores without the oplog" >&2
+      die "mongorestore failed"
+    fi
+    ;;
+  database)
+    case "$database_name" in
+      admin|local|config) die "the $database_name database is restored with --all only" ;;
+    esac
+    case "$target_name" in
+      admin|local|config) die "cannot restore into the $target_name database" ;;
+    esac
+    # The names go into namespace patterns, where '*' and '\' are special;
+    # MongoDB allows neither in a database name, nor '.'.
+    for name in "$database_name" "$target_name"; do
+      case "$name" in
+        *[.*\\/\ \"\$]*) die "not a MongoDB database name: $name" ;;
+      esac
+    done
+    # mongorestore restores nothing, and says so with rc 0, for a database
+    # the archive does not hold: check before the target is dropped.
+    databases=$(mongodb-admin archive-databases "$archive")
+    grep -qxF -- "$database_name" <<<"$databases" \
+      || die "the archive holds no database $database_name (it holds: ${databases//$'\n'/ })"
+    echo "Dropping database: $target_name ..."
+    mongodb-admin drop-database "$config_file" "$target_name"
+    if [ "$database_name" = "$target_name" ]; then
+      echo "Restoring database: $database_name from $archive ..."
+      restore --nsInclude="${database_name}.*"
+    else
+      echo "Restoring database: $database_name as $target_name from $archive ..."
+      restore --nsInclude="${database_name}.*" --nsFrom="${database_name}.*" --nsTo="${target_name}.*"
+    fi
+    ;;
+esac
+
+echo "Restore finished."
+
+# end
