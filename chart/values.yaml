@@ -277,6 +277,34 @@ databases:
     #      name: mariadb
     #      passwordKey: root-password
     #      # usernameKey: username  # read the user from the Secret instead
+  mysql:
+    ## @param databases.mysql.enabled Back up MySQL instances (Oracle MySQL, Percona Server)
+    enabled: false
+    ## @param databases.mysql.existingSecret Use an existing Secret (one *.conf per instance)
+    existingSecret: ""
+    ## @param databases.mysql.instances MySQL instances (static config or secretRef)
+    ## Dumped and restored with MySQL's own client (8.4), not MariaDB's. Its options:
+    ## TLS when the server offers it, its certificate unchecked (ssl-mode=PREFERRED);
+    ## `tls: false` on a secretRef instance writes `ssl-mode=DISABLED` and
+    ## `get-server-public-key`. Neither authenticates the server, so both are for a
+    ## trusted network; a static config checks it with `ssl-mode=VERIFY_IDENTITY`
+    ## and `ssl-ca` (or `server-public-key-path` without TLS). See chart/README.md.
+    instances: []
+    #  - name: mysql-example
+    #    config: |
+    #      [client]
+    #      host = mysql.databases.svc
+    #      user = backup
+    #      password = CHANGE_ME
+    #  - name: percona-operator-example
+    #    host: cluster1-haproxy.databases.svc
+    #    port: 3306              # default 3306
+    #    user: root              # literal user; omit when usernameKey is set
+    #    # tls: false            # a server without TLS
+    #    secretRef:
+    #      namespace: databases
+    #      name: cluster1-secrets
+    #      passwordKey: root
   postgres:
     ## @param databases.postgres.enabled Back up PostgreSQL instances
     enabled: false

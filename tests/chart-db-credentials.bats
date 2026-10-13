@@ -4,8 +4,12 @@
 # of secretRef database instances. Its script is taken from the rendered
 # console StatefulSet and run with a stub kubectl that serves the Secrets'
 # keys, its /out and /static directories moved below $TMP: the files must be
-# what backup-mariadb / backup-postgres read, passwords escaped, mode 600,
-# and `skip-ssl` for a MariaDB instance with `tls: false`.
+# what backup-mariadb / backup-mysql / backup-postgres / backup-mongodb read,
+# values escaped for their file, mode 600, and each client's option for no TLS
+# for an instance with `tls: false`. Every value reaches the script as one
+# single-quoted word: nothing in it runs or expands. A Secret value keeps its
+# trailing line breaks, written as \n where the file can carry them and
+# refused where it cannot.
 
 setup() {
   load helpers/common
@@ -37,6 +41,18 @@ databases:
         port: 3307
         tls: false
         secretRef: { namespace: db, name: old-maria, usernameKey: username, passwordKey: password }
+  mysql:
+    enabled: true
+    instances:
+      - name: mysql-tls
+        host: mysql.db.svc
+        user: root
+        secretRef: { namespace: db, name: mysql, passwordKey: root-password }
+      - name: mysql-plain
+        host: plain-mysql.db.svc
+        port: 3307
+        tls: false
+        secretRef: { namespace: db, name: plain-mysql, usernameKey: username, passwordKey: password }
   postgres:
     enabled: true
     instances:
@@ -47,7 +63,8 @@ YAML
 
   # kubectl get secret -n NS NAME -o jsonpath={.data.KEY} → base64 of
   # $TMP/secrets/NS/NAME/KEY, as the API serves it.
-  mkdir -p "$TMP/bin" "$TMP/secrets/db/maria" "$TMP/secrets/db/old-maria" "$TMP/secrets/db/pg-creds"
+  mkdir -p "$TMP/bin" "$TMP/secrets/db/maria" "$TMP/secrets/db/old-maria" "$TMP/secrets/db/pg-creds" \
+    "$TMP/secrets/db/mysql" "$TMP/secrets/db/plain-mysql"
   cat >"$TMP/bin/kubectl" <<EOF
 #!/usr/bin/env bash
 key=\${7#jsonpath=\{.data.}; key=\${key%\}}
@@ -57,44 +74,149 @@ EOF
   printf '%s' 'r"oot\pw' >"$TMP/secrets/db/maria/root-password"
   printf '%s' backup >"$TMP/secrets/db/old-maria/username"
   printf '%s' plain >"$TMP/secrets/db/old-maria/password"
+  printf '%s' 'my"sql\pw' >"$TMP/secrets/db/mysql/root-password"
+  printf '%s' backup >"$TMP/secrets/db/plain-mysql/username"
+  printf '%s' plain >"$TMP/secrets/db/plain-mysql/password"
   printf '%s' zalando >"$TMP/secrets/db/pg-creds/username"
   printf '%s' 'pg:pa\ss' >"$TMP/secrets/db/pg-creds/password"
 }
 
 teardown() { common_teardown; }
 
-# resolve — run the rendered resolver script; the files land in $TMP/out.
+# resolve [VALUES] — run the rendered resolver script (with VALUES over the
+# ones above) in $TMP; the files land in $TMP/out.
 resolve() {
-  helm template rel "$CHART" -n backup -f "$VALUES" \
+  helm template rel "$CHART" -n backup -f "$VALUES" ${1:+-f "$1"} \
     | yq 'select(.kind == "StatefulSet") | .spec.template.spec.initContainers[] | select(.name == "resolve-db-credentials") | .command[2]' \
     | sed -e "s|/out/|$TMP/out/|g" -e "s|/static/|$TMP/static/|g" >"$TMP/resolve.sh"
-  grep -q "$TMP/out/mariadb" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
-  mkdir -p "$TMP/out/mariadb" "$TMP/out/postgres"
-  PATH="$TMP/bin:$PATH" bash "$TMP/resolve.sh" || fail "the resolver failed"
+  grep -q "$TMP/out/" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
+  mkdir -p "$TMP/out/mariadb" "$TMP/out/mysql" "$TMP/out/postgres" "$TMP/out/mongodb"
+  (cd "$TMP" && PATH="$TMP/bin:$PATH" bash "$TMP/resolve.sh")
 }
 
 @test "a MariaDB instance gets a defaults file, the password escaped, TLS left to the client" {
-  resolve
+  resolve || fail "the resolver failed"
   [ "$(cat "$TMP/out/mariadb/maria-tls.conf")" = '[client]
-host=maria.db.svc
-port=3306
-user=root
+host="maria.db.svc"
+port="3306"
+user="root"
 password="r\"oot\\pw"' ] || fail "$(cat "$TMP/out/mariadb/maria-tls.conf")"
   [ "$(stat -c %a "$TMP/out/mariadb/maria-tls.conf" 2>/dev/null || stat -f %Lp "$TMP/out/mariadb/maria-tls.conf")" = 600 ]
 }
 
 @test "a MariaDB instance with tls: false gets skip-ssl" {
-  resolve
+  resolve || fail "the resolver failed"
   [ "$(cat "$TMP/out/mariadb/maria-plain.conf")" = '[client]
-host=old-maria.db.svc
-port=3307
-user=backup
+host="old-maria.db.svc"
+port="3307"
+user="backup"
 password="plain"
 skip-ssl' ] || fail "$(cat "$TMP/out/mariadb/maria-plain.conf")"
 }
 
+@test "a MySQL instance gets a defaults file in its own directory, the password escaped, TLS left to the client" {
+  resolve || fail "the resolver failed"
+  [ "$(cat "$TMP/out/mysql/mysql-tls.conf")" = '[client]
+host="mysql.db.svc"
+port="3306"
+user="root"
+password="my\"sql\\pw"' ] || fail "$(cat "$TMP/out/mysql/mysql-tls.conf")"
+  [ "$(stat -c %a "$TMP/out/mysql/mysql-tls.conf" 2>/dev/null || stat -f %Lp "$TMP/out/mysql/mysql-tls.conf")" = 600 ]
+  [ ! -e "$TMP/out/mariadb/mysql-tls.conf" ]
+}
+
+@test "a MySQL instance with tls: false gets ssl-mode=DISABLED and the server's public key" {
+  resolve || fail "the resolver failed"
+  [ "$(cat "$TMP/out/mysql/mysql-plain.conf")" = '[client]
+host="plain-mysql.db.svc"
+port="3307"
+user="backup"
+password="plain"
+ssl-mode=DISABLED
+get-server-public-key' ] || fail "$(cat "$TMP/out/mysql/mysql-plain.conf")"
+}
+
 @test "a PostgreSQL instance gets a pgpass line, ':' and '\\' escaped" {
-  resolve
+  resolve || fail "the resolver failed"
   [ "$(cat "$TMP/out/postgres/pg.conf")" = 'pg.db.svc:5432:*:zalando:pg\:pa\\ss' ] \
     || fail "$(cat "$TMP/out/postgres/pg.conf")"
+}
+
+# hostile VALUE — the values file with VALUE as each engine's literal user
+# and, where the chart takes any, host.
+hostile() {
+  local v=$1
+  v=${v//\\/\\\\}; v=${v//\"/\\\"}
+  cat >"$TMP/hostile.yaml" <<YAML
+databases:
+  mariadb:
+    instances:
+      - { name: maria, host: "h-$v", user: "u-$v", secretRef: { namespace: db, name: maria, passwordKey: root-password } }
+  mysql:
+    instances:
+      - { name: mysql, host: "h-$v", user: "u-$v", secretRef: { namespace: db, name: mysql, passwordKey: root-password } }
+  postgres:
+    instances:
+      - { name: pg, host: "h-$v", user: "u-$v", secretRef: { namespace: db, name: pg-creds, passwordKey: password } }
+  mongodb:
+    enabled: true
+    instances:
+      - { name: mongo, host: mongo.db.svc, user: "u-$v", secretRef: { namespace: db, name: mongo, passwordKey: password } }
+YAML
+}
+
+@test "values with \$(…), backticks, quotes, \$VARs and backslashes reach every file as they are, and nothing runs" {
+  mkdir -p "$TMP/secrets/db/mongo"
+  printf '%s' 'mongo-pw' >"$TMP/secrets/db/mongo/password"
+  # shellcheck disable=SC2016  # the $ are the point
+  value='$(touch ran-dollar)`touch ran-backtick` it'"'"'s "$HOME" \ ${PATH}'
+  hostile "$value"
+  resolve "$TMP/hostile.yaml" || fail "the resolver failed"
+  [ -z "$(cd "$TMP" && ls ran-* 2>/dev/null)" ] || fail "ran: $(cd "$TMP" && ls ran-*)"
+
+  # Option files: double-quoted, '\' and '"' escaped.
+  esc=${value//\\/\\\\}; esc=${esc//\"/\\\"}
+  for engine in mariadb mysql; do
+    f="$TMP/out/$engine/${engine/mariadb/maria}.conf"
+    grep -qxF "host=\"h-$esc\"" "$f" || fail "$(cat "$f")"
+    grep -qxF "user=\"u-$esc\"" "$f" || fail "$(cat "$f")"
+  done
+  # pgpass: '\' and ':' escaped.
+  pg=${value//\\/\\\\}; pg=${pg//:/\\:}
+  [ "$(cat "$TMP/out/postgres/pg.conf")" = "h-$pg:5432:*:u-$pg:"'pg\:pa\\ss' ] || fail "$(cat "$TMP/out/postgres/pg.conf")"
+  # MongoDB: the user percent-encoded in the URI.
+  uri=$(yq .uri "$TMP/out/mongodb/mongo.conf")
+  [[ "$uri" == "mongodb://u-%24%28touch%20ran-dollar%29%60touch%20ran-backtick%60%20it%27s%20%22%24HOME%22%20%5C%20%24%7BPATH%7D@mongo.db.svc:27017/?authSource=admin" ]] \
+    || fail "$uri"
+}
+
+@test "a password's trailing line breaks are kept in the MariaDB and MySQL files, as \\n" {
+  printf 'pw\n\n' >"$TMP/secrets/db/maria/root-password"
+  printf 'pw\r\n' >"$TMP/secrets/db/mysql/root-password"
+  resolve || fail "the resolver failed"
+  grep -qxF 'password="pw\n\n"' "$TMP/out/mariadb/maria-tls.conf" || fail "$(cat "$TMP/out/mariadb/maria-tls.conf")"
+  grep -qxF 'password="pw\r\n"' "$TMP/out/mysql/mysql-tls.conf" || fail "$(cat "$TMP/out/mysql/mysql-tls.conf")"
+}
+
+@test "a line break PostgreSQL's pgpass or MongoDB's file cannot carry stops the resolver, without the value" {
+  printf 'secret-pw\n' >"$TMP/secrets/db/pg-creds/password"
+  run resolve
+  [ "$status" -ne 0 ] || fail "the resolver succeeded: $output"
+  [[ "$output" == *"postgres instance pg: password holds a line break"* ]] || fail "$output"
+  [[ "$output" != *secret-pw* ]] || fail "the value is in the output: $output"
+
+  printf '%s' 'pg:pa\ss' >"$TMP/secrets/db/pg-creds/password"
+  mkdir -p "$TMP/secrets/db/mongo"
+  printf 'secret-pw\n' >"$TMP/secrets/db/mongo/password"
+  cat >"$TMP/mongo.yaml" <<'YAML'
+databases:
+  mongodb:
+    enabled: true
+    instances:
+      - { name: mongo, host: mongo.db.svc, user: root, secretRef: { namespace: db, name: mongo, passwordKey: password } }
+YAML
+  run resolve "$TMP/mongo.yaml"
+  [ "$status" -ne 0 ] || fail "the resolver succeeded: $output"
+  [[ "$output" == *"mongodb instance mongo: password holds a line break"* ]] || fail "$output"
+  [[ "$output" != *secret-pw* ]] || fail "the value is in the output: $output"
 }

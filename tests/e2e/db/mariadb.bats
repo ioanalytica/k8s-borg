@@ -157,6 +157,20 @@ teardown_file() {
   grep -q 'EVENT `purge_audit`' "$E2E_TMP/user-dumps/e2e/appdb.sql"
 }
 
+@test "backup-mysql and restore-mysql refuse a MariaDB server with rc 2, naming databases.mariadb" {
+  # A MySQL client's defaults file: without skip-ssl, an option MySQL's client
+  # does not know (it uses TLS when the server offers it).
+  write_conf "$E2E_TMP/as-mysql/e2e.conf" src
+  sed -i '/^skip-ssl$/d' "$E2E_TMP/as-mysql/e2e.conf"
+  run --separate-stderr env DB_BACKUP_LOCATION="$E2E_TMP/wrong-engine" backup-mysql "$E2E_TMP/as-mysql/e2e.conf"
+  [ "$status" -eq 2 ] || fail "rc=$status: $stderr"
+  [[ "$stderr" == *"not MySQL: configure the instance under databases.mariadb"* ]] || fail "$stderr"
+  [ ! -e "$E2E_TMP/wrong-engine/e2e" ] || fail "dumped: $(ls "$E2E_TMP/wrong-engine/e2e")"
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-mysql "$E2E_TMP/as-mysql/e2e.conf" appdb
+  [ "$status" -eq 2 ] || fail "rc=$status: $stderr"
+  [[ "$stderr" == *"databases.mariadb"* ]] || fail "$stderr"
+}
+
 @test "backup-cluster-databases dumps only the engines in BORG_DB_ENGINES" {
   run env DB_BACKUP_LOCATION="$E2E_TMP/engines-none" BORG_DB_ENGINES="" backup-cluster-databases
   [ "$status" -eq 0 ] || fail "rc=$status: $output"

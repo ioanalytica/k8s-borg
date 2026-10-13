@@ -17,14 +17,24 @@
 #
 # The mysql schema alone is only restored with --all (or --as, to look at it).
 # Every error fails with rc >= 2.
+#
+# restore-mysql is this script under another name (a link): it restores what
+# backup-mysql dumped, with MySQL's own client. Each name refuses a server of
+# the other engine.
 set -Eeo pipefail
+engine=${0##*/restore-}
+# The error is reported once, by the script itself, not again by each
+# subshell (a pipeline, a $(…)) the failure ends.
 # shellcheck disable=SC2154  # ec is assigned inside the trap body
-trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mariadb restore failed (rc=$ec)" >&2; exit "$ec"' ERR
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; [ "$BASH_SUBSHELL" -gt 0 ] || echo "Error: $engine restore failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+# shellcheck source=../lib/mysql-engine.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/mysql-engine.sh"
 
 usage() {
-  cat >&2 <<'EOF'
-Usage: restore-mariadb DEFAULTS_FILE --all
-       restore-mariadb DEFAULTS_FILE DATABASE [--as NAME]
+  cat >&2 <<EOF
+Usage: restore-$engine DEFAULTS_FILE --all
+       restore-$engine DEFAULTS_FILE DATABASE [--as NAME]
 EOF
 }
 
@@ -34,7 +44,7 @@ die() {
 }
 
 defaults_file=${1:-}
-[ -n "$defaults_file" ] || { usage; die "No mariadb config file specified!"; }
+[ -n "$defaults_file" ] || { usage; die "No $engine config file specified!"; }
 [ -f "$defaults_file" ] || die "config file $defaults_file not found"
 shift
 
@@ -83,8 +93,8 @@ backup_file() {
   echo "$file"
 }
 
-mariadb_() {
-  mariadb --defaults-file="$defaults_file" "$@"
+client() {
+  sql_client "$defaults_file" "$@"
 }
 
 # An identifier in backquotes, a backquote in it doubled.
@@ -96,20 +106,22 @@ quote() {
 case "$mode" in
   all)
     file=$(backup_file "${instance_name}-full-dump.sql")
+    require_server "$defaults_file"
     echo "Restoring instance: $instance_name from $file ..."
-    mariadb_ <"$file"
+    client <"$file"
     # The mysql schema came in as table data: make the server read it.
-    mariadb_ -e "FLUSH PRIVILEGES"
+    client -e "FLUSH PRIVILEGES"
     ;;
   database)
     [ "$database_name" != mysql ] || [ "$target_name" != mysql ] \
       || die "the mysql schema is restored with --all (or --as NAME, to look at it)"
     file=$(backup_file "${database_name}.sql")
+    require_server "$defaults_file"
     echo "Dropping database: $target_name ..."
-    mariadb_ -e "DROP DATABASE IF EXISTS $(quote "$target_name")"
+    client -e "DROP DATABASE IF EXISTS $(quote "$target_name")"
     if [ "$database_name" = "$target_name" ]; then
       echo "Restoring database: $database_name from $file ..."
-      mariadb_ <"$file"
+      client <"$file"
     else
       # A dump made with --databases creates and selects its database by
       # name, in lines of their own: those go to NAME instead.
@@ -123,7 +135,7 @@ case "$mode" in
         index($0, from_create) == 1 { $0 = to_create substr($0, length(from_create) + 1) }
         $0 == from_use { $0 = to_use }
         { print }
-      ' "$file" | mariadb_
+      ' "$file" | client
     fi
     ;;
 esac

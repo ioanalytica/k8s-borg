@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+* **Credentials resolver: values passed as they are** (issue #61). Every
+  instance value reaches the resolver's script as one single-quoted word: a
+  `$(…)`, a backtick or a `$VAR` in a host or user no longer runs or expands
+  in the init container. Secret values keep their trailing line breaks: the
+  MariaDB and MySQL files write every value double-quoted with `\n`/`\r`
+  escapes, which both clients read back; pgpass and MongoDB's file cannot
+  carry a line break, and the resolver stops with the instance and field
+  named, not the value. pgpass now also escapes `:` and `\` in host and port.
+
+* **MySQL and Percona Server 8.4: `databases.mysql`** (issue #51).
+  * A new engine, configured like `databases.mariadb` (static `config`,
+    `secretRef` or `existingSecret`), off by default. `backup-mysql`,
+    `backup-cluster-mysql` and `restore-mysql` dump and restore with MySQL's
+    own client 8.4, shipped in `/opt/mysql` with the glibc it runs on (from
+    the official `mysql:8.4.11` image, pinned by digest; about 29 MB, 10 MB
+    compressed), in the files, modes and restore modes of MariaDB. The dumps
+    carry no GTIDs.
+  * Measured with the MariaDB client against MySQL 8.4: the dump succeeds
+    without a warning, but every table with a generated column fails its
+    restore (`ERROR 3105`), and the full dump copies system tables MySQL
+    refuses and the source's GTIDs. `backup-mariadb` and `restore-mariadb`
+    therefore fail with rc 2 against a MySQL server, and the MySQL scripts
+    against a MariaDB server, naming the engine to use.
+  * `tls: false` on a MySQL `secretRef` instance writes `ssl-mode=DISABLED`
+    and `get-server-public-key`.
+  * The image's MariaDB client gets its authentication plugins
+    (`mariadb-connector-c`): before, it could not log in as a
+    `caching_sha2_password` (MySQL's default), `ed25519` or `parsec` user.
+  * An error of a MariaDB/MySQL backup or restore is reported once, not
+    again by every subshell it ends.
+  * Tested end to end against MySQL 8.4 and Percona Server 8.4 with GTIDs
+    on, and against the Percona Operator for MySQL's Secrets.
+
 * **Database dumps: the whole PostgreSQL instance, uncompressed dumps,
   `restore-mariadb`, only the configured engines, end-to-end tests** (issues
   #45, #46, #47, #55).
@@ -82,6 +115,11 @@
   backup user" in `chart/README.md`.
 * A MariaDB server without TLS needs `tls: false` (secretRef instances) or
   `skip-ssl` in its static config.
+* A MySQL or Percona server under `databases.mariadb` now fails its backup
+  with rc 2 (its dumps did not restore): move the instance to
+  `databases.mysql`. MySQL's client knows no `skip-ssl`: in a static config
+  write `ssl-mode=DISABLED` and `get-server-public-key` instead; a `secretRef`
+  instance with `tls: false` gets them from the resolver.
 
 * **MongoDB dumps and restores** (#50). `databases.mongodb` adds MongoDB to
   the cluster backup, configured like the other engines: a static `config`,
