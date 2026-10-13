@@ -48,6 +48,14 @@ data:
     # The cluster datastore snapshot (node.datastoreSnapshot).
     R {{ include "k8s-borg.datastoreSnapshotDir" . }}
     {{- end }}
+    {{- if .Values.node.sqlite.enabled }}
+    # The SQLite copies (node.sqlite).
+    R {{ include "k8s-borg.sqliteCopyDir" . }}
+    {{- end }}
+  {{- if .Values.node.sqlite.enabled }}
+  # The databases sqlite-copy copies (node.sqlite.databases).
+  node-sqlite-databases.json: {{ toJson .Values.node.sqlite.databases | quote }}
+  {{- end }}
   node-exclude.patterns: |
     {{- range .Values.node.exclude }}
     {{ . }}

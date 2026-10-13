@@ -47,6 +47,8 @@ bats tests/borg-rc.bats               # a single file
 | `register-backup-plan.bats` | `register-backup-plan`: the pre-backup hooks of the plan in the order given, `continue_on_error` only for the names in `BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE`, no hooks without pre-backup scripts; post-backup hooks run always; with `BORG_PLAN_OWNED_AGENT_SCRIPTS` the plan keeps its other hooks (agent and library scripts), ours run last before and first after the backup, are not added twice, and are removed once no longer configured |
 | `datastore-snapshot.bats` | `datastore-snapshot`: k3s etcd, k3s SQLite and kubeadm detected under the host root, etcdctl with each one's client certificate against the node IP (or `DATASTORE_ETCD_ENDPOINT`, or localhost), the k3s token and kubeadm PKI copied along, owner-only modes; the SQLite copy of a live WAL database through a read-only directory is complete and a single file; a node without a datastore is no error; a failed etcdctl, a broken database, a missing token or certificate fail with 2 and leave nothing; `clean` removes only its own directories and fails with 2 when it cannot |
 | `chart-datastore-snapshot.bats` | `node.datastoreSnapshot`: off by default; the node pods tolerate control-plane `NoSchedule` taints; a memory-backed snapshot volume with its size limit; the host root stays read-only with no other host path; etcd at `$(HOST_IP)` without the host network, or the host network with localhost, or an explicit endpoint; the snapshot directory in the node include patterns; in agent mode both scripts published (the user's win on a collision) and attached as hooks, and the owned hook names set even when off |
+| `sqlite-copy.bats` | `sqlite-copy` against a fake Kubernetes API: a claim resolved to a local volume (copied on the node its affinity names, skipped elsewhere), a hostPath volume (copied where the file is), a CSI or other volume (the kubelet's mount for a pod on this node, below a configurable kubelet directory; skipped when not mounted); the copy of a database a writer keeps changing, in WAL mode through a read-only directory and with a rollback journal, is consistent, keeps its journal mode, a single file, mode 600; only the claim and its volume are asked for, with the ServiceAccount token; a claim missing or not bound, a missing volume, an API that refuses or does not answer, a file missing on the node with the volume, no database, a lock held past `SQLITE_BUSY_TIMEOUT`, a path out of the volume (`..`, absolute, a symlink) fail with 2, leave nothing and do not stop the other databases; `save` replaces earlier copies, `clean` removes them |
+| `chart-node-sqlite.bats` | `node.sqlite`: off by default (no ServiceAccount, `/node` as before); the list of databases in the config and the copy directory in the node include patterns; the copies on an `emptyDir` with its size limit; `/node` read-only with `HostToContainer`; the node ServiceAccount with `get` on exactly the listed claims (one Role per namespace) and on PersistentVolumes, Roles of its own for a release of the same name in another namespace, and bound to the reconcile-status Role under a reconcile gate; in agent mode the scripts published and attached as hooks, before the datastore snapshot and removed after it; an empty list, a missing field, an invalid namespace or claim name and a path that is absolute or has `..` fail the render |
 | `chart-s3-verify-listing.bats` | `s3.verifyListing` as `S3_VERIFY_LISTING` in the cluster CronJob: on by default, off when set to `false`, absent without S3; in plan mode `s3-verify-listing` is published to the cluster agent and runs right after `s3-remount-buckets`, ahead of `s3-check-mounts`, all continuing on error; with `s3.verifyListing=false` or without S3 it is neither published nor attached |
 | `mongodb.bats` | `backup-mongodb` and `restore-mongodb` with stub tools: a replica set dumped with `--oplog`, a standalone server without, a sharded cluster refused, uncompressed and one collection at a time, mode 600, a failed dump keeping the previous archive with rc ≥ 2; `--all` with `--drop` and the oplog replayed only when the archive holds one (`--no-oplog` without), one database dropped then restored, `--as` into another name, `admin`/`local`/`config` and names that are no database names refused before anything is dropped, every failure rc ≥ 2 |
 | `chart-mongodb.bats` | `databases.mongodb` in the chart: the static Secret, the `/root/.mongodb` mount, `backup-cluster-mongodb` published and attached to the plan, a get-only Role per referenced namespace, the validation of `secretRef` (`uriKey` alone, or host, password key and one user); the rendered resolver run with a stub kubectl: the connection string of a key with a `.` as is, a built URI with the user percent-encoded and the password a single-quoted YAML field, a missing key stopping the resolver |
@@ -133,11 +135,20 @@ their own — `src`, seeded and dumped, and the empty `dst` and `dst2` — and r
 the engine's bats file next to them in the e2e image (`k8s-borg:e2e`, built by
 `tests/e2e/run.sh`). Server versions run in parallel (`E2E_DB_JOBS`, default
 3); the default matrix is PostgreSQL 13–18, MariaDB 10.11, 11.4 and 11.8, MySQL
-8.4, Percona Server 8.4 (`percona:8.4`), and MongoDB 7 and 8. MySQL and Percona
-Server run with GTIDs on. For MongoDB, `src` and `dst` are single-member replica sets
-with authentication (a key file), which the tests initiate, and `dst2` is a
+8.4, Percona Server 8.4 (`percona:8.4`), MongoDB 7 and 8, and SQLite as
+written by the SQLite of Alpine, Debian 12 and Debian 11 (`sqlite:alpine`,
+`sqlite:bookworm`, `sqlite:bullseye`). MySQL and Percona Server run with GTIDs
+on. For MongoDB, `src` and `dst` are single-member replica sets with
+authentication (a key file), which the tests initiate, and `dst2` is a
 standalone server; the tests reach them with the image's pymongo
 (`helpers/mongodb.py`), as the image has no MongoDB shell.
+
+SQLite has no server. Its `src` is the application: two writers under
+constant load, one in WAL mode and one with a rollback journal
+(`tests/e2e/helpers/sqlite-writer.py`), on a Docker volume that the test
+container mounts read-only where a node sees a pod's volume, once as a local
+volume and once as the kubelet's mount of a CSI volume. A fake Kubernetes
+API (`tests/e2e/helpers/fake-k8s-api.py`) serves the claims and volumes.
 
 Each run seeds `src` with what a restore must bring back — roles or users with
 passwords, memberships and grants down to columns, databases with their own
@@ -155,15 +166,17 @@ database with the fingerprint.
 | `mariadb.bats` | `backup-mariadb`: one uncompressed dump per database with routines, triggers and events, the full dump, mode 600, unchanged through Borg; `restore-mariadb --all` into an empty server equal to the source (users with password hashes, roles, database, table and column grants, every database's tables, views, routines, triggers, events, counters and content) and the restored users able to log in; one database in place, `--as` over an existing database, with its view and trigger on its own tables, without touching the original; the `mysql` schema refused without `--all`; a backup user with global read privileges only; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps and restores with rc ≥ 2; removal of the old `*.gz` dumps; deduplication; `backup-mysql` and `restore-mysql` refusing a MariaDB server |
 | `mysql.bats` | MySQL and Percona Server: `backup-mysql` writing the same files with MySQL's `mysqldump`, without GTIDs and without the values of generated columns; `restore-mysql --all` into an empty server equal to the source (users with password hashes, plugins and password options, roles and default roles, dynamic, database, table and column grants, generated, invisible and JSON columns, functional indexes, checks, views, routines, triggers, events with their definers, counters and content) without the source's GTIDs; one database in place, one after another into a fresh server, `--as` with view, trigger and generated columns on its own tables; a login without TLS as the resolver writes it; `backup-mariadb` and `restore-mariadb` refusing a MySQL server; the rest as `mariadb.bats` |
 | `mongodb.bats` | `backup-mongodb`: one uncompressed archive with the oplog, mode 600, unchanged through Borg; `restore-mongodb --all` into an empty replica set equal to the source (users with their credentials, custom roles, every database's collections with options, validators, capped and view definitions, indexes and content) and the restored users able to log in — the users first, so that the oplog replay keeps its session; one database in place, `--as` over an existing database, with its view on its own collection, without touching the original; the `backup` role dumping everything, the users included, and the `restore` role restoring a database; a standalone server dumped without an oplog; the Community operator's connection string with `admin` in its path; refusals (`admin`, a database the archive lacks) before anything is dropped; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps and restores with rc ≥ 2 and the previous archive left alone; deduplication |
+| `sqlite.bats` | `sqlite-copy` with the application writing: the databases change while they are copied, read-only below `/node`; 20 rounds of copies of both databases from both kinds of volume, each one consistent (integrity check, the writer's invariant), in its journal mode, a single file, mode 600; a copy holds every transaction committed before it; the copies unchanged and mode 600 through Borg, and the application writing on again from a restored copy; `clean` removes them |
 
 The test container does not get the docker socket, so it cannot start a
 fresh server of its own: the restore of the whole instance gets `dst`, the
 restore of the globals `dst2` (the failing restores use `dst2` after it); the
 restores of single databases go into `src` itself.
 
-`E2E_DB_SCRIPTS_FROM_CHECKOUT=1` bind-mounts the checkout's `backup-*` and
-`restore-*` scripts and `tests/e2e` over a published image's, so a change to
-the dump scripts can be tested without building an image:
+`E2E_DB_SCRIPTS_FROM_CHECKOUT=1` bind-mounts the checkout's `backup-*`,
+`restore-*`, `mongodb-admin` and `sqlite-copy` scripts and `tests/e2e` over a
+published image's, so a change to the dump scripts can be tested without
+building an image:
 
 ```sh
 E2E_IMAGE=ghcr.io/ioanalytica/k8s-borg:<tag> E2E_DB_SCRIPTS_FROM_CHECKOUT=1 ./tests/e2e/db/run.sh
@@ -175,5 +188,8 @@ Remote repositories other than the image's own repository server (sftp://,
 s3://, a foreign ssh:// server), the mounted-S3 files-cache case, and the borg
 version pins. A database dump restored into another server major than the
 one it was taken from, and engines without dump scripts (MySQL, MongoDB,
-Valkey). Python and frontend tests live in the `borg-ui`
+Valkey). SQLite copies on a real cluster: the kubelet's mounts and the
+`HostToContainer` propagation they need are stood in for by directories and
+Docker volumes here; they were checked once on a throwaway k3d cluster
+(issue #53). Python and frontend tests live in the `borg-ui`
 submodule and run in its own CI.

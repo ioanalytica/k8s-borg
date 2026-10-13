@@ -55,4 +55,11 @@ subjects:
     name: {{ include "k8s-borg.dbResolverSAName" . }}
     namespace: {{ .Release.Namespace | quote }}
   {{- end }}
+  {{- if and .Values.node.enabled .Values.node.sqlite.enabled }}
+  # With node.sqlite the node pods run as their own ServiceAccount and still
+  # wait for the reconcile.
+  - kind: ServiceAccount
+    name: {{ include "k8s-borg.nodeSAName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+  {{- end }}
 {{- end }}

@@ -431,6 +431,28 @@ node:
     k3sDataDir: /var/lib/rancher/k3s
     ## @param node.datastoreSnapshot.kubeadmDir kubeadm configuration directory on the node
     kubeadmDir: /etc/kubernetes
+  ## Consistent copies of SQLite databases on application volumes, archived with
+  ## the node backup instead of the files the application writes while they are
+  ## read. A database is named by its PersistentVolumeClaim and its path inside
+  ## the volume; the node that has the volume (a local or hostPath volume on its
+  ## disk, any other while the kubelet has it mounted for a pod there) copies it
+  ## with SQLite's online backup. The node pods read the claims and volumes
+  ## through the API (get only) and see the volumes through /node with
+  ## HostToContainer mount propagation. Restore: chart README, "SQLite databases".
+  sqlite:
+    ## @param node.sqlite.enabled Copy the listed SQLite databases before each node backup
+    enabled: false
+    ## @param node.sqlite.databases SQLite databases to copy: namespace and claim of the volume, path inside it
+    databases: []
+    #  - namespace: vaultwarden
+    #    pvc: vaultwarden-data
+    #    path: db.sqlite3
+    ## @param node.sqlite.sizeLimit Size limit of the volume on the node's disk the copies are written to ("" = none)
+    sizeLimit: ""
+    ## @param node.sqlite.busyTimeout Seconds a copy waits for the application's write lock before it fails
+    busyTimeout: 60
+    ## @param node.sqlite.kubeletDir The kubelet's root directory on the node (kubelet --root-dir)
+    kubeletDir: /var/lib/kubelet
   ## Borg patterns for node backups (ConfigMap -> /root/.borg, node-*.patterns).
   ## Only the elementary "P fm" line is a default; add your own roots/excludes.
   ## @param node.include Borg include patterns for node backups (prepend the /node mount)

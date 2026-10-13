@@ -142,6 +142,6 @@ sys.exit(d["data"]["datastore-snapshot"].strip() != "#!/bin/sh")' || fail "the d
 
 @test "agent mode, off: our hook names stay owned, so a plan sheds them" {
   [ "$(q DaemonSet 'env.get("BORG_PLAN_OWNED_AGENT_SCRIPTS"), "BORG_PLAN_PRE_AGENT_SCRIPTS" in env' "${agent[@]}")" \
-    = "('datastore-snapshot datastore-snapshot-clean', False)" ] || fail
+    = "('datastore-snapshot datastore-snapshot-clean sqlite-copy sqlite-copy-clean', False)" ] || fail
   [ -z "$(agent_scripts "${agent[@]}")" ] || fail "$(agent_scripts "${agent[@]}")"
 }

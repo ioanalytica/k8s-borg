@@ -95,6 +95,29 @@
   `BORG_PLAN_OWNED_AGENT_SCRIPTS` (set on node agents) only those hooks are
   replaced or removed; the plan keeps every other hook, such as one chosen
   in Borg UI. `BORG_PLAN_POST_AGENT_SCRIPTS` attaches post-backup hooks.
+* **Consistent copies of SQLite databases on application volumes** (#53,
+  `node.sqlite.enabled`, off by default). The node backup read an
+  application's SQLite file and its `-wal` or `-journal` file at different
+  moments, which under write load gave a corrupt copy more often than not.
+  Now the databases listed in `node.sqlite.databases` (namespace, claim, path
+  in the volume) are copied first with SQLite's online backup, by the new
+  `sqlite-copy`: each node pod resolves the claim to its volume through the
+  API and copies the databases on its node, read-only through `/node`, with
+  the application's locks honoured. The copies are single files, mode 600,
+  in their database's journal mode, archived under
+  `var/lib/k8s-borg/sqlite/<namespace>/<pvc>/` and removed after the run. A
+  database that cannot be copied fails the step with rc 2; the others are
+  still copied, and the file backup runs. The node pods get a ServiceAccount
+  of their own (`get` on the listed claims and on PersistentVolumes), an
+  `emptyDir` on the node's disk for the copies, and `HostToContainer` mount
+  propagation on `/node`, so that CSI volumes mounted after their start are
+  visible. In interval mode `run.sh` makes the copies; in agent mode the
+  chart attaches `sqlite-copy` and `sqlite-copy-clean` to the node plan like
+  the datastore snapshot. No new binary: the image's Python has the
+  `sqlite3` module. Tested end to end against applications writing under
+  load in WAL and rollback-journal mode, with the SQLite of Alpine, Debian 12
+  and Debian 11 (`tests/e2e/db/sqlite.bats`). Usage and restore: chart
+  README, "SQLite databases".
 
 ### Upgrade notes
 
