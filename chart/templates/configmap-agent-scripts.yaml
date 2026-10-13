@@ -10,8 +10,9 @@ the console/agent pod) belong under cluster.agentScripts; node.agentScripts is f
 node-local scripts. See values.yaml.
 */}}
 {{- $scopes := list -}}
-{{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") .Values.node.agentScripts -}}
-{{- $scopes = append $scopes (dict "name" (include "k8s-borg.nodeAgentScriptsConfigMapName" .) "component" "node" "scripts" .Values.node.agentScripts) -}}
+{{- $nodeScripts := (include "k8s-borg.node.agentScripts" .) | fromYaml -}}
+{{- if and .Values.node.enabled (eq .Values.node.backupMode "agent") $nodeScripts -}}
+{{- $scopes = append $scopes (dict "name" (include "k8s-borg.nodeAgentScriptsConfigMapName" .) "component" "node" "scripts" $nodeScripts) -}}
 {{- end -}}
 {{- $clusterScripts := (include "k8s-borg.cluster.agentScripts" .) | fromYaml -}}
 {{- if and .Values.cluster.enabled (eq .Values.cluster.mode "agent") $clusterScripts -}}

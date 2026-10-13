@@ -44,6 +44,10 @@ data:
     # "R /node/absolute/path" lines via node.include in the chart values — borg
     # has nothing to back up without at least one "R <root>".
     {{- end }}
+    {{- if .Values.node.datastoreSnapshot.enabled }}
+    # The cluster datastore snapshot (node.datastoreSnapshot).
+    R {{ include "k8s-borg.datastoreSnapshotDir" . }}
+    {{- end }}
   node-exclude.patterns: |
     {{- range .Values.node.exclude }}
     {{ . }}

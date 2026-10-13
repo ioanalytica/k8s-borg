@@ -351,6 +351,27 @@ node:
   ##       # borg-ui: Dump the local database before backup
   ##       pg_dumpall > /var/backups/db.sql
   agentScripts: {}
+  ## Snapshot of the cluster datastore on the control-plane nodes, archived with
+  ## the node backup: etcd of k3s or kubeadm (etcdctl), or k3s's SQLite. Each node
+  ## pod detects its datastore itself; a node without one skips the step. The
+  ## snapshot holds every Secret of the cluster in clear text: it is written to a
+  ## memory-backed volume of the pod only, archived from there, and removed after
+  ## the run. Restore: chart README, "Cluster datastore snapshot".
+  datastoreSnapshot:
+    ## @param node.datastoreSnapshot.enabled Snapshot the cluster datastore before each node backup
+    enabled: false
+    ## @param node.datastoreSnapshot.sizeLimit Size limit of the memory volume the snapshot is written to (counts against the pod's memory)
+    ##   etcd's default quota is 2 GiB; raise this with --quota-backend-bytes.
+    sizeLimit: 2Gi
+    ## @param node.datastoreSnapshot.hostNetwork Run the node pods in the host network and reach etcd at 127.0.0.1
+    ##   Off, etcd is reached at the node's IP, on which k3s and kubeadm also listen.
+    hostNetwork: false
+    ## @param node.datastoreSnapshot.etcdEndpoint etcd client URL (default: https://<node IP>:2379, or https://127.0.0.1:2379 with hostNetwork)
+    etcdEndpoint: ""
+    ## @param node.datastoreSnapshot.k3sDataDir k3s data directory on the node (k3s --data-dir)
+    k3sDataDir: /var/lib/rancher/k3s
+    ## @param node.datastoreSnapshot.kubeadmDir kubeadm configuration directory on the node
+    kubeadmDir: /etc/kubernetes
   ## Borg patterns for node backups (ConfigMap -> /root/.borg, node-*.patterns).
   ## Only the elementary "P fm" line is a default; add your own roots/excludes.
   ## @param node.include Borg include patterns for node backups (prepend the /node mount)

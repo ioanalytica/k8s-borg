@@ -184,6 +184,28 @@ exec /usr/local/bin/backup-cluster-{{ .engine }} "$@"
 {{- end -}}
 
 {{/*
+Effective node agent scripts: with node.datastoreSnapshot.enabled the snapshot
+and its removal, deep-merged with user-provided node.agentScripts (user keys win
+on collision). Returns a YAML map (consume with `| fromYaml`).
+*/}}
+{{- define "k8s-borg.node.agentScripts" -}}
+{{- $scripts := .Values.node.agentScripts | default dict | deepCopy -}}
+{{- if .Values.node.datastoreSnapshot.enabled -}}
+{{- $scripts = merge $scripts (dict "datastore-snapshot" "#!/bin/sh\n# borg-ui: Snapshot the cluster datastore (etcd, k3s) for the backup\nexec /usr/local/bin/datastore-snapshot save") -}}
+{{- $scripts = merge $scripts (dict "datastore-snapshot-clean" "#!/bin/sh\n# borg-ui: Remove the cluster datastore snapshot after the backup\nexec /usr/local/bin/datastore-snapshot clean") -}}
+{{- end -}}
+{{- toYaml $scripts -}}
+{{- end -}}
+
+{{/*
+Where the node pod keeps the datastore snapshot during a run (a memory-backed
+emptyDir); the node include patterns archive it from there.
+*/}}
+{{- define "k8s-borg.datastoreSnapshotDir" -}}
+/var/lib/k8s-borg/datastore
+{{- end -}}
+
+{{/*
 Per-component standard labels. Usage: include "k8s-borg.labels" (dict "context" $ "component" "node")
 */}}
 {{- define "k8s-borg.labels" -}}

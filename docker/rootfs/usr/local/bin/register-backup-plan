@@ -49,6 +49,16 @@
 #                             warning (continue_on_error). The S3 checks, so
 #                             that the other sources are archived as in the
 #                             CronJob. Any other failing hook stops the run.
+#   BORG_PLAN_POST_AGENT_SCRIPTS  optional; space-separated agent-script NAMES to
+#                             attach as post-backup hooks that run whatever the
+#                             backup's result (run_on always). Used to remove
+#                             the node's datastore snapshot again.
+#   BORG_PLAN_OWNED_AGENT_SCRIPTS  optional; the hook names this chart owns.
+#                             When set, the plan keeps the hooks it has under
+#                             other names (e.g. ones chosen in Borg UI) and
+#                             only its owned ones are replaced or removed;
+#                             unset, configured hooks replace all of the
+#                             plan's hooks and no configured hooks leave them.
 #   BORG_UI_AGENT_NAME        optional; repo/agent name. Default: pod hostname.
 #   BORG_PATTERNS_DIR         optional; default /root/.borg
 #   BORG_BACKUP_SCHEDULE_DIR  optional; default /etc/borg-backup-schedules
@@ -130,6 +140,14 @@ m = [p for p in plans if p.get("name") == name]
 print(m[0]["id"] if m else "")') \
   || borgui_die "could not list backup plans"
 
+# Owned hooks are reconciled against the plan's current ones, which only the
+# plan's own endpoint returns.
+existing_plan=""
+if [ -n "${BORG_PLAN_OWNED_AGENT_SCRIPTS:-}" ] && [ -n "$plan_id" ]; then
+  existing_plan=$(borgui_api "$jwt" GET "/api/backup-plans/${plan_id}") \
+    || borgui_die "could not read backup plan ${plan_id}"
+fi
+
 # --- build the payload (parse pattern files -> source_directories/excludes) ---
 # Operator-provided create flags first, then the files-cache mode: match on
 # mtime+size for the agent's create when an S3 bucket is actually mounted
@@ -152,6 +170,9 @@ if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
              PLAN_CUSTOM_FLAGS="$plan_custom_flags" \
              PRE_AGENT_SCRIPTS="${BORG_PLAN_PRE_AGENT_SCRIPTS:-}" \
              PRE_AGENT_SCRIPTS_CONTINUE="${BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE:-}" \
+             POST_AGENT_SCRIPTS="${BORG_PLAN_POST_AGENT_SCRIPTS:-}" \
+             OWNED_AGENT_SCRIPTS="${BORG_PLAN_OWNED_AGENT_SCRIPTS:-}" \
+             EXISTING_PLAN="$existing_plan" \
              python3 -c '
 import sys, json, os
 
@@ -233,21 +254,35 @@ if agent_mid:
         "agent_machine_id": int(agent_mid),
         "paths": sources,
     }]
-    # Pre-backup hooks: agent scripts (resolved on the agent against its
-    # allow-list) run before the borg create — e.g. cluster DB dumps.
+    # Hooks: agent scripts (resolved on the agent against its allow-list) run
+    # before the borg create (e.g. cluster DB dumps) or after it.
     pre_scripts = (os.environ.get("PRE_AGENT_SCRIPTS") or "").split()
     continue_on_error = set((os.environ.get("PRE_AGENT_SCRIPTS_CONTINUE") or "").split())
-    if pre_scripts:
-        plan["script_hooks"] = [
-            {
-                "agent_script_name": name,
-                "hook_type": "pre-backup",
-                "execution_order": i + 1,
-                "enabled": True,
-                "continue_on_error": name in continue_on_error,
-            }
-            for i, name in enumerate(pre_scripts)
-        ]
+    post_scripts = (os.environ.get("POST_AGENT_SCRIPTS") or "").split()
+    owned = set((os.environ.get("OWNED_AGENT_SCRIPTS") or "").split())
+    pre = [{"agent_script_name": name, "hook_type": "pre-backup", "enabled": True,
+            "continue_on_error": name in continue_on_error} for name in pre_scripts]
+    post = [{"agent_script_name": name, "hook_type": "post-backup", "enabled": True,
+             "custom_run_on": "always", "continue_on_error": False} for name in post_scripts]
+    send = bool(pre or post)
+    if owned:
+        # Only the owned names are ours: the plan keeps every other hook, ours
+        # run last before the backup and first after it, and an owned hook that
+        # is no longer configured is removed.
+        existing = json.loads(os.environ.get("EXISTING_PLAN") or "{}").get("script_hooks") or []
+        kept = [h for h in existing if h.get("agent_script_name") not in owned]
+        send = send or len(kept) != len(existing)
+        fields = ("script_id", "agent_script_name", "hook_type", "enabled", "custom_timeout",
+                  "custom_run_on", "continue_on_error", "skip_on_failure", "parameter_values")
+        kept = [{k: h.get(k) for k in fields} for h in
+                sorted(kept, key=lambda h: h.get("execution_order") or 0)]
+        pre = [h for h in kept if h["hook_type"] == "pre-backup"] + pre
+        post = post + [h for h in kept if h["hook_type"] == "post-backup"]
+    if send:
+        for hooks in (pre, post):
+            for i, hook in enumerate(hooks):
+                hook["execution_order"] = i + 1
+        plan["script_hooks"] = pre + post
 print(json.dumps(plan))'); then
   :
 else

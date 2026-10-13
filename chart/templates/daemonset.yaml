@@ -3,6 +3,8 @@ Copyright IO ANALYTICA.
 SPDX-License-Identifier: AGPL-3.0-only
 */}}
 {{- if .Values.node.enabled }}
+{{- $nodeScripts := (include "k8s-borg.node.agentScripts" .) | fromYaml }}
+{{- $snapshot := .Values.node.datastoreSnapshot }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -27,6 +29,10 @@ spec:
       serviceAccountName: {{ include "k8s-borg.agentSAName" . }}
       {{- end }}
       {{- include "k8s-borg.imagePullSecrets" . | nindent 6 }}
+      {{- if and $snapshot.enabled $snapshot.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
       {{- if .Values.node.tolerations }}
       tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.node.tolerations "context" $) | nindent 8 }}
       {{- end }}
@@ -36,12 +42,22 @@ spec:
           hostPath:
             path: {{ .Values.node.hostRootPath | quote }}
             type: Directory
-        {{- if and (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
+        {{- if and (eq .Values.node.backupMode "agent") $nodeScripts }}
         - name: agent-scripts
           configMap:
             name: {{ include "k8s-borg.nodeAgentScriptsConfigMapName" . }}
             # 0555: readable + executable for the agent's allow-list.
             defaultMode: 365
+        {{- end }}
+        {{- if $snapshot.enabled }}
+        # The datastore snapshot holds every Secret of the cluster in clear
+        # text: memory only, never the node's disk.
+        - name: datastore-snapshot
+          emptyDir:
+            medium: Memory
+            {{- with $snapshot.sizeLimit }}
+            sizeLimit: {{ . | quote }}
+            {{- end }}
         {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
@@ -80,20 +96,61 @@ spec:
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
             - name: BORG_REGISTER_PLAN
               value: "true"
-            {{- if .Values.node.agentScripts }}
+            {{- if $nodeScripts }}
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
             {{- end }}
+            {{- /* The snapshot is the last hook before the backup and its
+                   removal the first after it, whatever the result. A failed
+                   snapshot does not stop the file backup; Borg UI shows it as
+                   a warning. The owned names let register-backup-plan keep
+                   the plan's other hooks and drop these once switched off. */}}
+            - name: BORG_PLAN_OWNED_AGENT_SCRIPTS
+              value: "datastore-snapshot datastore-snapshot-clean"
+            {{- if $snapshot.enabled }}
+            - name: BORG_PLAN_PRE_AGENT_SCRIPTS
+              value: datastore-snapshot
+            - name: BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE
+              value: datastore-snapshot
+            - name: BORG_PLAN_POST_AGENT_SCRIPTS
+              value: datastore-snapshot-clean
+            {{- end }}
+            {{- end }}
+            {{- if $snapshot.enabled }}
+            - name: DATASTORE_SNAPSHOT
+              value: "true"
+            - name: DATASTORE_SNAPSHOT_DIR
+              value: {{ include "k8s-borg.datastoreSnapshotDir" . | quote }}
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: DATASTORE_ETCD_ENDPOINT
+              {{- if $snapshot.etcdEndpoint }}
+              value: {{ $snapshot.etcdEndpoint | quote }}
+              {{- else if $snapshot.hostNetwork }}
+              value: "https://127.0.0.1:2379"
+              {{- else }}
+              value: "https://$(HOST_IP):2379"
+              {{- end }}
+            - name: K3S_DATA_DIR
+              value: {{ $snapshot.k3sDataDir | quote }}
+            - name: KUBEADM_DIR
+              value: {{ $snapshot.kubeadmDir | quote }}
             {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             - name: rootfs
               mountPath: /node
               readOnly: {{ .Values.node.hostRootReadOnly }}
-            {{- if and (eq .Values.node.backupMode "agent") .Values.node.agentScripts }}
+            {{- if and (eq .Values.node.backupMode "agent") $nodeScripts }}
             - name: agent-scripts
               mountPath: /etc/borg-ui-agent-scripts
               readOnly: true
+            {{- end }}
+            {{- if $snapshot.enabled }}
+            - name: datastore-snapshot
+              mountPath: {{ include "k8s-borg.datastoreSnapshotDir" . }}
             {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}

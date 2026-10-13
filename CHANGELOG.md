@@ -38,6 +38,31 @@
     and MariaDB 10.11, 11.4 and 11.8 (`tests/e2e/db/`), in CI on every push.
   * Usage, files and privileges: `chart/README.md`, "Database dumps".
 
+* **The node backup snapshots the cluster datastore** (#49,
+  `node.datastoreSnapshot.enabled`, off by default). A node backup read
+  etcd's data directory or k3s's `state.db` while they were written, which
+  is not a consistent copy. Now each node pod snapshots its node's datastore
+  before the backup: k3s with embedded etcd and kubeadm's etcd with
+  `etcdctl snapshot save` (at the node's IP, without the host network;
+  `hostNetwork: true` for etcd on localhost only), k3s with SQLite with
+  SQLite's online backup, read-only. The k3s server token or kubeadm's PKI
+  goes along, since the restore needs them. Nodes without a datastore skip
+  the step. The snapshot holds every Secret of the cluster in clear text: it
+  is written to a memory-backed volume of the pod, archived under
+  `var/lib/k8s-borg/datastore`, and removed after the run. In interval mode
+  `run.sh` takes it; in agent mode the chart publishes `datastore-snapshot`
+  and `datastore-snapshot-clean` to the node agent and attaches them to the
+  node plan as its last pre-backup hook (continuing on error) and its first
+  post-backup hook (run whatever the result). A failed snapshot does not
+  stop the file backup, and fails the run (in Borg UI: a warning). The
+  restore for each datastore is in the chart README.
+* **The image carries `etcdctl` and `etcdutl` 3.6.15**, the official release
+  build, checksummed per architecture.
+* **`register-backup-plan` keeps hooks it does not own.** With
+  `BORG_PLAN_OWNED_AGENT_SCRIPTS` (set on node agents) only those hooks are
+  replaced or removed; the plan keeps every other hook, such as one chosen
+  in Borg UI. `BORG_PLAN_POST_AGENT_SCRIPTS` attaches post-backup hooks.
+
 ### Upgrade notes
 
 * `databases.<engine>.enabled: true` without instances and without an
