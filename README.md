@@ -19,8 +19,9 @@ of clusters and machines alike.
   file systems and user homes, S3 buckets, and logical dumps of in-cluster
   MariaDB and PostgreSQL databases.
   - S3 buckets are mounted fresh before each run, and their content is checked
-    against the bucket listing, so an incomplete mount fails the run instead of
-    archiving a partial bucket.
+    against the bucket listing. A bucket whose mount misses objects is mounted
+    again; if objects are still missing, a CronJob run fails (the rest is
+    archived anyway), and a Borg UI backup plan ends with a warning.
 - **Console pod**: a StatefulSet with the Borg tools, the database dumps and the
   backup sources at hand, for inspection and restores with `kubectl exec`.
 - **Repository server for Borg 1 and Borg 2** (Borg 2 for testing only):
@@ -102,7 +103,8 @@ Set `BORG_UI_AGENT=true` (in the chart: `node.backupMode=agent`,
 agent** and register its assigned repository with the server. From Borg UI you
 then create, schedule and run **backup plans, maintenance jobs and restores**,
 next to any other agents and repositories that server manages. Enrollment is
-idempotent: an existing `config.toml` skips straight to running the agent.
+idempotent: an existing `config.toml` skips enrollment as long as the server
+still recognises the agent; otherwise the pod enrolls again.
 
 ## Configuration
 
