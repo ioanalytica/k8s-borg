@@ -202,7 +202,8 @@ datastores of k3s (kine with PostgreSQL or MySQL).
 > feature, for example
 > `R /node/var/lib/rancher/rke2/server/db/snapshots`. Archive the server
 > token with it (`<data-dir>/server/token`, or the `token` in the server's
-> config file): the restore refuses without it. Such a snapshot is as old as
+> config file, or the file its `token-file` names): the restore refuses
+> without it. Such a snapshot is as old as
 > the last scheduled one, and it stays on the node's disk. This feature is
 > for datastores without built-in snapshots, k3s with SQLite and kubeadm, or
 > for a snapshot taken at backup time.
