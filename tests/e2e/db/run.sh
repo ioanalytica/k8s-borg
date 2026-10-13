@@ -20,18 +20,20 @@
 #                  one, e.g. E2E_IMAGE=ghcr.io/ioanalytica/k8s-borg:<tag>.
 #
 # The server images come from Docker Hub: postgres:<version>-alpine,
-# mariadb:<version> and mongo:<version>.
+# mariadb:<version>, mysql:<version>, percona/percona-server:<version> (for
+# percona:<version>) and mongo:<version>. MySQL and Percona Server run with
+# GTIDs on and share mysql.bats.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 self="$PWD/tests/e2e/db/run.sh"
 
-DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mongodb:7 mongodb:8"
+DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8"
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
 # A password with the characters the chart's credentials resolver escapes:
-# ':' and '\' in a pgpass line, '"' and '\' in a MariaDB option file.
+# ':' and '\' in a pgpass line, '"' and '\' in a MariaDB/MySQL option file.
 DB_PASSWORD='e2e:pa"ss\word'
 
 # --one ENGINE:VERSION LOG — one server version: start its servers, run its
@@ -44,9 +46,20 @@ if [ "${1:-}" = "--one" ]; then
   # image and arguments after it for the server of ROLE, one per line.
   server_opts() { :; }
   server_args() { :; }
+  tests=$engine
+  # The entrypoint of the MySQL and Percona images puts the root password into
+  # SQL unescaped and fails on DB_PASSWORD; the servers start with this one
+  # and the tests set DB_PASSWORD (helpers/mysql.bash).
+  bootstrap_password=e2e-bootstrap
   case "$engine" in
     postgres) server_image="postgres:${version}-alpine"; server_env=(-e "POSTGRES_PASSWORD=$DB_PASSWORD") ;;
     mariadb)  server_image="mariadb:${version}";         server_env=(-e "MARIADB_ROOT_PASSWORD=$DB_PASSWORD") ;;
+    mysql|percona)
+      if [ "$engine" = mysql ]; then server_image="mysql:${version}"; else server_image="percona/percona-server:${version}"; fi
+      server_env=(-e "MYSQL_ROOT_PASSWORD=$bootstrap_password")
+      server_args() { printf '%s\n' --gtid-mode=ON --enforce-gtid-consistency=ON; }
+      tests=mysql
+      ;;
     mongodb)
       server_image="mongo:${version}"
       server_env=(-e MONGO_INITDB_ROOT_USERNAME=root -e "MONGO_INITDB_ROOT_PASSWORD=$DB_PASSWORD")
@@ -79,6 +92,7 @@ if [ "${1:-}" = "--one" ]; then
                   docker/rootfs/usr/local/bin/mongodb-admin; do
       checkout+=(-v "$PWD/$script:/usr/local/bin/${script##*/}:ro")
     done
+    checkout+=(-v "$PWD/docker/rootfs/usr/local/lib/mysql-engine.sh:/usr/local/lib/mysql-engine.sh:ro")
   fi
 
   {
@@ -94,11 +108,12 @@ if [ "${1:-}" = "--one" ]; then
     rc=0
     # ${a[@]+…}: an empty array is "unbound" to set -u in bash 3.2 (macOS).
     docker run -q --name "${name}-tests" --network "$name" ${checkout[@]+"${checkout[@]}"} \
-      -e "DB_ENGINE=$engine" -e "DB_VERSION=$version" -e "DB_PASSWORD=$DB_PASSWORD" \
+      -e "DB_ENGINE=$engine" -e "DB_VERSION=$version" -e "DB_PASSWORD=$DB_PASSWORD" -e "DB_TESTS=$tests" \
+      -e "DB_BOOTSTRAP_PASSWORD=$bootstrap_password" \
       -e "BATS_TEST_NAME_PREFIX=$spec: " \
       --entrypoint sh "$E2E_IMAGE" -c \
       'command -v bats >/dev/null || apk add -q --no-cache bats >/dev/null
-       exec bats --print-output-on-failure "/tests/e2e/db/$DB_ENGINE.bats"' || rc=$?
+       exec bats --print-output-on-failure "/tests/e2e/db/$DB_TESTS.bats"' || rc=$?
     exit "$rc"
   } >"$log" 2>&1
 fi

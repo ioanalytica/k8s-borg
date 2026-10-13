@@ -4,8 +4,9 @@
 # of secretRef database instances. Its script is taken from the rendered
 # console StatefulSet and run with a stub kubectl that serves the Secrets'
 # keys, its /out and /static directories moved below $TMP: the files must be
-# what backup-mariadb / backup-postgres read, passwords escaped, mode 600,
-# and `skip-ssl` for a MariaDB instance with `tls: false`.
+# what backup-mariadb / backup-mysql / backup-postgres read, passwords
+# escaped, mode 600, and each client's option for no TLS for an instance with
+# `tls: false`.
 
 setup() {
   load helpers/common
@@ -37,6 +38,18 @@ databases:
         port: 3307
         tls: false
         secretRef: { namespace: db, name: old-maria, usernameKey: username, passwordKey: password }
+  mysql:
+    enabled: true
+    instances:
+      - name: mysql-tls
+        host: mysql.db.svc
+        user: root
+        secretRef: { namespace: db, name: mysql, passwordKey: root-password }
+      - name: mysql-plain
+        host: plain-mysql.db.svc
+        port: 3307
+        tls: false
+        secretRef: { namespace: db, name: plain-mysql, usernameKey: username, passwordKey: password }
   postgres:
     enabled: true
     instances:
@@ -47,7 +60,8 @@ YAML
 
   # kubectl get secret -n NS NAME -o jsonpath={.data.KEY} → base64 of
   # $TMP/secrets/NS/NAME/KEY, as the API serves it.
-  mkdir -p "$TMP/bin" "$TMP/secrets/db/maria" "$TMP/secrets/db/old-maria" "$TMP/secrets/db/pg-creds"
+  mkdir -p "$TMP/bin" "$TMP/secrets/db/maria" "$TMP/secrets/db/old-maria" "$TMP/secrets/db/pg-creds" \
+    "$TMP/secrets/db/mysql" "$TMP/secrets/db/plain-mysql"
   cat >"$TMP/bin/kubectl" <<EOF
 #!/usr/bin/env bash
 key=\${7#jsonpath=\{.data.}; key=\${key%\}}
@@ -57,6 +71,9 @@ EOF
   printf '%s' 'r"oot\pw' >"$TMP/secrets/db/maria/root-password"
   printf '%s' backup >"$TMP/secrets/db/old-maria/username"
   printf '%s' plain >"$TMP/secrets/db/old-maria/password"
+  printf '%s' 'my"sql\pw' >"$TMP/secrets/db/mysql/root-password"
+  printf '%s' backup >"$TMP/secrets/db/plain-mysql/username"
+  printf '%s' plain >"$TMP/secrets/db/plain-mysql/password"
   printf '%s' zalando >"$TMP/secrets/db/pg-creds/username"
   printf '%s' 'pg:pa\ss' >"$TMP/secrets/db/pg-creds/password"
 }
@@ -68,8 +85,8 @@ resolve() {
   helm template rel "$CHART" -n backup -f "$VALUES" \
     | yq 'select(.kind == "StatefulSet") | .spec.template.spec.initContainers[] | select(.name == "resolve-db-credentials") | .command[2]' \
     | sed -e "s|/out/|$TMP/out/|g" -e "s|/static/|$TMP/static/|g" >"$TMP/resolve.sh"
-  grep -q "$TMP/out/mariadb" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
-  mkdir -p "$TMP/out/mariadb" "$TMP/out/postgres"
+  grep -q "$TMP/out/" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
+  mkdir -p "$TMP/out/mariadb" "$TMP/out/mysql" "$TMP/out/postgres"
   PATH="$TMP/bin:$PATH" bash "$TMP/resolve.sh" || fail "the resolver failed"
 }
 
@@ -91,6 +108,28 @@ port=3307
 user=backup
 password="plain"
 skip-ssl' ] || fail "$(cat "$TMP/out/mariadb/maria-plain.conf")"
+}
+
+@test "a MySQL instance gets a defaults file in its own directory, the password escaped, TLS left to the client" {
+  resolve
+  [ "$(cat "$TMP/out/mysql/mysql-tls.conf")" = '[client]
+host=mysql.db.svc
+port=3306
+user=root
+password="my\"sql\\pw"' ] || fail "$(cat "$TMP/out/mysql/mysql-tls.conf")"
+  [ "$(stat -c %a "$TMP/out/mysql/mysql-tls.conf" 2>/dev/null || stat -f %Lp "$TMP/out/mysql/mysql-tls.conf")" = 600 ]
+  [ ! -e "$TMP/out/mariadb/mysql-tls.conf" ]
+}
+
+@test "a MySQL instance with tls: false gets ssl-mode=DISABLED and the server's public key" {
+  resolve
+  [ "$(cat "$TMP/out/mysql/mysql-plain.conf")" = '[client]
+host=plain-mysql.db.svc
+port=3307
+user=backup
+password="plain"
+ssl-mode=DISABLED
+get-server-public-key' ] || fail "$(cat "$TMP/out/mysql/mysql-plain.conf")"
 }
 
 @test "a PostgreSQL instance gets a pgpass line, ':' and '\\' escaped" {

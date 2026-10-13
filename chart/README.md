@@ -115,6 +115,7 @@ them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 | PostgreSQL | `<db>.dump` | `pg_dump -Fc -Z0`, one per database that allows connections (as `pg_dumpall`; others are named in the log), `postgres` and `template1` included: schema, data, privileges, extensions, the database's owner, settings and grants |
 | MariaDB | `<db>.sql` | one per database, with routines, events and triggers |
 | MariaDB | `<instance>-full-dump.sql` | every database (`-A`), the `mysql` schema with the users and grants included |
+| MySQL | `<db>.sql`, `<instance>-full-dump.sql` | as MariaDB, written by MySQL's own `mysqldump` 8.4, without GTIDs |
 | MongoDB | `<instance>.archive` | one `mongodump` archive of every database, users and roles included, with the oplog on a replica set — see [MongoDB dumps](#mongodb-dumps) |
 
 Every file is mode `600`. The dumps are **not compressed**: a compressed
@@ -141,14 +142,15 @@ are extracted from an archive into `DB_BACKUP_LOCATION`:
 | `restore-mariadb /root/.mariadb/<instance>.conf --all` | the whole instance from the full dump, users and grants included. Meant for an empty server: the dumped users replace the server's, the one in the credentials file included |
 | `restore-mariadb /root/.mariadb/<instance>.conf <db>` | one database, dropped and created again |
 | `restore-mariadb /root/.mariadb/<instance>.conf <db> --as <name>` | the dump of `<db>` into `<name>` (dropped first) |
+| `restore-mysql /root/.mysql/<instance>.conf --all \| <db> [--as <name>]` | the same for MySQL |
 
 `-j N` sets pg_restore's parallel jobs (default 4; one for a server before 17). A database that is
 replaced is dropped with `WITH (FORCE)`, which ends its sessions. Every error
 ends a restore with rc ≥ 2. The image's `pg_restore` is PostgreSQL 18's;
 for a server before 17 `restore-postgres` accepts the two statements of a
 newer `pg_restore` that such a server rejects (`SET transaction_timeout`, and
-`LOCALE_PROVIDER` before 15). Restores are tested against PostgreSQL 13–18 and
-MariaDB 10.11, 11.4 and 11.8.
+`LOCALE_PROVIDER` before 15). Restores are tested against PostgreSQL 13–18,
+MariaDB 10.11, 11.4 and 11.8, MySQL 8.4 and Percona Server 8.4.
 
 A PostgreSQL dump can be read and edited as SQL without a server:
 `pg_restore -f db.sql <db>.dump` writes the SQL, `pg_restore -l <db>.dump >
@@ -167,6 +169,9 @@ left in the list.
   `GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, SHOW DATABASES ON *.*` is enough
   (tested), or `root`. A restore with `--all` writes the `mysql` schema and
   needs `root`.
+- **MySQL:** as MariaDB, plus `PROCESS`:
+  `GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, SHOW DATABASES, PROCESS ON *.*`
+  (tested), or `root`.
 
 ### MariaDB servers without TLS
 
@@ -175,6 +180,30 @@ that offers none, as a MariaDB before 11.4 without a certificate of its own
 does. For such a server, set `tls: false` on a `secretRef` instance (the
 resolver writes `skip-ssl` into its credentials file), or add a `skip-ssl`
 line to the `[client]` section of a static `config`.
+
+### MySQL and Percona Server
+
+`databases.mysql` takes MySQL 8.4 and Percona Server 8.4 (the Percona Operator
+for MySQL included), with the same instance options as `databases.mariadb`.
+It dumps and restores with MySQL's own client (8.4, in `/opt/mysql/bin`):
+`mariadb-dump` writes the values of generated columns into its dumps, which
+MySQL refuses on restore, and copies system tables MySQL does not take back.
+An instance under the wrong engine fails its backup with rc 2, naming the
+engine to use.
+
+- **TLS:** MySQL's client uses TLS when the server offers it, without checking
+  the certificate (`ssl-mode=PREFERRED`). `tls: false` on a `secretRef`
+  instance writes `ssl-mode=DISABLED` and `get-server-public-key` (a
+  `caching_sha2_password` user cannot log in without TLS otherwise); a static
+  `config` checks the certificate with `ssl-mode=VERIFY_IDENTITY` and `ssl-ca`.
+- **GTIDs:** the dumps carry none (`--set-gtid-purged=OFF`). A restore brings
+  back the data into a server that keeps its own GTIDs; it does not make that
+  server a replica of the source.
+- **Percona Operator for MySQL:** `<cluster>-secrets` holds one key per system
+  user (`user: root`, `passwordKey: root`); `<cluster>-psuser-root` holds
+  `user` and `password` (`usernameKey: user`). Both tested with operator 1.2.0.
+  Restore single databases into an operator's cluster: `--all` replaces the
+  users the operator manages.
 
 ## MongoDB dumps
 
@@ -747,7 +776,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `image`, `initImage` | agent image (defaults to appVersion) |
 | `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
 | `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run. In plan mode the console pod's mounts live as long as the pod, so each plan run first mounts every bucket fresh (pre-backup hook `s3-remount-buckets`, the same mount and policy as at the start), then runs the check as the hook `s3-verify-listing`, ahead of `s3-check-mounts`, and a bucket that still misses objects ends the run with a warning in Borg UI (Borg UI has no way to fail a plan run after its backup) |
-| `ssh`, `databases` | SSH key + MariaDB/PostgreSQL/MongoDB logical-dump configs (→ Secrets) |
+| `ssh`, `databases` | SSH key + MariaDB/MySQL/PostgreSQL/MongoDB logical-dump configs (→ Secrets) |
 | `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude`. `node.datastoreSnapshot` adds the cluster datastore — see [Cluster datastore snapshot](#cluster-datastore-snapshot) |
 
 > **Upgrade note (1.0.21):** two breaking value renames — the chart fails fast if

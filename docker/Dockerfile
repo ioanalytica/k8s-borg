@@ -47,6 +47,10 @@
 # Python tracks borg-ui/docker/runtime-base.env, same as the server image, kept
 # in step by a guard test.
 ARG PYTHON_VERSION=3.12
+# The MySQL client of databases.mysql (see the mysql-client stage), pinned to
+# the official image's multi-arch index digest: a bump changes both lines.
+ARG MYSQL_VERSION=8.4.11
+ARG MYSQL_IMAGE_DIGEST=sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
 
 FROM python:${PYTHON_VERSION}-alpine AS borg-builder
 
@@ -134,6 +138,42 @@ RUN set -eu; \
     install -D -m 0755 "${name}/etcdctl" /out/usr/local/bin/etcdctl; \
     install -D -m 0755 "${name}/etcdutl" /out/usr/local/bin/etcdutl
 
+# --- MySQL client: Oracle's build, with the glibc it runs on ------------------
+# databases.mysql dumps with MySQL's own mysqldump: mariadb-dump writes the
+# values of generated columns into its INSERTs, which MySQL rejects on restore
+# (ERROR 3105), and copies system tables MySQL does not take back. Alpine has
+# no MySQL client and gcompat cannot run Oracle's glibc build, so mysql and
+# mysqldump come with the glibc libraries they link against and are started
+# through that glibc's loader (wrappers in /opt/mysql/bin). Nothing outside
+# /opt/mysql sees these libraries. The character set files go where the client
+# looks for them, the license texts of what is copied to /opt/mysql/licenses.
+FROM mysql:${MYSQL_VERSION}@${MYSQL_IMAGE_DIGEST} AS mysql-client
+ARG MYSQL_VERSION
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN set -eu; \
+    install -d /out/opt/mysql/bin /out/opt/mysql/libexec /out/opt/mysql/lib; \
+    for prog in mysql mysqldump; do \
+        cp "/usr/bin/${prog}" /out/opt/mysql/libexec/; \
+        printf '#!/bin/sh\nexec /opt/mysql/lib/ld.so --library-path /opt/mysql/lib /opt/mysql/libexec/%s "$@"\n' \
+            "${prog}" >"/out/opt/mysql/bin/${prog}"; \
+        chmod 0755 "/out/opt/mysql/bin/${prog}"; \
+    done; \
+    ldd /usr/bin/mysql /usr/bin/mysqldump \
+        | awk '$2 == "=>" && $3 ~ /^\// {print $3} $1 ~ /^\/.*ld-linux/ {print $1}' | sort -u \
+        | while read -r lib; do cp -L "${lib}" /out/opt/mysql/lib/; done; \
+    loaders=(/out/opt/mysql/lib/ld-linux-*); \
+    [ "${#loaders[@]}" -eq 1 ] && [ -e "${loaders[0]}" ] || { echo "expected one glibc loader, got: ${loaders[*]}" >&2; exit 1; }; \
+    ln -s "${loaders[0]##*/}" /out/opt/mysql/lib/ld.so; \
+    share="/usr/share/mysql-${MYSQL_VERSION%.*}"; \
+    install -d "/out${share}"; \
+    cp -r "${share}/charsets" "/out${share}/"; \
+    install -d /out/opt/mysql/licenses/mysql; \
+    cp /usr/share/doc/mysql-community-server-minimal/LICENSE \
+        /usr/share/doc/mysql-community-server-minimal/README /out/opt/mysql/licenses/mysql/; \
+    for pkg in glibc openssl-libs zlib ncurses-base libgcc; do \
+        cp -r "/usr/share/licenses/${pkg}" /out/opt/mysql/licenses/; \
+    done
+
 # --- agent image -------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-alpine
 
@@ -141,7 +181,9 @@ FROM python:${PYTHON_VERSION}-alpine
 # already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs comes
 # from its own stage (see above) for the s3fs mounts some sources use; it links
 # against libcurl, libxml2 and libstdc++, and fuse3 brings its library and
-# fusermount3. rclone is a separate Go program that no Borg release bundles, and
+# fusermount3. mariadb-connector-c holds the client's authentication plugins
+# (caching_sha2_password, ed25519, parsec); mariadb-client comes without them
+# and could not log in as a user that needs one. rclone is a separate Go program that no Borg release bundles, and
 # borgstore drives it over its rc API, so rclone: repositories need it present;
 # s3-verify-listing lists the mounted buckets with it as well. openssh-server is
 # only started by the repository server. mongodb-tools brings mongodump and
@@ -160,6 +202,7 @@ RUN apk add --no-cache \
         postgresql-client \
         mariadb-client \
         mongodb-tools \
+        mariadb-connector-c \
         libcurl \
         libxml2 \
         libstdc++ \
@@ -182,6 +225,7 @@ COPY --from=borg-builder /opt/borg-ui-agent/borg1/venv /opt/borg-ui-agent/borg1/
 COPY --from=borg-builder /opt/borg-ui-agent/borg2/venv /opt/borg-ui-agent/borg2/venv
 COPY --from=s3fs-builder /out/usr/bin/s3fs /usr/bin/s3fs
 COPY --from=etcd-fetch /out/usr/local/bin/ /usr/local/bin/
+COPY --from=mysql-client /out/ /
 
 # Version-independent paths, so the wrappers resolve Borg even without this
 # image's environment (`env -i`, a cron with no environment, `su -`).
@@ -256,12 +300,16 @@ ENV BORG_STORE_CACHE=1
 ENV BORG_PACK_CACHE_SIZE=2147483648
 
 # Build-time self-test: both Borg majors (via the wrappers), s3fs, the etcd
-# client, the MongoDB tools and the agent CLI must work, or the build fails.
+# client, both MySQL clients, the MongoDB tools and the agent CLI must work, or
+# the build fails.
 RUN borg --version \
     && borg2 --version \
     && s3fs --version \
     && etcdctl version \
     && etcdutl version \
+    && /opt/mysql/bin/mysql --version \
+    && /opt/mysql/bin/mysqldump --version \
+    && test -e /usr/lib/mariadb/plugin/caching_sha2_password.so \
     && mongodump --version \
     && mongorestore --version \
     && mongodb-admin --help >/dev/null \

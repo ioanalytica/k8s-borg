@@ -10,6 +10,14 @@
 #
 # Both with routines, events and triggers. restore-mariadb reads these files.
 #
+# backup-mysql is this script under another name (a link): it dumps a MySQL
+# instance the same way, with MySQL's own client from /opt/mysql/bin, because
+# mariadb-dump writes the values of generated columns, which MySQL rejects on
+# restore. Its dumps leave out the GTIDs (--set-gtid-purged=OFF): a restore
+# brings back the data, it does not make the server a replica of the source,
+# and the GTIDs of a second database restored into the same server would
+# overlap with the first's. Each name refuses a server of the other engine.
+#
 # The dumps are uncompressed on purpose: a compressed stream differs from the
 # first changed byte on, which defeats Borg's deduplication, and Borg
 # compresses on its own.
@@ -20,17 +28,23 @@
 # the borg-ui agent script contract rc 1 is only a non-fatal warning, which a
 # dump failure is not).
 set -Eeo pipefail
+engine=${0##*/backup-}
+# Reported once, by the script itself, not again by each subshell (a $(…))
+# the failure ends.
 # shellcheck disable=SC2154  # ec is assigned inside the trap body
-trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mariadb backup failed (rc=$ec)" >&2; exit "$ec"' ERR
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; [ "$BASH_SUBSHELL" -gt 0 ] || echo "Error: $engine backup failed (rc=$ec)" >&2; exit "$ec"' ERR
 
 # The dumps hold every row and the password hashes: nobody but the owner
 # reads them, also not while they are being written.
 umask 077
 
+# shellcheck source=../lib/mysql-engine.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/mysql-engine.sh"
+
 defaults_file=$1
 
 if [ -z "$defaults_file" ]; then
-  echo "Error: No mariadb config file specified!"
+  echo "Error: No $engine config file specified!"
   exit 2
 fi
 
@@ -43,6 +57,8 @@ xbase=${defaults_file##*/}
 instance_name=${xbase%.*}
 
 DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+
+require_server "$defaults_file"
 
 mkdir -p "${DB_BACKUP_DIR}"
 
@@ -59,7 +75,7 @@ dump_to() {
 echo Dumping MySQL databases ...
 
 # -N -B -r: one bare name per line, nothing escaped.
-databases=$(mariadb --defaults-file="$defaults_file" -N -B -r -e "SHOW DATABASES")
+databases=$(sql_client "$defaults_file" -N -B -r -e "SHOW DATABASES")
 
 while IFS= read -r db; do
   case "$db" in
@@ -67,12 +83,12 @@ while IFS= read -r db; do
   esac
   echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.sql"
   dump_to "${DB_BACKUP_DIR}/$db.sql" \
-    mariadb-dump --defaults-file="$defaults_file" -R -E --triggers --single-transaction --skip-dump-date --databases "$db"
+    sql_dump "$defaults_file" -R -E --triggers --single-transaction --skip-dump-date --databases "$db"
 done <<<"$databases"
 
 echo "Dumping instance: $instance_name -> ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql"
 dump_to "${DB_BACKUP_DIR}/${instance_name}-full-dump.sql" \
-  mariadb-dump --defaults-file="$defaults_file" -A -R -E --triggers --single-transaction --skip-dump-date
+  sql_dump "$defaults_file" -A -R -E --triggers --single-transaction --skip-dump-date
 
 # Compressed dumps of the releases before, which would otherwise be archived
 # with every backup from now on, and what an earlier failed run left half

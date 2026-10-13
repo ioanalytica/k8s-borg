@@ -841,7 +841,7 @@ decides whether an engine's dump runs, is published or is attached goes by
 k8s-borg.databases.configured below.
 */}}
 {{- define "k8s-borg.databases.supported" -}}
-mariadb postgres mongodb
+mariadb mysql postgres mongodb
 {{- end -}}
 
 {{/*
@@ -944,17 +944,21 @@ mounted (staged for the resolver in secretRef mode).
 {{- end -}}
 
 {{/*
-Init container that builds /root/.mariadb and /root/.postgres *.conf files:
-copies static confs from the chart/existing Secret (if any) and resolves
-secretRef instances by reading the referenced Secret from its namespace via
-the API (needs the get-only ClusterRole from db-credentials-rbac.yaml).
-Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
+Init container that builds the /root/.<engine> *.conf files (mariadb, mysql,
+postgres, mongodb): copies static confs from the chart/existing Secret (if any)
+and resolves secretRef instances by reading the referenced Secret from its
+namespace via the API (needs the get-only ClusterRole from
+db-credentials-rbac.yaml). Passwords are escaped for the target format
+(pgpass ':'/'\', MySQL '"'/'\').
 A MongoDB file is the YAML mongodump/mongorestore read with --config: the
 connection string from uriKey as is, or one built from host, port, options and
 the user (percent-encoded), the password in a field of its own; every value a
 single-quoted YAML scalar.
-A MariaDB instance with `tls: false` gets `skip-ssl`: the image's client asks
-for TLS by default, which a server without a certificate refuses.
+An instance with `tls: false` gets its client's option for no TLS: `skip-ssl`
+for MariaDB, whose client asks for TLS by default, which a server without a
+certificate refuses; `ssl-mode=DISABLED` for MySQL, together with
+`get-server-public-key`, without which a caching_sha2_password user cannot log
+in over a connection without TLS.
 */}}
 {{- define "k8s-borg.dbResolverInitContainer" -}}
 {{- if (include "k8s-borg.dbResolverEnabled" .) }}
@@ -983,13 +987,14 @@ for TLS by default, which a server without a certificate refuses.
         printf '%s:%s:*:%s:%s\n' "$5" "$6" "$u" "$p" > "/out/postgres/$8.conf"
         chmod 600 "/out/postgres/$8.conf"
       }
-      my() { # ns secret userKey passKey host port user name extraOption
-        local u p
-        if [ -n "$3" ]; then u=$(get_key "$1" "$2" "$3"); else u=$7; fi
-        p=$(get_key "$1" "$2" "$4"); p=${p//\\/\\\\}; p=${p//\"/\\\"}
-        printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$5" "$6" "$u" "$p" > "/out/mariadb/$8.conf"
-        if [ -n "$9" ]; then printf '%s\n' "$9" >> "/out/mariadb/$8.conf"; fi
-        chmod 600 "/out/mariadb/$8.conf"
+      my() { # engine ns secret userKey passKey host port user name extraOptions
+        local u p f="/out/$1/$9.conf"
+        if [ -n "$4" ]; then u=$(get_key "$2" "$3" "$4"); else u=$8; fi
+        p=$(get_key "$2" "$3" "$5"); p=${p//\\/\\\\}; p=${p//\"/\\\"}
+        printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$6" "$7" "$u" "$p" > "$f"
+        # extraOptions unquoted on purpose: one option per line.
+        if [ -n "${10}" ]; then printf '%s\n' ${10} >> "$f"; fi
+        chmod 600 "$f"
       }
       yq1() { local v=${1//\'/\'\'}; printf "'%s'" "$v"; } # a single-quoted YAML scalar
       urlenc() { # percent-encode all but RFC 3986 unreserved characters, byte by byte
@@ -1018,7 +1023,7 @@ for TLS by default, which a server without a certificate refuses.
         fi
         chmod 600 "$f"
       }
-      for d in /static/mariadb /static/postgres /static/mongodb; do
+      for d in /static/mariadb /static/mysql /static/postgres /static/mongodb; do
         [ -d "$d" ] || continue
         for f in "$d"/*.conf; do
           [ -e "$f" ] || continue
@@ -1026,10 +1031,12 @@ for TLS by default, which a server without a certificate refuses.
         done
       done
       {{- $engines := splitList " " (include "k8s-borg.databases.configured" .) }}
-      {{- if has "mariadb" $engines }}
-      {{- range .Values.databases.mariadb.instances }}
+      {{- range $engine, $noTls := dict "mariadb" "skip-ssl" "mysql" "ssl-mode=DISABLED get-server-public-key" }}
+      {{- if has $engine $engines }}
+      {{- range (index $.Values.databases $engine).instances }}
       {{- if .secretRef }}
-      my {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 3306 | quote }} {{ .user | default "" | quote }} {{ .name | quote }} {{ ternary "skip-ssl" "" (and (hasKey . "tls") (not .tls)) | quote }}
+      my {{ $engine }} {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 3306 | quote }} {{ .user | default "" | quote }} {{ .name | quote }} {{ ternary $noTls "" (and (hasKey . "tls") (not .tls)) | quote }}
+      {{- end }}
       {{- end }}
       {{- end }}
       {{- end }}
