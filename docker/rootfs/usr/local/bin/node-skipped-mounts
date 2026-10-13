@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+#
+# node-skipped-mounts — the node's own file systems that a node backup skips.
+#
+# Node backups run `borg create --one-file-system`: below an "R <root>",
+# Borg stores a mount point of another file system as an empty directory and
+# says nothing about it. That is what keeps kubelet, CSI and NFS mounts out
+# of the node archive, but it also skips a partition of the node itself
+# below a root, e.g. /var/lib on a disk of its own under "R /node/var".
+#
+# This prints those mount points, one per line as "<path> (<type> <source>)",
+# so the caller can log them. It decides as Borg does: a mount below a root
+# is skipped when its device differs from the root's (major:minor, and on
+# btrfs the subvolume), and Borg only gets there when every mount between
+# the root and it is on the root's device. A bind mount of the root's own
+# file system is therefore not skipped, and nothing below a tmpfs or
+# overlay is reached. Listed are the skipped ones Borg reaches that are of
+# the node's own file system types (see NODE_FS_TYPES), not roots
+# themselves and not below a kubelet directory (CSI and block volumes of
+# pods). A btrfs subvolume that is not mounted does not show in the mount
+# table and is not listed.
+#
+# Usage: node-skipped-mounts PATTERNS_FILE
+#   PATTERNS_FILE    the node's include patterns; its "R <root>" lines count
+#   NODE_MOUNTINFO   optional; default /proc/self/mountinfo
+#   NODE_FS_TYPES    optional; space-separated file system types that count
+#                    as the node's own (default below)
+#
+# Exit 0 whatever it finds, also when a file cannot be read: it only informs.
+
+import os
+import re
+import sys
+
+DEFAULT_FS_TYPES = ("ext2 ext3 ext4 xfs btrfs zfs bcachefs f2fs jfs reiserfs "
+                    "nilfs2 vfat exfat")
+
+
+def unescape(field):
+    # mountinfo writes space, tab, newline and backslash as \ooo.
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), field)
+
+
+def norm(path):
+    return path.rstrip("/") or "/"
+
+
+def below(path, root):
+    return path != root and path.startswith(root if root == "/" else root + "/")
+
+
+def roots(patterns_file):
+    found = []
+    try:
+        with open(patterns_file) as f:
+            for line in f:
+                parts = line.split(None, 1)
+                if len(parts) == 2 and parts[0] in ("R", "r") and parts[1].strip():
+                    found.append(norm(parts[1].strip()))
+    except OSError:
+        pass
+    return found
+
+
+def mounts(mountinfo):
+    # id parent major:minor root mountpoint options [optional…] - type source super
+    table = {}
+    try:
+        with open(mountinfo) as f:
+            for line in f:
+                fields = line.split()
+                if "-" not in fields:
+                    continue
+                sep = fields.index("-")
+                if sep < 5 or len(fields) < sep + 3:
+                    continue
+                fstype, source = fields[sep + 1], unescape(fields[sep + 2])
+                device = fields[2]
+                if fstype == "btrfs" and len(fields) > sep + 3:
+                    # Each btrfs subvolume has a device number of its own.
+                    opts = dict(o.split("=", 1) for o in fields[sep + 3].split(",") if "=" in o)
+                    device += ":" + opts.get("subvolid", opts.get("subvol", ""))
+                # A later entry for the same path is mounted over the earlier.
+                table[norm(unescape(fields[4]))] = (device, fstype, source)
+    except OSError:
+        pass
+    return table
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.stderr.write("usage: node-skipped-mounts PATTERNS_FILE\n")
+        return 0
+    node_types = set((os.environ.get("NODE_FS_TYPES") or DEFAULT_FS_TYPES).split())
+    root_list = roots(sys.argv[1])
+    table = mounts(os.environ.get("NODE_MOUNTINFO") or "/proc/self/mountinfo")
+
+    def device_of(path):
+        # The device of the mount path lies on: the longest mount point at or above it.
+        best = max((m for m in table if m == path or below(path, m)), key=len, default=None)
+        return table[best][0] if best is not None else None
+
+    for path, (device, fstype, source) in sorted(table.items()):
+        if fstype not in node_types or "/kubelet/" in path + "/" or path in root_list:
+            continue
+        for root in root_list:
+            if not below(path, root):
+                continue
+            root_device = device_of(root)
+            if root_device is None or device == root_device:
+                continue
+            between = [m for m in table if below(path, m) and below(m, root)]
+            if all(table[m][0] == root_device for m in between):
+                print("%s (%s %s)" % (path, fstype, source))
+                break
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

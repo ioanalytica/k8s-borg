@@ -11,10 +11,11 @@ trap 'echo $( date ) Backup interrupted >&2; exit 2' INT TERM
 
 info "Starting backup ..."
 
-BORG_PATTERNS="/root/.borg/cluster-include.patterns"
-BORG_EXCLUDES="/root/.borg/cluster-exclude.patterns"
-BORG_NODE_PATTERNS="/root/.borg/node-include.patterns"
-BORG_NODE_EXCLUDES="/root/.borg/node-exclude.patterns"
+BORG_PATTERNS_DIR="${BORG_PATTERNS_DIR:-/root/.borg}"
+BORG_PATTERNS="${BORG_PATTERNS_DIR}/cluster-include.patterns"
+BORG_EXCLUDES="${BORG_PATTERNS_DIR}/cluster-exclude.patterns"
+BORG_NODE_PATTERNS="${BORG_PATTERNS_DIR}/node-include.patterns"
+BORG_NODE_EXCLUDES="${BORG_PATTERNS_DIR}/node-exclude.patterns"
 
 # retention policy (overridable via ENV, safe defaults)
 KEEP_DAILY=${KEEP_DAILY:-7}
@@ -22,10 +23,16 @@ KEEP_WEEKLY=${KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${KEEP_MONTHLY:-6}
 
 
+# The node backup keeps to the node's own file systems: no kubelet, CSI or NFS
+# mounts below a root. Each root is still archived whatever file system it is
+# on (e.g. the SQLite copies' and the datastore snapshot's emptyDirs). Cluster
+# sources are mounts on purpose (NFS, S3, dumps) and keep crossing them.
+one_fs_args=()
 if [[ "${BORG_MODE}" = "node" ]]; then
     info "Running in DaemonSet mode."
     BACKUP_PATTERNS=${BORG_NODE_PATTERNS}
     BACKUP_EXCLUDES=${BORG_NODE_EXCLUDES}
+    one_fs_args=(--one-file-system)
 else
     BACKUP_PATTERNS=${BORG_PATTERNS}
     BACKUP_EXCLUDES=${BORG_EXCLUDES}
@@ -100,6 +107,17 @@ if [ "${S3_ENABLED:-false}" = "true" ] && [ "${BORG_MODE}" != "node" ] && [ -f "
     fi
 fi
 
+# Borg skips a partition of the node itself below a root without a word (it
+# stores an empty directory): name them, so that one that should be archived
+# can be given as its own root. Information only, never the exit code.
+if [[ "${BORG_MODE}" = "node" ]]; then
+    skipped="$(node-skipped-mounts "${BACKUP_PATTERNS}")"
+    if [ -n "${skipped}" ]; then
+        info "WARNING: file systems of the node below a root are skipped by --one-file-system; give each one to archive its own 'R' root in node.include:
+${skipped}"
+    fi
+fi
+
 borg create \
     --verbose \
     --filter AME \
@@ -107,6 +125,7 @@ borg create \
     --stats \
     --show-rc \
     "${files_cache_args[@]}" \
+    "${one_fs_args[@]}" \
     --compression auto,lz4 \
     --exclude-caches \
     --exclude-from=${BACKUP_EXCLUDES}  \
