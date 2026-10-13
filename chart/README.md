@@ -173,6 +173,28 @@ left in the list.
   `GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, SHOW DATABASES, PROCESS ON *.*`
   (tested), or `root`.
 
+### PostgreSQL operators
+
+A `secretRef` instance reads the user and the password from the operator's
+Secret; the host is always given on the instance, the port defaults to 5432.
+
+| Operator | `secretRef` | `host` |
+| --- | --- | --- |
+| Zalando | `name: postgres.<cluster>.credentials.postgresql.acid.zalan.do`, `usernameKey: username`, `passwordKey: password` | `<cluster>.<ns>.svc` |
+| CloudNativePG | `name: <cluster>-superuser`, `usernameKey: username`, `passwordKey: password` | `<cluster>-rw.<ns>.svc` |
+
+CloudNativePG's Secrets carry a `host` too, but only the service name
+(`<cluster>-rw`), which resolves in the cluster's own namespace alone. Its
+`<cluster>-superuser` Secret exists only with `enableSuperuserAccess: true` on
+the `Cluster` (off by default). Without it, a role of its own can dump: one
+declared under `spec.managed.roles` with `login: true`,
+`inRoles: [pg_read_all_data]` and a `passwordSecret` (a
+`kubernetes.io/basic-auth` Secret with `username` and `password`), or the
+application owner from `<cluster>-app`, which reads only what it owns or is
+granted. Both dump every database of a cluster as CloudNativePG bootstraps
+it, the roles without their passwords (rc `1`, see above). Tested against
+CloudNativePG 1.30.1 with all three Secrets.
+
 ### MariaDB servers without TLS
 
 The image's MariaDB client (11.8) asks for TLS by default and refuses a server

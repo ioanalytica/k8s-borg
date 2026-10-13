@@ -142,6 +142,39 @@ get-server-public-key' ] || fail "$(cat "$TMP/out/mysql/mysql-plain.conf")"
     || fail "$(cat "$TMP/out/postgres/pg.conf")"
 }
 
+@test "a CloudNativePG Secret: user and password from it, the host from the values, not the Secret's short one" {
+  # What CloudNativePG writes into <cluster>-superuser and <cluster>-app:
+  # host is the bare service name, which resolves only in the cluster's own
+  # namespace; pgpass carries it, and the application database, too.
+  for secret in pg-test-superuser pg-test-app; do
+    mkdir -p "$TMP/secrets/cnpg/$secret"
+    printf '%s' pg-test-rw >"$TMP/secrets/cnpg/$secret/host"
+    printf '%s' 5432 >"$TMP/secrets/cnpg/$secret/port"
+  done
+  printf '%s' postgres >"$TMP/secrets/cnpg/pg-test-superuser/username"
+  printf '%s' 'su:pw' >"$TMP/secrets/cnpg/pg-test-superuser/password"
+  printf '%s' 'pg-test-rw:5432:*:postgres:su:pw' >"$TMP/secrets/cnpg/pg-test-superuser/pgpass"
+  printf '%s' app >"$TMP/secrets/cnpg/pg-test-app/username"
+  printf '%s' app-pw >"$TMP/secrets/cnpg/pg-test-app/password"
+  printf '%s' 'pg-test-rw:5432:app:app:app-pw' >"$TMP/secrets/cnpg/pg-test-app/pgpass"
+  cat >"$TMP/cnpg.yaml" <<'YAML'
+databases:
+  postgres:
+    instances:
+      - name: cnpg-superuser
+        host: pg-test-rw.cnpg.svc
+        secretRef: { namespace: cnpg, name: pg-test-superuser, usernameKey: username, passwordKey: password }
+      - name: cnpg-app
+        host: pg-test-rw.cnpg.svc
+        secretRef: { namespace: cnpg, name: pg-test-app, usernameKey: username, passwordKey: password }
+YAML
+  resolve "$TMP/cnpg.yaml" || fail "the resolver failed"
+  [ "$(cat "$TMP/out/postgres/cnpg-superuser.conf")" = 'pg-test-rw.cnpg.svc:5432:*:postgres:su\:pw' ] \
+    || fail "$(cat "$TMP/out/postgres/cnpg-superuser.conf")"
+  [ "$(cat "$TMP/out/postgres/cnpg-app.conf")" = 'pg-test-rw.cnpg.svc:5432:*:app:app-pw' ] \
+    || fail "$(cat "$TMP/out/postgres/cnpg-app.conf")"
+}
+
 # hostile VALUE — the values file with VALUE as each engine's literal user
 # and, where the chart takes any, host.
 hostile() {
