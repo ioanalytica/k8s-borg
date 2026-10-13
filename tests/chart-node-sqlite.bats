@@ -103,6 +103,8 @@ for line in sys.stdin:
   [ -z "$(config node-sqlite-databases.json)" ] || fail
   [[ "$(config node-include.patterns)" != *sqlite* ]] || fail
   [ -z "$(rbac)" ] || fail "$(rbac)"
+  # node-skipped-mounts reads the kubelet's directory with or without node.sqlite.
+  [ "$(q DaemonSet 'env["KUBELET_DIR"]')" = "/var/lib/kubelet" ] || fail
 }
 
 @test "the list of databases reaches the node pods, and the copies are archived" {

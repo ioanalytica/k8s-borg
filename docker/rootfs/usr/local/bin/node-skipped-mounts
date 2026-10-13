@@ -16,8 +16,8 @@
 # file system is therefore not skipped, and nothing below a tmpfs or
 # overlay is reached. Listed are the skipped ones Borg reaches that are of
 # the node's own file system types (see NODE_FS_TYPES), not roots
-# themselves and not below a kubelet directory (CSI and block volumes of
-# pods). A btrfs subvolume that is not mounted does not show in the mount
+# themselves and not in the kubelet's root directory (CSI and block volumes
+# of pods). A btrfs subvolume that is not mounted does not show in the mount
 # table and is not listed.
 #
 # Usage: node-skipped-mounts PATTERNS_FILE
@@ -25,6 +25,9 @@
 #   NODE_MOUNTINFO   optional; default /proc/self/mountinfo
 #   NODE_FS_TYPES    optional; space-separated file system types that count
 #                    as the node's own (default below)
+#   KUBELET_DIR      optional; the kubelet's root directory on the node
+#                    (default /var/lib/kubelet), below NODE_HOST_ROOT
+#   NODE_HOST_ROOT   optional; where the node's root is mounted (default /node)
 #
 # Exit 0 whatever it finds, also when a file cannot be read: it only informs.
 
@@ -94,6 +97,8 @@ def main():
     node_types = set((os.environ.get("NODE_FS_TYPES") or DEFAULT_FS_TYPES).split())
     root_list = roots(sys.argv[1])
     table = mounts(os.environ.get("NODE_MOUNTINFO") or "/proc/self/mountinfo")
+    kubelet = norm(norm(os.environ.get("NODE_HOST_ROOT") or "/node")
+                   + "/" + (os.environ.get("KUBELET_DIR") or "/var/lib/kubelet").strip("/"))
 
     def device_of(path):
         # The device of the mount path lies on: the longest mount point at or above it.
@@ -101,7 +106,7 @@ def main():
         return table[best][0] if best is not None else None
 
     for path, (device, fstype, source) in sorted(table.items()):
-        if fstype not in node_types or "/kubelet/" in path + "/" or path in root_list:
+        if fstype not in node_types or path == kubelet or below(path, kubelet) or path in root_list:
             continue
         for root in root_list:
             if not below(path, root):

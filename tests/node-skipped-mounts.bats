@@ -15,7 +15,7 @@ setup() {
   load helpers/common
   common_setup
   export NODE_MOUNTINFO="$TMP/mountinfo"
-  unset NODE_FS_TYPES
+  unset NODE_FS_TYPES KUBELET_DIR NODE_HOST_ROOT
   cat >"$NODE_MOUNTINFO" <<'MI'
 1200 1100 8:1 / /node rw,relatime master:1 - ext4 /dev/sda1 rw
 1201 1200 8:15 / /node/boot/efi rw,relatime master:2 - vfat /dev/sda15 rw
@@ -114,4 +114,19 @@ MI
 MI
   run skipped "R /node" "R /node/home"
   [ "$output" = "/node/.snapshots (btrfs /dev/sda2)" ] || fail "$output"
+}
+
+@test "only the kubelet's root directory is left out, the configured one" {
+  cat >"$NODE_MOUNTINFO" <<'MI'
+1200 1100 8:1 / /node rw - ext4 /dev/sda1 rw
+1201 1200 8:17 / /node/data/kubelet/archive rw - ext4 /dev/sdb1 rw
+1202 1200 8:0 / /node/var/lib/kubelet/plugins/kubernetes.io/csi/x/globalmount rw - ext4 /dev/longhorn/pvc-1 rw
+1203 1200 8:16 / /node/var/lib/k0s/kubelet/pods/p1/volumes/kubernetes.io~csi/pvc-2/mount rw - ext4 /dev/longhorn/pvc-2 rw
+MI
+  run skipped "R /node"
+  [ "$output" = "/node/data/kubelet/archive (ext4 /dev/sdb1)
+/node/var/lib/k0s/kubelet/pods/p1/volumes/kubernetes.io~csi/pvc-2/mount (ext4 /dev/longhorn/pvc-2)" ] || fail "$output"
+  KUBELET_DIR=/var/lib/k0s/kubelet run skipped "R /node"
+  [ "$output" = "/node/data/kubelet/archive (ext4 /dev/sdb1)
+/node/var/lib/kubelet/plugins/kubernetes.io/csi/x/globalmount (ext4 /dev/longhorn/pvc-1)" ] || fail "$output"
 }
