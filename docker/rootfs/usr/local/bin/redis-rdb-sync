@@ -47,6 +47,11 @@ def connect(host, port, use_tls, cacert, insecure, timeout):
     if not use_tls:
         return sock
     ctx = ssl.create_default_context(cafile=cacert or None)
+    # Chain and name are checked, not RFC 5280's finer points: Python 3.13
+    # turned those on by default, and they refuse a CA without a key usage
+    # extension (openssl req -x509 makes one), which the server and
+    # valkey-cli accept.
+    ctx.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
     if insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
