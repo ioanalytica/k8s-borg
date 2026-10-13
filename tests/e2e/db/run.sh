@@ -158,7 +158,10 @@ if [ "${1:-}" = "--one" ]; then
     printf 'subjectAltName=%s\n' "${san%,}" >"$tls_dir/ext"
     openssl x509 -req -in "$tls_dir/server.csr" -CA "$tls_dir/ca.crt" -CAkey "$tls_dir/ca.key" \
       -CAcreateserial -days 2 -extfile "$tls_dir/ext" -out "$tls_dir/server.crt" 2>/dev/null
-    chmod 644 "$tls_dir"/*   # the servers run as an unprivileged user
+    # The servers run as an unprivileged user: mktemp -d makes the directory
+    # 0700, which a Linux bind mount keeps (Docker Desktop does not show it).
+    chmod 755 "$tls_dir"
+    chmod 644 "$tls_dir"/*
     tests_args+=(-v "$tls_dir:/tls:ro")
   fi
 
