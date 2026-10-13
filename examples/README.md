@@ -46,5 +46,5 @@ namespace and RBAC accordingly.
 
 The optional Borg UI server can reach every repository — keep its Ingress
 restricted to trusted networks (see the comment in `k8s-borg-ui-ingress.yaml`).
-`BORG_UI_AGENT=true` (managed-agent mode) is **DEV/TEST only** while the Borg UI
-integration matures; unset, k8s-borg runs the stable standalone backup flow.
+`BORG_UI_AGENT=true` enrolls the pod as a Borg UI managed agent; unset, k8s-borg
+runs the standalone backup flow without Borg UI.

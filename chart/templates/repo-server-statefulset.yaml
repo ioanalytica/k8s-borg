@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 Optional Borg 2 repository server (repoServer.enabled): sshd as the only
 process, from the agent image, so server and clients carry the same Borg 2.

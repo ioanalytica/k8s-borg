@@ -91,7 +91,7 @@ spec:
     app:
       nodeName: "k8s-borg-mycluster"
 
-    # Optional Borg UI server + managed-agent enrollment (DEV/TEST).
+    # Optional Borg UI server + managed-agent enrollment.
     # borgUI:
     #   enabled: true
     #   ingress:

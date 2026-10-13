@@ -1,60 +1,108 @@
 # k8s-borg
 
-Backup for Kubernetes clusters with [BorgBackup](https://www.borgbackup.org/).
-k8s-borg grew out of an internal project (`k3s-borg`) and packages a battle-tested
-set of Borg backup tooling as a container image, deployed as a small set of
-cluster-native workloads. Each workload can talk to its own dedicated Borg
-repository, and can *optionally* be driven by a central
-[Borg UI](https://github.com/karanhudia/borg-ui) server.
+Backup for Kubernetes clusters with [BorgBackup](https://www.borgbackup.org/),
+packaged as one container image and one Helm chart. k8s-borg grew out of an
+internal project (`k3s-borg`) and runs in production on Borg 1.
 
-The image is published to GitHub Container Registry:
+It backs up the nodes, the cluster's shared data, S3 buckets and databases, each
+into its own Borg repository. A repository server for Borg 1 and Borg 2 can run
+in the same release. Optionally, a [Borg UI](https://github.com/karanhudia/borg-ui)
+server deployed by the chart drives the backups as managed agents, and the same
+server takes agents on hosts outside the cluster, so one place shows the backups
+of clusters and machines alike.
+
+## Features
+
+- **Node backups**: a DaemonSet backs up every node's local file systems, one
+  repository per node.
+- **Cluster data backups**: a CronJob (or a Borg UI backup plan) backs up shared
+  file systems and user homes, S3 buckets, and logical dumps of in-cluster
+  MariaDB and PostgreSQL databases.
+  - S3 buckets are mounted fresh before each run, and their content is checked
+    against the bucket listing, so an incomplete mount fails the run instead of
+    archiving a partial bucket.
+- **Console pod**: a StatefulSet with the Borg tools, the database dumps and the
+  backup sources at hand, for inspection and restores with `kubectl exec`.
+- **Repository server for Borg 1 and Borg 2** (Borg 2 for testing only):
+  `sshd` and `borg serve` from the
+  same image, unprivileged, with no capabilities and a read-only root file
+  system.
+  - Every client key is confined to its own directory.
+  - Permissions per client, enforced by the server: `all`, `no-delete`,
+    `write-only` or `read-only` (Borg 1: `all` or append-only).
+  - Adding a client is adding a line to `authorized_keys`.
+- **Both Borg majors in one image**: `borg` (1.x) for production, and `borg2`
+  (2.x beta, with `borgstore`) for testing only (see below), chosen per
+  repository. Borg 2 also reaches plain SFTP targets with no Borg on the server.
+- **Borg UI integration (optional)**: the chart deploys the Borg UI server and
+  reconciles its configuration:
+  - SQLite or an external PostgreSQL, and Redis (in-cluster or external);
+  - OIDC login;
+  - notification channels;
+  - the license key or an offline entitlement;
+  - remote machines.
+
+  Node and cluster pods enroll as managed agents and register their
+  repositories, check schedules and backup plans. Pre/post-backup scripts are
+  published to each agent as an allow-list, so the server can only pick a
+  script by name.
+- **Tested**: shellcheck, bats unit tests for the wrappers and the chart, and an
+  end-to-end suite that runs the whole repository lifecycle against real Borg 1
+  and Borg 2 repositories. All three run in CI on every push and pull request.
+
+> ⚠️ **Do not use Borg 2 for real backups.** Borg 2 is a beta, and its
+> repository format has changed more than once without a conversion path: a
+> Borg 2 upgrade can leave a repository that the new Borg cannot open. k8s-borg
+> ships Borg 2 so it can be tested; production backups run on Borg 1.
+>
+> All components (the image, the repository server, and the Borg UI server and
+> agents) follow Borg 2 development as closely as possible, so that Borg 2 can
+> be used in full as soon as a production-ready release is out.
+
+## Install
+
+The chart is published as an OCI artifact; the images live on GitHub Container
+Registry:
+
+```sh
+helm install my-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
+  --version <version> -n k8s-borg --create-namespace \
+  --set borg.repoBase.value="ssh://user@borg.example.com:22/./mycluster" \
+  --set borg.passphrase.value="…" \
+  --set-file ssh.privateKey=./id_ed25519 \
+  --set-file ssh.knownHosts=./known_hosts
+```
 
 ```
-ghcr.io/ioanalytica/k8s-borg:<tag>
-ghcr.io/ioanalytica/k8s-borg:latest
+ghcr.io/ioanalytica/k8s-borg:<tag>       # backup / agent / repository server image
+ghcr.io/ioanalytica/k8s-borg-ui:<tag>    # Borg UI server image, built from the pinned borg-ui
 ```
 
-## What gets deployed
-
-k8s-borg is deployed as several assets, each instrumented so it can interact
-independently with the Borg repository assigned to it:
-
-- **DaemonSet** — backs up cluster **nodes** that carry local file-system assets
-  (`BORG_MODE=node`), one backup per node.
-- **CronJob** — regular backups of **cluster data** (`BORG_MODE=cluster`): a
-  shared file system, shared user homes, S3 buckets, and **logical DB dumps** of
-  in-cluster MariaDB and PostgreSQL databases.
-- **`k8s-borg-app` pod** — console access to the DB backups, the Borg archives,
-  and the shared file-system resources that also serve as the CronJob's sources.
-
-Optionally, the chart adds a **repository server**: `sshd` and `borg serve` from
-the same image, unprivileged, with every client key confined to its own
-directory on one node's local storage — see
-[chart/README.md](chart/README.md#repository-server-optional).
-
-> Packaging the deployment as a Helm chart is in progress; this repository
-> currently provides the **image** and its tooling.
+For anything beyond a smoke test, keep the sensitive values in a pre-created
+Secret (`existingSecret`). The modes, the repository server, Borg 1 vs 2, the
+Borg UI options and every parameter are documented in
+[`chart/README.md`](chart/README.md). Plain manifests and a Kustomization are in
+[`examples/`](examples).
 
 ## Two ways to run
 
-### Standalone (default, production)
+### Standalone (default)
 
-If `BORG_UI_AGENT` is unset or not `true`, k8s-borg runs completely **without**
-Borg UI, on the stable foundation of the previous releases. The container
-entrypoint (`/run.sh run`) validates the environment, mounts the sources
-(S3 via `s3fs` for cluster/app jobs), takes logical DB dumps (MariaDB/PostgreSQL),
-then runs `borg-backup` against the pod's assigned repository.
+If `BORG_UI_AGENT` is unset or not `true`, k8s-borg runs **without** Borg UI.
+The container entrypoint (`/run.sh run`) validates the environment, mounts the
+sources (S3 via `s3fs` for cluster/app jobs), takes logical DB dumps
+(MariaDB/PostgreSQL), then runs `borg-backup` against the pod's assigned
+repository. Scheduling is Kubernetes' own: the DaemonSet's interval loop and the
+CronJob.
 
-### Borg UI managed agent (optional, DEV/TEST only)
+### Borg UI managed agent (optional)
 
-Set `BORG_UI_AGENT=true` to instead enroll the pod at a Borg UI server as a
-**managed agent** and register its assigned repository with the server. From the
-Borg UI you can then create, schedule, and interactively run **backup plans,
-maintenance jobs, and restores**.
-
-> ⚠️ **The Borg UI integration is under active development and not production
-> ready.** Only set `BORG_UI_AGENT=true` in DEV/TEST environments. Enrollment is
-> idempotent — an existing `config.toml` skips straight to running the agent.
+Set `BORG_UI_AGENT=true` (in the chart: `node.backupMode=agent`,
+`cluster.mode=agent`) to enroll the pod at a Borg UI server as a **managed
+agent** and register its assigned repository with the server. From Borg UI you
+then create, schedule and run **backup plans, maintenance jobs and restores**,
+next to any other agents and repositories that server manages. Enrollment is
+idempotent: an existing `config.toml` skips straight to running the agent.
 
 ## Configuration
 
@@ -103,7 +151,7 @@ it can use plain **SFTP** repositories with **no server-side Borg** — e.g. a
 Hetzner Storage Box, which only ships server-side Borg 1.x. Borg 2's repo format
 is incompatible with Borg 1 (migrate with `borg transfer`), and Borg 2 is beta —
 its on-disk format can change between betas, so use the same `borg2` build
-everywhere.
+everywhere, and do not use it for real backups yet.
 
 Borg 2 and borgstore are installed as a pair: Borg 2 at the version of the
 `borg-ui` manifest, borgstore at exactly the version
@@ -137,12 +185,15 @@ pass. See "Upgrading to Borg 2.0.0b25" in [`chart/README.md`](chart/README.md).
 
 | Path | Purpose |
 | --- | --- |
-| `borg-ui/` | Submodule → `karanhudia/borg-ui` (agent + server source; pinned commit) |
-| `docker/Dockerfile` | Agent/backup image (build context = repo root) |
-| `docker/rootfs/` | Files copied into the image: `run.sh` (mode dispatch), `run-agent.sh` (enroll + agent), and the `borg-*` / `backup-*` / `restore-*` tools |
-| `docker/docker-build.sh`, `docker-build-runtime-base.sh`, `docker-build-server.sh` | Build helpers (`--push` / multi-arch to GHCR). The runtime-base and **server** images build directly from the submodule's `borg-ui/Dockerfile.runtime-base` and `borg-ui/Dockerfile` — no fork copy of the recipe — under our own tag/registry via `--build-arg` / `-t` / `--label` |
-| `.github/workflows/` | Tag-triggered multi-arch build → GHCR; daily Trivy scan |
-| `install.sh` | Upstream Borg UI VM/systemd installer (unused by the container build) |
+| `chart/` | The Helm chart; [`chart/README.md`](chart/README.md) documents it |
+| `borg-ui/` | Submodule → `karanhudia/borg-ui` (agent and server source, pinned commit) |
+| `docker/Dockerfile` | Backup/agent/repository server image (build context = repo root) |
+| `docker/rootfs/` | Files copied into the image: `run.sh` (mode dispatch), `run-agent.sh` (enroll + agent), `prepare-repo-server.sh`, and the `borg-*` / `backup-*` / `restore-*` / `s3-*` tools |
+| `docker/docker-build.sh`, `docker-build-runtime-base.sh`, `docker-build-server.sh` | Build helpers (`--push` / multi-arch to GHCR). The runtime-base and **server** images build directly from the submodule's `borg-ui/Dockerfile.runtime-base` and `borg-ui/Dockerfile`, with no copy of the recipe, under our own tag/registry via `--build-arg` / `-t` / `--label` |
+| `examples/` | Plain manifests, a Kustomization, Helm values and Secret templates |
+| `local/` | A Docker Compose test stack: Borg UI, PostgreSQL, Redis, repository server and an agent from any borg-ui source tree |
+| `tests/` | shellcheck, bats unit tests and the end-to-end suite |
+| `.github/workflows/` | Lint and tests on every push; tag-triggered multi-arch image build and chart push to GHCR; daily Trivy scan |
 
 ## Build
 
@@ -156,7 +207,7 @@ PUSH=1 docker/docker-build.sh <tag>    # multi-arch build + push to GHCR
 
 The server and its runtime base build the same way via
 `docker/docker-build-server.sh` and `docker/docker-build-runtime-base.sh`
-(build the runtime base first — the server is `FROM` it).
+(build the runtime base first: the server is `FROM` it).
 
 ## Test
 
@@ -166,17 +217,34 @@ The server and its runtime base build the same way via
 ```
 
 Three layers: `shellcheck` over every shell script, bats unit tests for the
-wrapper logic, and an end-to-end suite that runs the full repository lifecycle
-against real Borg repositories inside the agent image, once for Borg 1 and once
-for Borg 2. The same three run in CI on every push and pull request. See
-[`tests/README.md`](tests/README.md) for what each layer covers.
+wrapper and chart logic, and an end-to-end suite that runs the full repository
+lifecycle against real Borg repositories inside the agent image, once for Borg 1
+and once for Borg 2. The same three run in CI on every push and pull request.
+See [`tests/README.md`](tests/README.md) for what each layer covers.
 
 ## Submodule
 
-`borg-ui` provides the agent and server source, pinned to a specific commit
-(currently tracking `main`). To advance it:
+`borg-ui` provides the agent and server source, pinned to one commit per
+release. The Borg UI image tag is `git describe` of that commit against
+borg-ui's release tags (`docker/ui-app-version.sh`), so every pin gets its own
+image; see "Versioning" in [`chart/README.md`](chart/README.md#versioning). To
+move the pin:
 
 ```sh
-git submodule update --remote borg-ui
+git -C borg-ui fetch && git -C borg-ui checkout <commit>
 git add borg-ui && git commit -m "Bump borg-ui submodule"
 ```
+
+## License
+
+k8s-borg is licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`).
+
+The images also contain third-party software under its own license, among
+others:
+
+| Component | License |
+| --- | --- |
+| [Borg UI](https://github.com/karanhudia/borg-ui) (server and agent) | AGPL-3.0 |
+| [BorgBackup](https://github.com/borgbackup/borg) and [borgstore](https://github.com/borgbackup/borgstore) | BSD-3-Clause |
+| [s3fs-fuse](https://github.com/s3fs-fuse/s3fs-fuse) | GPL-2.0 |

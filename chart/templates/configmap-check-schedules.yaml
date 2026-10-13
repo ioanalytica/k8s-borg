@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 Check-schedule ConfigMap: one key per pod hostname (<hostname>_check_schedule)
 plus an optional default_check_schedule fallback. Mounted read-only at

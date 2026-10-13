@@ -1,6 +1,6 @@
 {{- /*
-Copyright IO ANALYTICA. All Rights Reserved.
-SPDX-License-Identifier: Apache-2.0
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
 
 Repository server: what is configured for single clients, and the account the
 pod runs as. sshd looks its user up by name, so the configured uid needs an
