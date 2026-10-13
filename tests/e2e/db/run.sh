@@ -195,6 +195,14 @@ if [ "${1:-}" = "--one" ]; then
       'command -v bats >/dev/null || apk add -q --no-cache bats >/dev/null
        [ "$DB_TESTS" != redis ] || command -v valkey-cli >/dev/null || apk add -q --no-cache valkey-cli >/dev/null
        exec bats --print-output-on-failure "/tests/e2e/db/$DB_TESTS.bats"' || rc=$?
+    # A failed run shows how its servers fared: a server that never became
+    # ready leaves nothing in the bats output.
+    if [ "$rc" -ne 0 ]; then
+      for role in "${roles[@]}"; do
+        echo "── server $role: $(docker inspect -f '{{.State.Status}}, exit code {{.State.ExitCode}}' "${name}-${role}" 2>&1)"
+        docker logs --tail 25 "${name}-${role}" 2>&1 | cut -c1-400
+      done
+    fi
     exit "$rc"
   } >"$log" 2>&1
 fi
