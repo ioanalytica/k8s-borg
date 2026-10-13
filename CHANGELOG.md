@@ -1,7 +1,21 @@
 # Changelog
 
-## Unreleased
+## 1.1.9-beta.13
 
+* **Database dumps for every common engine, the cluster datastore, SQLite on
+  application volumes, and an external copy of the repository server.** Borg UI
+  is unchanged: the `borg-ui` submodule stays at the beta.12 pin, our fork's
+  `io/integration` at 2e4031646 (UI image `2.3.10-52-g2e4031646`, agent
+  0.1.21), while the borg-ui pull requests it carries are still open upstream.
+  The runtime base (Borg 1.4.5, Borg 2.0.0b25) is unchanged. The agent image
+  gains `etcdctl`/`etcdutl`, MongoDB's `mongodump`/`mongorestore`, the MySQL
+  8.4 client, `valkey-cli` and the helpers below. Node backups stay on the
+  node's own file systems.
+* **License: AGPL-3.0-only throughout** (#44). The chart's SPDX headers and
+  `Chart.yaml` said Apache-2.0 while the repository's `LICENSE` was the
+  AGPL-3.0; all of them now say `AGPL-3.0-only`. The README describes what the
+  chart deploys today and lists the licenses of the third-party software in
+  the images.
 * **Repository server: an external copy, `repoServer.offsite`** (issue #54).
   * A CronJob mirrors every repository below the data directory to an rclone
     remote — S3-compatible storage, an SFTP target such as a Hetzner Storage
@@ -200,39 +214,6 @@
   `node.sqlite` Roles do: releases of the same name in two namespaces no
   longer collide.
 
-### Upgrade notes
-
-* Node archives may shrink: a `node.include` root that contained mounts of
-  other file systems no longer archives them, a partition of the node
-  itself included (e.g. `/var/lib` of its own under `R /node/var`). Give
-  every partition to keep its own `R` root; the node pod's log names the
-  ones skipped.
-* The credentials resolver's Roles and RoleBindings
-  (`<fullname>-db-<hash>`) are renamed once: Helm deletes the old ones and
-  creates the new ones in the same upgrade.
-* `databases.<engine>.enabled: true` without instances and without an
-  `existingSecret` now fails every render, with a message naming the engine.
-  Before, it failed only where the cluster workloads were rendered (not with
-  `cluster.enabled: false`). Configure the engine or set `enabled: false`.
-* The dump files change their names: `<db>.sql.gz` and `<db>.dump.gz`
-  (PostgreSQL) become `globals.sql` and `<db>.dump`; `<db>.sql.gz` and
-  `<instance>-full-dump.sql.gz` (MariaDB) become `<db>.sql` and
-  `<instance>-full-dump.sql`. The first successful dump removes the old
-  `*.gz` files of its instance directory. To restore from an archive made
-  before, `gunzip -k` the file first.
-* `borg.dbBackupLocation` needs room for the uncompressed dumps, several
-  times the size of the gzipped ones.
-* A PostgreSQL backup user without superuser rights turns every cluster
-  backup into a warning (roles without passwords). See "Privileges of the
-  backup user" in `chart/README.md`.
-* A MariaDB server without TLS needs `tls: false` (secretRef instances) or
-  `skip-ssl` in its static config.
-* A MySQL or Percona server under `databases.mariadb` now fails its backup
-  with rc 2 (its dumps did not restore): move the instance to
-  `databases.mysql`. MySQL's client knows no `skip-ssl`: in a static config
-  write `ssl-mode=DISABLED` and `get-server-public-key` instead; a `secretRef`
-  instance with `tls: false` gets them from the resolver.
-
 * **MongoDB dumps and restores** (#50). `databases.mongodb` adds MongoDB to
   the cluster backup, configured like the other engines: a static `config`,
   an `existingSecret`, or a `secretRef` resolved at pod start, either to a
@@ -272,6 +253,39 @@
     every restore mode against MongoDB 7 and 8 (replica sets and a
     standalone server), comparing each restore with a fingerprint of the
     source.
+
+### Upgrade notes
+
+* Node archives may shrink: a `node.include` root that contained mounts of
+  other file systems no longer archives them, a partition of the node
+  itself included (e.g. `/var/lib` of its own under `R /node/var`). Give
+  every partition to keep its own `R` root; the node pod's log names the
+  ones skipped.
+* The credentials resolver's Roles and RoleBindings
+  (`<fullname>-db-<hash>`) are renamed once: Helm deletes the old ones and
+  creates the new ones in the same upgrade.
+* `databases.<engine>.enabled: true` without instances and without an
+  `existingSecret` now fails every render, with a message naming the engine.
+  Before, it failed only where the cluster workloads were rendered (not with
+  `cluster.enabled: false`). Configure the engine or set `enabled: false`.
+* The dump files change their names: `<db>.sql.gz` and `<db>.dump.gz`
+  (PostgreSQL) become `globals.sql` and `<db>.dump`; `<db>.sql.gz` and
+  `<instance>-full-dump.sql.gz` (MariaDB) become `<db>.sql` and
+  `<instance>-full-dump.sql`. The first successful dump removes the old
+  `*.gz` files of its instance directory. To restore from an archive made
+  before, `gunzip -k` the file first.
+* `borg.dbBackupLocation` needs room for the uncompressed dumps, several
+  times the size of the gzipped ones.
+* A PostgreSQL backup user without superuser rights turns every cluster
+  backup into a warning (roles without passwords). See "Privileges of the
+  backup user" in `chart/README.md`.
+* A MariaDB server without TLS needs `tls: false` (secretRef instances) or
+  `skip-ssl` in its static config.
+* A MySQL or Percona server under `databases.mariadb` now fails its backup
+  with rc 2 (its dumps did not restore): move the instance to
+  `databases.mysql`. MySQL's client knows no `skip-ssl`: in a static config
+  write `ssl-mode=DISABLED` and `get-server-public-key` instead; a `secretRef`
+  instance with `tls: false` gets them from the resolver.
 
 ## 1.1.9-beta.12
 
