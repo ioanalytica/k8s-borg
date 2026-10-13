@@ -241,10 +241,10 @@ databases:
   ## An instance is configured EITHER with a static `config` (rendered into a
   ## chart-managed Secret, or brought via existingSecret) OR with a `secretRef`
   ## pointing at a credentials Secret in the database's own namespace (e.g. the
-  ## operator-generated Zalando/mariadb-operator secrets). secretRef instances
-  ## are resolved at pod start by an init container: it reads each referenced
-  ## Secret through the Kubernetes API and synthesizes the *.conf file the dump
-  ## scripts consume. The generated files are available in the cluster CronJob
+  ## operator-generated Zalando/CloudNativePG/mariadb-operator secrets).
+  ## secretRef instances are resolved at pod start by an init container: it
+  ## reads each referenced Secret through the Kubernetes API and synthesizes
+  ## the *.conf file the dump scripts consume. The generated files are available in the cluster CronJob
   ## for backups and in the app StatefulSet for restores; node DaemonSet pods
   ## never receive DB credentials. The StatefulSet must be rolled after a
   ## referenced Secret changes. The chart creates a
@@ -324,6 +324,13 @@ databases:
     #    secretRef:
     #      namespace: databases
     #      name: postgres.example-db.credentials.postgresql.acid.zalan.do
+    #      usernameKey: username
+    #      passwordKey: password
+    #  - name: cloudnativepg-example
+    #    host: example-db-rw.databases.svc   # the Secret's host lacks the namespace
+    #    secretRef:
+    #      namespace: databases
+    #      name: example-db-superuser   # needs enableSuperuserAccess: true on the Cluster
     #      usernameKey: username
     #      passwordKey: password
   mongodb:

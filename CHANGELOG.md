@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* **CloudNativePG credentials** (issue #48). A `secretRef` to CloudNativePG's
+  `<cluster>-superuser` Secret (`usernameKey: username`,
+  `passwordKey: password`, `host: <cluster>-rw.<ns>.svc`) works as it is; the
+  chart README gains a table of the PostgreSQL operators' Secrets, and
+  `values.yaml` an example. Tested against CloudNativePG 1.30.1 with the
+  superuser, a managed role with `pg_read_all_data` and the application
+  owner.
+
 * **Credentials resolver: values passed as they are** (issue #61). Every
   instance value reaches the resolver's script as one single-quoted word: a
   `$(…)`, a backtick or a `$VAR` in a host or user no longer runs or expands
