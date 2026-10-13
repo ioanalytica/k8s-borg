@@ -332,11 +332,9 @@ user=u-$value" ] || fail "$(cat "$TMP/out/redis/redis-default.conf")"
 @test "releases of the same name in two namespaces get Roles and RoleBindings of their own in a namespace both list" {
   # names NAMESPACE — "Kind name roleRef" of the RBAC objects rendered into db.
   names() {
-    helm template rel "$CHART" -n "$1" -f "$VALUES" | python3 -c '
-import sys, yaml
-for d in yaml.safe_load_all(sys.stdin):
-    if d and d["kind"] in ("Role", "RoleBinding") and d["metadata"].get("namespace") == "db":
-        print(d["kind"], d["metadata"]["name"], (d.get("roleRef") or {}).get("name", "-"))'
+    helm template rel "$CHART" -n "$1" -f "$VALUES" \
+      | yq -N 'select((.kind == "Role" or .kind == "RoleBinding") and .metadata.namespace == "db")
+               | .kind + " " + .metadata.name + " " + (.roleRef.name // "-")'
   }
   a=$(names backup) b=$(names other)
   [ "$(printf '%s\n' "$a" | wc -l)" -eq 2 ] && [ "$(printf '%s\n' "$b" | wc -l)" -eq 2 ] || fail "backup: $a; other: $b"

@@ -175,7 +175,7 @@ if [ "$BORG_MODE" = "node" ]; then
   esac
 fi
 
-if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
+if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" MODE="$BORG_MODE" \
              ARCHIVE_TEMPLATE="$BORG_ARCHIVE_NAME_TEMPLATE" SKIP_MISSING="$BORG_PLAN_SKIP_MISSING_SOURCES" \
              REPO_ID="$repo_id" AGENT_MID="$agent_mid" CRON="$cron" \
              COMPRESSION="${BORG_COMPRESSION:-auto,lz4}" \
@@ -224,7 +224,9 @@ if os.environ.get("SKIP_MISSING", "1") == "1":
     if missing:
         sys.stderr.write("dropping source roots that do not exist on this node: %r\n" % missing)
     sources = [p for p in sources if os.path.isdir(p)]
-if not sources:
+# A node plan needs one existing root, also when missing ones are kept
+# (BORG_PLAN_SKIP_MISSING_SOURCES=0).
+if not sources or (os.environ.get("MODE") == "node" and not any(os.path.isdir(p) for p in sources)):
     sys.stderr.write("no existing \"R <root>\" source paths (%s)\n" % os.environ["INC_FILE"])
     sys.exit(3)
 

@@ -90,10 +90,12 @@ not mounted on its own does not show in the mount table and is not named
 in the warning.
 
 A node on which no root of `node.include` exists has nothing to back up. In
-`interval` mode the run is skipped; in `agent` mode `register-backup-plan`
-disables the node's plan and says why in the pod log. The plan is not
-deleted, so its run history stays in Borg UI; the next pod start with a root
-on the node enables it again.
+`agent` mode `register-backup-plan` disables the node's plan and says why in
+the pod log. The plan is not deleted, so its run history stays in Borg UI;
+the next pod start with a root on the node enables it again. In `interval`
+mode `borg-backup` skips a run only when `node.include` has no `R` line at
+all; it does not check that the roots exist, and `borg create` reports a
+missing one as a warning.
 
 ### Agent pre/post-backup scripts
 

@@ -239,6 +239,24 @@ node_patterns() {
   [ ! -e "$TMP/payload" ] || fail "plan sent: $(cat "$TMP/payload")"
 }
 
+@test "a node with no existing root disables its plan also when missing roots are kept" {
+  existing_plan
+  node_patterns "R $TMP/gone"
+  BORG_MODE=node BORG_PLAN_SKIP_MISSING_SOURCES=0 run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"Backup plan 'backup-console' disabled"* ]] || fail "$output"
+  [ "$(cat "$TMP/toggled")" = "toggle" ] || fail "toggled: $(cat "$TMP/toggled" 2>/dev/null)"
+  [ ! -e "$TMP/payload" ] || fail "plan sent: $(cat "$TMP/payload")"
+  # One existing root is enough; the missing one stays in the plan.
+  rm -f "$TMP/toggled"
+  node_patterns "R $TMP/gone" "R $TMP"
+  BORG_MODE=node BORG_PLAN_SKIP_MISSING_SOURCES=0 run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["source_directories"] != sys.argv[2:])' \
+    "$TMP/payload" "$TMP/gone" "$TMP" || fail "$(cat "$TMP/payload")"
+  [ ! -e "$TMP/toggled" ] || fail "toggled"
+}
+
 @test "a node plan already disabled is not toggled again" {
   existing_plan
   touch "$TMP/plan-disabled"
