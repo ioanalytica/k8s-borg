@@ -140,10 +140,10 @@ for line in sys.stdin:
   expected="ServiceAccount backup rel-k8s-borg-node []
 ClusterRole - rel-k8s-borg-node-sqlite-backup [{\"apiGroups\": [\"\"], \"resources\": [\"persistentvolumes\"], \"verbs\": [\"get\"]}]
 ClusterRoleBinding - rel-k8s-borg-node-sqlite-backup $subject
-Role git rel-k8s-borg-node-sqlite-$(printf git | shasum -a 256 | cut -c1-10) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"gitea-data\", \"runner-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
-RoleBinding git rel-k8s-borg-node-sqlite-$(printf git | shasum -a 256 | cut -c1-10) $subject
-Role vaultwarden rel-k8s-borg-node-sqlite-$(printf vaultwarden | shasum -a 256 | cut -c1-10) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"vaultwarden-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
-RoleBinding vaultwarden rel-k8s-borg-node-sqlite-$(printf vaultwarden | shasum -a 256 | cut -c1-10) $subject"
+Role git rel-k8s-borg-node-sqlite-$(printf backup/git | shasum -a 256 | cut -c1-10) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"gitea-data\", \"runner-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
+RoleBinding git rel-k8s-borg-node-sqlite-$(printf backup/git | shasum -a 256 | cut -c1-10) $subject
+Role vaultwarden rel-k8s-borg-node-sqlite-$(printf backup/vaultwarden | shasum -a 256 | cut -c1-10) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"vaultwarden-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
+RoleBinding vaultwarden rel-k8s-borg-node-sqlite-$(printf backup/vaultwarden | shasum -a 256 | cut -c1-10) $subject"
   expected=$(LC_ALL=C sort <<<"$expected")
   [ "$output" = "$expected" ] || fail "$(diff <(echo "$expected") <(echo "$output"))"
 }
@@ -181,4 +181,15 @@ sys.exit("no agent RoleBinding")' || fail "the node ServiceAccount is not bound 
     run helm template rel "$CHART" -n backup -f "$VALUES" -f "$BATS_TEST_TMPDIR/bad.yaml"
     [ "$status" -ne 0 ] && [[ "$output" == *"node.sqlite.databases[0]"* ]] || fail "$entry: $output"
   done
+}
+
+@test "releases of the same name in two namespaces get Roles of their own in a namespace both list" {
+  names() { rbac -f "$ON" "$@" | awk '$1 == "Role" && $2 == "git" {print $3}'; }
+  a=$(names)
+  b=$(helm template rel "$CHART" -n other -f "$VALUES" -f "$ON" | python3 -c '
+import sys, yaml
+for d in yaml.safe_load_all(sys.stdin):
+    if d and d["kind"] == "Role" and d["metadata"].get("namespace") == "git":
+        print(d["metadata"]["name"])')
+  [ -n "$a" ] && [ -n "$b" ] && [ "$a" != "$b" ] || fail "backup: $a, other: $b"
 }

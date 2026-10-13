@@ -47,7 +47,9 @@ subjects:
 {{- $_ := set $claimsByNamespace .namespace (append (get $claimsByNamespace .namespace | default list) .pvc | uniq) }}
 {{- end }}
 {{- range $namespace, $claims := $claimsByNamespace }}
-{{- $name := printf "%s-%s" $rbacName (sha256sum $namespace | trunc 10) }}
+{{- /* The release's namespace in the hash: releases of the same name in two
+       namespaces get Roles of their own in a namespace they both list. */}}
+{{- $name := printf "%s-%s" $rbacName (sha256sum (printf "%s/%s" $.Release.Namespace $namespace) | trunc 10) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
