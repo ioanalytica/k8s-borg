@@ -19,3 +19,11 @@
 # release pull requests into master become a thing, add it here explicitly.
 
 language: en-US
+
+reviews:
+  # Submit a real review verdict instead of a plain comment: "Changes requested"
+  # while actionable comments are open, "Approved" once they are resolved and no
+  # pre-merge check is in an error state (`@coderabbitai resolve` also triggers
+  # it). Without this, CodeRabbit only ever COMMENTs, the pull request has no
+  # review decision, and the PR list shows no approval state.
+  request_changes_workflow: true
