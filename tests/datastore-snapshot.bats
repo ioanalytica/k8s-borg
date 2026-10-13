@@ -192,6 +192,16 @@ PY
   [ "$(snapshot_files)" = "./other" ] || fail "$(snapshot_files)"
 }
 
+@test "a snapshot that cannot be removed fails clean with 2" {
+  mkdir -p "$DATASTORE_SNAPSHOT_DIR/k3s"
+  touch "$DATASTORE_SNAPSHOT_DIR/k3s/token"
+  chmod a-w "$DATASTORE_SNAPSHOT_DIR/k3s"
+  [ "$(id -u)" != 0 ] || skip "root removes it regardless"
+  run "$BIN/datastore-snapshot" clean
+  [ "$status" -eq 2 ] || fail "status $status: $output"
+  [[ "$output" == *"cannot remove the snapshot"* ]] || fail "$output"
+}
+
 @test "an unknown command is a usage error" {
   run "$BIN/datastore-snapshot" restore
   [ "$status" -eq 2 ] || fail "status $status: $output"

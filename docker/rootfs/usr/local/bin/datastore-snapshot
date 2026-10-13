@@ -91,7 +91,7 @@ PY
 }
 
 case "${1:-save}" in
-  clean) clean; exit 0 ;;
+  clean) clean && exit 0; echo "datastore-snapshot: ERROR: cannot remove the snapshot in ${dir}" >&2; exit 2 ;;
   save) ;;
   *) echo "usage: datastore-snapshot [save|clean]" >&2; exit 2 ;;
 esac

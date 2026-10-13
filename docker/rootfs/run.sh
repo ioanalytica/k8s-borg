@@ -90,16 +90,21 @@ fi
 if [[ "${BORG_MODE}" = "node" ]]; then
   echo "Running borg-backup for node ${NODE_NAME} …"
   # The datastore snapshot (node.datastoreSnapshot) exists only for this run:
-  # removed on every way out. A failed snapshot does not stop the file backup,
-  # but fails the run.
+  # removed after the backup, and by the trap on any other way out. A failed
+  # snapshot does not stop the file backup, but fails the run, as does a
+  # snapshot that cannot be removed.
   if [[ "${DATASTORE_SNAPSHOT:-false}" = "true" ]]; then
     trap 'datastore-snapshot clean' EXIT
     snapshot_rc=0
     datastore-snapshot save || snapshot_rc=$?
     backup_rc=0
     borg-backup || backup_rc=$?
+    clean_rc=0
+    datastore-snapshot clean || clean_rc=$?
+    trap - EXIT
     (( backup_rc != 0 )) && exit "${backup_rc}"
-    exit "${snapshot_rc}"
+    (( snapshot_rc != 0 )) && exit "${snapshot_rc}"
+    exit "${clean_rc}"
   fi
 else
   # The engines in BORG_DB_ENGINES, which the chart sets to those the release
