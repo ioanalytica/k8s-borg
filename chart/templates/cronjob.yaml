@@ -62,6 +62,9 @@ spec:
               env:
                 - name: NODE_NAME
                   value: {{ .Values.cluster.nodeName | quote }}
+                # The database engines whose dumps run before the backup (run.sh).
+                - name: BORG_DB_ENGINES
+                  value: {{ include "k8s-borg.databases.configured" . | quote }}
                 {{- include "k8s-borg.env.common" . | nindent 16 }}
                 {{- if (include "k8s-borg.cluster.borgUiResync" .) }}
                 {{- include "k8s-borg.env.borgui" (dict "context" $ "optional" true) | nindent 16 }}

@@ -191,6 +191,16 @@ SQL
   [ -f "$E2E_TMP/cluster-dumps/e2e/appdb.dump" ]
 }
 
+@test "backup-cluster-databases dumps only the engines in BORG_DB_ENGINES" {
+  run env DB_BACKUP_LOCATION="$E2E_TMP/engines-none" BORG_DB_ENGINES="" backup-cluster-databases
+  [ "$status" -eq 0 ] || fail "rc=$status: $output"
+  [ ! -e "$E2E_TMP/engines-none" ] || fail "dumped: $(ls -R "$E2E_TMP/engines-none")"
+
+  run env DB_BACKUP_LOCATION="$E2E_TMP/engines-postgres" BORG_DB_ENGINES="postgres" backup-cluster-databases
+  [ "$status" -eq 0 ] || fail "rc=$status: $output"
+  assert_dump_dir "$E2E_TMP/engines-postgres/e2e" globals.sql appdb.dump postgres.dump straße.dump template1.dump
+}
+
 @test "a failing dump fails with rc >= 2 and leaves the previous dumps alone" {
   mkdir -p "$E2E_TMP/fail-dumps/e2e"
   echo previous >"$E2E_TMP/fail-dumps/e2e/appdb.dump"

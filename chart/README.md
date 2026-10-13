@@ -97,11 +97,17 @@ cluster:
 
 ## Database dumps
 
-With `databases.mariadb.enabled` / `databases.postgres.enabled`, each cluster
-backup first dumps every configured instance (`backup-cluster-<engine>`) into
-`borg.dbBackupLocation/<instance>/`, which the cluster backup then archives.
-`<instance>` is the instance's `name` (the `*.conf` file name of a static
-config).
+Each cluster backup first dumps every instance of the configured engines
+(`backup-cluster-<engine>`) into `borg.dbBackupLocation/<instance>/`, which the
+cluster backup then archives. `<instance>` is the instance's `name` (the
+`*.conf` file name of a static config).
+
+An engine is configured when `databases.<engine>.enabled` is true and it has at
+least one instance or an `existingSecret`; an enabled engine with neither fails
+the render. Only configured engines get their credentials mounted, their
+`backup-cluster-<engine>` published to the cluster agent and attached as a
+pre-backup hook (plan mode), or run in the cluster CronJob (the chart passes
+them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 
 | Engine | File | Content |
 | --- | --- | --- |

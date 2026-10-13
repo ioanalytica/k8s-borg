@@ -234,6 +234,9 @@ ssh:
 
 ## @section Databases (logical dumps; cluster/app workloads)
 ##
+## An engine is dumped only when it is enabled AND has at least one instance or an
+## existingSecret; enabled with neither fails the render. See chart/README.md,
+## "Database dumps".
 databases:
   ## An instance is configured EITHER with a static `config` (rendered into a
   ## chart-managed Secret, or brought via existingSecret) OR with a `secretRef`

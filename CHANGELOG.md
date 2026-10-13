@@ -3,7 +3,15 @@
 ## Unreleased
 
 * **Database dumps: the whole PostgreSQL instance, uncompressed dumps,
-  `restore-mariadb`, end-to-end tests** (issues #45, #46, #47).
+  `restore-mariadb`, only the configured engines, end-to-end tests** (issues
+  #45, #46, #47, #55).
+  * Only the engines a release configures are dumped: those with
+    `databases.<engine>.enabled` and at least one instance or an
+    `existingSecret`. One chart helper decides it; only these engines get
+    their credentials volume, are published to the cluster agent and
+    attached as pre-backup hooks (plan mode), and run in the cluster CronJob,
+    which gets them as `BORG_DB_ENGINES` and runs the new
+    `backup-cluster-databases` instead of every engine's wrapper.
   * `backup-postgres` dumps the instance as `pg_dumpall` covers it:
     `globals.sql` (roles, password hashes, memberships, role settings,
     tablespaces) and one `<db>.dump` (`pg_dump -Fc -Z0`) per database,
@@ -32,6 +40,10 @@
 
 ### Upgrade notes
 
+* `databases.<engine>.enabled: true` without instances and without an
+  `existingSecret` now fails every render, with a message naming the engine.
+  Before, it failed only where the cluster workloads were rendered (not with
+  `cluster.enabled: false`). Configure the engine or set `enabled: false`.
 * The dump files change their names: `<db>.sql.gz` and `<db>.dump.gz`
   (PostgreSQL) become `globals.sql` and `<db>.dump`; `<db>.sql.gz` and
   `<instance>-full-dump.sql.gz` (MariaDB) become `<db>.sql` and

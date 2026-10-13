@@ -90,14 +90,13 @@ fi
 if [[ "${BORG_MODE}" = "node" ]]; then
   echo "Running borg-backup for node ${NODE_NAME} …"
 else
-  shopt -s nullglob
-  # rc 1 is a warning (a PostgreSQL user without superuser rights: roles
-  # dumped without passwords) and the backup goes on; anything above stops it.
-  for dump in backup-cluster-mariadb backup-cluster-postgres; do
-    dump_rc=0
-    "$dump" || dump_rc=$?
-    (( dump_rc <= 1 )) || exit "$dump_rc"
-  done
+  # The engines in BORG_DB_ENGINES, which the chart sets to those the release
+  # configures. rc 1 is a warning (a PostgreSQL user without superuser rights:
+  # roles dumped without passwords) and the backup goes on; anything above
+  # stops it.
+  dump_rc=0
+  backup-cluster-databases || dump_rc=$?
+  (( dump_rc <= 1 )) || exit "$dump_rc"
   echo "Running borg-backup for cluster …"
 fi
 exec borg-backup
