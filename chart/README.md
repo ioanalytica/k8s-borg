@@ -190,9 +190,12 @@ the `Cluster` (off by default). Without it, a role of its own can dump: one
 declared under `spec.managed.roles` with `login: true`,
 `inRoles: [pg_read_all_data]` and a `passwordSecret` (a
 `kubernetes.io/basic-auth` Secret with `username` and `password`), or the
-application owner from `<cluster>-app`, which reads only what it owns or is
-granted. Both dump every database of a cluster as CloudNativePG bootstraps
-it, the roles without their passwords (rc `1`, see above). Tested against
+application owner from `<cluster>-app`. Both dump a cluster as CloudNativePG
+bootstraps it, the roles without their passwords (rc `1`, see above). What
+is added later needs the grants above: `CONNECT` on every database,
+`SELECT` on every large object, and, for the application owner, which reads
+only what it owns or is granted, read access to every table. A dump that
+cannot read something fails the backup (rc ≥ 2). Tested against
 CloudNativePG 1.30.1 with all three Secrets.
 
 ### MariaDB servers without TLS
