@@ -364,6 +364,32 @@ databases:
     #      name: percona-server-mongodb-users   # the cluster's spec.secrets.users
     #      usernameKey: MONGODB_BACKUP_USER   # or a literal `user:` on the instance
     #      passwordKey: MONGODB_BACKUP_PASSWORD
+  redis:
+    ## @param databases.redis.enabled Back up Redis and Valkey instances (RDB snapshots)
+    enabled: false
+    ## @param databases.redis.existingSecret Use an existing Secret (one *.conf per instance)
+    existingSecret: ""
+    ## @param databases.redis.instances Redis/Valkey instances (static config or secretRef)
+    ## A static config is key=value lines: host (required), port (6379), user, password,
+    ## tls, cacert, insecure. A cluster is found by itself: one RDB file per primary.
+    ## An ACL user needs `+info +sync +replconf +cluster|nodes`; without user, the
+    ## default user. A CA bundle for `cacert` comes in through cluster.extraVolumes.
+    instances: []
+    #  - name: redis-example
+    #    config: |
+    #      host=redis-master.cache.svc
+    #      user=backup
+    #      password=CHANGE_ME
+    #  - name: valkey-operator-example
+    #    host: valkey.cache.svc
+    #    port: 6379              # default 6379
+    #    # user: backup          # literal ACL user; omit for the default user
+    #    # tls: true             # cacert: /path/ca.crt or insecure: true imply it
+    #    secretRef:
+    #      namespace: cache
+    #      name: valkey
+    #      passwordKey: password
+    #      # usernameKey: username  # read the user from the Secret instead
   ## @param databases.credentialsResolver Image for the secretRef resolver init container
   credentialsResolver:
     image:

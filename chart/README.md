@@ -117,6 +117,9 @@ them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 | MariaDB | `<instance>-full-dump.sql` | every database (`-A`), the `mysql` schema with the users and grants included |
 | MySQL | `<db>.sql`, `<instance>-full-dump.sql` | as MariaDB, written by MySQL's own `mysqldump` 8.4, without GTIDs |
 | MongoDB | `<instance>.archive` | one `mongodump` archive of every database, users and roles included, with the oplog on a replica set — see [MongoDB dumps](#mongodb-dumps) |
+| Redis/Valkey | `<instance>.rdb` | the server's RDB snapshot, every database: a standalone server, or a replica |
+| Redis/Valkey | `<instance>-slots-<first>-<last>.rdb` | a cluster: one RDB snapshot per primary, named after its first slot range |
+| Redis/Valkey | `<instance>-cluster-nodes.txt` | a cluster: `CLUSTER NODES` at dump time, which primary held which slots |
 
 Every file is mode `600`. The dumps are **not compressed**: a compressed
 stream differs from the first changed byte on, so every dump would be new data
@@ -157,6 +160,40 @@ A PostgreSQL dump can be read and edited as SQL without a server:
 list` lists its objects, and `pg_restore -L list …` restores only the ones
 left in the list.
 
+### Restoring Redis and Valkey
+
+An RDB file is restored by the server itself, which loads it at start; how
+to stop and start the server depends on how it is deployed, so this is not
+scripted:
+
+1. Extract the instance's RDB file from an archive.
+2. Stop the server (scale its StatefulSet or Deployment to 0).
+3. Put the file into the server's data directory (`dir`) under its
+   `dbfilename` (`dump.rdb` by default), readable by the server's user.
+4. With `appendonly yes` the server loads its append-only file instead and
+   ignores `dump.rdb`: move the append-only directory aside and start with
+   `appendonly no`; once the server is up, `CONFIG SET appendonly yes`
+   writes a new append-only file from the loaded data. Set it in the
+   configuration again.
+5. Start the server; replicas copy the restored data from it.
+
+The RDB file holds the keys of every database with their TTLs, not the ACL
+users and not the configuration. It loads into the server it came from or a
+newer release of the same one; Valkey 9 writes its own format (`VALKEY080`).
+The primaries of a cluster are dumped one after another, each consistent in
+itself: put each file on the primary that holds its slots in a cluster with
+the same slot layout (`<instance>-cluster-nodes.txt`), or load the files one
+after another into a standalone server to read the keys. The tests cover the
+restore into a server of the same version, also of every primary's file into
+a standalone server (Redis 7 and 8, Valkey 8 and 9); not a restore into a
+cluster.
+
+The server forks for the snapshot, as for `BGSAVE`, and needs memory for the
+pages written meanwhile. Two snapshots of an unchanged server differ only in
+their first and last bytes, so Borg stores little of a second archive; the
+keys are in the server's hash order, so changes land all over the file, and
+each makes its Borg chunk (about 2 MiB) new.
+
 ### Privileges of the backup user
 
 - **PostgreSQL:** a superuser dumps everything. Without superuser rights the
@@ -172,6 +209,34 @@ left in the list.
 - **MySQL:** as MariaDB, plus `PROCESS`:
   `GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, SHOW DATABASES, PROCESS ON *.*`
   (tested), or `root`.
+- **Redis/Valkey:** an ACL user needs
+  `ACL SETUSER backup on >… +info +sync +replconf +cluster|nodes` (tested):
+  `INFO` tells a cluster from a standalone server, `SYNC`/`REPLCONF` carry
+  the snapshot, `CLUSTER NODES` lists the primaries. Without a `user` the
+  default user is used (`requirepass`). A server that renames or disables
+  `SYNC` cannot be dumped.
+
+### Redis and Valkey instances
+
+An instance's config file is key=value lines, the value taken verbatim after
+the first `=`: `host` (required), `port` (6379), `user`, `password`, `tls`
+(`true`/`false`), `cacert` (a CA bundle to verify the server with; mount it
+through `cluster.extraVolumes`/`cluster.extraVolumeMounts`) and `insecure`
+(TLS without verifying the server); `cacert` and `insecure` turn TLS on. As
+valkey-cli does, the certificate chain is verified, not the host name — the
+nodes of a cluster announce themselves by IP address. A `secretRef` instance
+sets the same as `host`, `port`, `user`/`secretRef.usernameKey` (either or
+neither), `tls`, `cacert` and `insecure`.
+
+A cluster is recognised by itself (`cluster_enabled` in `INFO`) and dumped
+through any one of its nodes, one RDB file per primary. A failing primary
+fails the dump, and the previous files stay as they were.
+
+The snapshot is streamed over the replication protocol by `redis-rdb-sync`.
+It does what `valkey-cli --rdb` does and also tells a Valkey server its own
+version: Valkey 9 sends its new format only to a replica that announces a
+version able to read it, and without it the snapshot of a hash field with a
+TTL of its own fails.
 
 ### PostgreSQL operators
 
@@ -911,7 +976,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `image`, `initImage` | agent image (defaults to appVersion) |
 | `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
 | `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run. In plan mode the console pod's mounts live as long as the pod, so each plan run first mounts every bucket fresh (pre-backup hook `s3-remount-buckets`, the same mount and policy as at the start), then runs the check as the hook `s3-verify-listing`, ahead of `s3-check-mounts`, and a bucket that still misses objects ends the run with a warning in Borg UI (Borg UI has no way to fail a plan run after its backup) |
-| `ssh`, `databases` | SSH key + MariaDB/MySQL/PostgreSQL/MongoDB logical-dump configs (→ Secrets) |
+| `ssh`, `databases` | SSH key + MariaDB/MySQL/PostgreSQL/MongoDB logical-dump and Redis/Valkey RDB configs (→ Secrets) |
 | `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude`. `node.datastoreSnapshot` adds the cluster datastore — see [Cluster datastore snapshot](#cluster-datastore-snapshot) |
 
 > **Upgrade note (1.0.21):** two breaking value renames — the chart fails fast if

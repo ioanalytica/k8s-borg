@@ -66,7 +66,7 @@ bats tests/borg-rc.bats               # a single file
 | `borgstore-pin.bats` | the agent image installs exactly the borgstore the submodule states, with the `blake3` extra; the submodule's two statements of the Borg 2 version agree; `borg-versions.py` stops on a pin that belongs to another Borg 2 |
 | `backup-cluster-databases.bats` | `backup-cluster-databases`: only the engines in `BORG_DB_ENGINES` run, in their order, none when it is empty, every wrapper of the image (itself aside) when it is unset; an engine's warning (rc 1) is passed on after the others ran, a failure stops the run with its rc, an engine without a wrapper fails with rc 2 |
 | `chart-db-engines.bats` | only the engines a release configures (`enabled` and an instance or `existingSecret`) are dumped, for every engine of the chart's `k8s-borg.databases.supported`: in plan mode only they are published to the cluster agent and attached as pre-backup hooks, in CronJob mode only they are in `BORG_DB_ENGINES` and mounted; none configured renders none and an empty `BORG_DB_ENGINES`; an enabled engine without instances or `existingSecret` fails the render in both modes, naming the engine |
-| `chart-db-credentials.bats` | the credentials resolver of secretRef database instances, its script taken from the rendered chart and run with a stub `kubectl`: the MariaDB defaults file and the pgpass line with their passwords escaped, mode 600, `skip-ssl` for a MariaDB instance with `tls: false`, the MySQL defaults file in its own directory with `ssl-mode=DISABLED` and `get-server-public-key` for `tls: false`, the pgpass line from CloudNativePG's Secret shape (the host from the values, not the Secret's short one) |
+| `chart-db-credentials.bats` | the credentials resolver of secretRef database instances, its script taken from the rendered chart and run with a stub `kubectl`: the MariaDB defaults file and the pgpass line with their passwords escaped, mode 600, `skip-ssl` for a MariaDB instance with `tls: false`, the MySQL defaults file in its own directory with `ssl-mode=DISABLED` and `get-server-public-key` for `tls: false`, the pgpass line from CloudNativePG's Secret shape (the host from the values, not the Secret's short one); the Redis key=value file with the password verbatim, TLS, CA and `insecure` as configured, no `user` line for the default user, a line break or CR in a Redis user or password refused (also a trailing one), a Redis value with `$(…)`, backticks or `'` written as it is and not run; a Redis instance with at most one of `user`/`usernameKey`, the other engines exactly one |
 | `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, the UI image tag is `git describe` of the borg-ui pin, and the chart version follows `appVersion[-N]` |
 
 `chart-versions.bats` describes the borg-ui pin (`docker/ui-app-version.sh`),
@@ -132,18 +132,20 @@ image, so a change under `docker/rootfs/` will not be picked up — rebuild.
 
 `run.sh` starts, for each server version, three database servers from Docker
 Hub (`postgres:<version>-alpine`, `mariadb:<version>`, `mysql:<version>`,
-`percona/percona-server:<version>`, `mongo:<version>`) on a Docker network of
+`percona/percona-server:<version>`, `mongo:<version>`, `redis:<version>`,
+`valkey/valkey:<version>`) on a Docker network of
 their own — `src`, seeded and dumped, and the empty `dst` and `dst2` — and runs
 the engine's bats file next to them in the e2e image (`k8s-borg:e2e`, built by
 `tests/e2e/run.sh`). Server versions run in parallel (`E2E_DB_JOBS`, default
 3); the default matrix is PostgreSQL 13–18, MariaDB 10.11, 11.4 and 11.8, MySQL
-8.4, Percona Server 8.4 (`percona:8.4`), MongoDB 7 and 8, and SQLite as
+8.4, Percona Server 8.4 (`percona:8.4`), MongoDB 7 and 8, Redis 7 and 8, Valkey 8 and 9, and SQLite as
 written by the SQLite of Alpine, Debian 12 and Debian 11 (`sqlite:alpine`,
 `sqlite:bookworm`, `sqlite:bullseye`). MySQL and Percona Server run with GTIDs
 on. For MongoDB, `src` and `dst` are single-member replica sets with
 authentication (a key file), which the tests initiate, and `dst2` is a
 standalone server; the tests reach them with the image's pymongo
-(`helpers/mongodb.py`), as the image has no MongoDB shell.
+(`helpers/mongodb.py`), as the image has no MongoDB shell. For Redis and
+Valkey, `dst2` is replaced by a cluster of three primaries `c1`–`c3`.
 
 SQLite has no server. Its `src` is the application: two writers under
 constant load, one in WAL mode and one with a rollback journal
@@ -165,6 +167,7 @@ database with the fingerprint.
 | File | Subject |
 | --- | --- |
 | `postgres.bats` | `backup-postgres`: `globals.sql` and one uncompressed custom-format dump per database (template0 aside), mode 600, unchanged through Borg; `restore-postgres --all` into an empty server equal to the source (roles, password hashes, memberships, role settings, databases with owner, settings, grants and comment, every database's objects, privileges, content and large objects), and `template1` handing its content to a new database again; one database in place with `-j` while a session is open, `--as` over an existing database without touching the original, `postgres` and `template1`, `--globals` alone; the PostgreSQL 13–16 rejections of PostgreSQL 18's `pg_restore`; a user without superuser rights (PostgreSQL 14+): roles without passwords, rc 1, also through `backup-cluster-postgres`; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps (no privileges, wrong password, no server) with rc ≥ 2 and the previous dump left alone; failing restores and refused arguments; removal of the old `*.gz` dumps; deduplication of a second and a slightly changed archive |
+| `redis.bats` | `backup-redis` (Redis and Valkey, the ACL user `chart/README.md` documents): one RDB file of the standalone server, in Valkey 9's own format there, and one per primary of the cluster named after its slots with `CLUSTER NODES`, mode 600, unchanged through Borg; the RDB file as `dump.rdb` of a server started on it equal to the source (every type, two databases, non-ASCII and binary values, TTLs, on Valkey 9 a hash field's TTL), and the primaries' files restored one after another equal to the cluster; failing dumps (no `+sync`, wrong password, no server) with rc ≥ 2 and the previous dump left alone; `backup-cluster-databases` dumping Redis only when `BORG_DB_ENGINES` names it; deduplication of an unchanged instance and of one changed key |
 | `mariadb.bats` | `backup-mariadb`: one uncompressed dump per database with routines, triggers and events, the full dump, mode 600, unchanged through Borg; `restore-mariadb --all` into an empty server equal to the source (users with password hashes, roles, database, table and column grants, every database's tables, views, routines, triggers, events, counters and content) and the restored users able to log in; one database in place, `--as` over an existing database, with its view and trigger on its own tables, without touching the original; the `mysql` schema refused without `--all`; a backup user with global read privileges only; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps and restores with rc ≥ 2; removal of the old `*.gz` dumps; deduplication; `backup-mysql` and `restore-mysql` refusing a MariaDB server |
 | `mysql.bats` | MySQL and Percona Server: `backup-mysql` writing the same files with MySQL's `mysqldump`, without GTIDs and without the values of generated columns; `restore-mysql --all` into an empty server equal to the source (users with password hashes, plugins and password options, roles and default roles, dynamic, database, table and column grants, generated, invisible and JSON columns, functional indexes, checks, views, routines, triggers, events with their definers, counters and content) without the source's GTIDs; one database in place, one after another into a fresh server, `--as` with view, trigger and generated columns on its own tables; a login without TLS as the resolver writes it; `backup-mariadb` and `restore-mariadb` refusing a MySQL server; the rest as `mariadb.bats` |
 | `mongodb.bats` | `backup-mongodb`: one uncompressed archive with the oplog, mode 600, unchanged through Borg; `restore-mongodb --all` into an empty replica set equal to the source (users with their credentials, custom roles, every database's collections with options, validators, capped and view definitions, indexes and content) and the restored users able to log in — the users first, so that the oplog replay keeps its session; one database in place, `--as` over an existing database, with its view on its own collection, without touching the original; the `backup` role dumping everything, the users included, and the `restore` role restoring a database; a standalone server dumped without an oplog; the Community operator's connection string with `admin` in its path; refusals (`admin`, a database the archive lacks) before anything is dropped; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps and restores with rc ≥ 2 and the previous archive left alone; deduplication |
@@ -173,12 +176,16 @@ database with the fingerprint.
 The test container does not get the docker socket, so it cannot start a
 fresh server of its own: the restore of the whole instance gets `dst`, the
 restore of the globals `dst2` (the failing restores use `dst2` after it); the
-restores of single databases go into `src` itself.
+restores of single databases go into `src` itself. The Redis/Valkey `dst`
+restarts on its own (`--restart always`) and shares its data directory with
+the tests (`/restore`): a restore places `dump.rdb` there and shuts the server
+down without saving, and it starts again on the file.
 
 `E2E_DB_SCRIPTS_FROM_CHECKOUT=1` bind-mounts the checkout's `backup-*`,
-`restore-*`, `mongodb-admin` and `sqlite-copy` scripts and `tests/e2e` over a
-published image's, so a change to the dump scripts can be tested without
-building an image:
+`restore-*`, `mongodb-admin`, `sqlite-copy` and `redis-rdb-sync` scripts and
+`tests/e2e` over a published image's (and installs `valkey-cli` where the image
+has none), so a change to the dump scripts can be tested without building an
+image:
 
 ```sh
 E2E_IMAGE=ghcr.io/ioanalytica/k8s-borg:<tag> E2E_DB_SCRIPTS_FROM_CHECKOUT=1 ./tests/e2e/db/run.sh
@@ -189,8 +196,8 @@ E2E_IMAGE=ghcr.io/ioanalytica/k8s-borg:<tag> E2E_DB_SCRIPTS_FROM_CHECKOUT=1 ./te
 Remote repositories other than the image's own repository server (sftp://,
 s3://, a foreign ssh:// server), the mounted-S3 files-cache case, and the borg
 version pins. A database dump restored into another server major than the
-one it was taken from, and engines without dump scripts (MySQL, MongoDB,
-Valkey). SQLite copies on a real cluster: the kubelet's mounts and the
+one it was taken from, and a Redis/Valkey cluster restored into a cluster.
+SQLite copies on a real cluster: the kubelet's mounts and the
 `HostToContainer` propagation they need are stood in for by directories and
 Docker volumes here; they were checked once on a throwaway k3d cluster
 (issue #53). Python and frontend tests live in the `borg-ui`

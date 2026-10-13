@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+* **Redis and Valkey: consistent RDB snapshots** (issue #52).
+  * New engine `databases.redis` (off by default), for Redis and Valkey
+    alike: instances with a static key=value `config` (`host`, `port`,
+    `user`, `password`, `tls`, `cacert`, `insecure`), an `existingSecret`,
+    or a `secretRef` resolved by the credentials resolver; the default user
+    when no user is set.
+  * `backup-redis` streams the server's own RDB snapshot over the
+    replication protocol: `<instance>.rdb` of a standalone server, or one
+    `<instance>-slots-<range>.rdb` per primary of a cluster with
+    `<instance>-cluster-nodes.txt`. Mode 600, no extra compression, every
+    failure rc 2 with the previous dump left in place.
+  * `redis-rdb-sync` does what `valkey-cli --rdb` does and tells a Valkey
+    server its version, without which Valkey 9 cannot send a hash field with
+    a TTL of its own. `valkey-cli` joins the image.
+  * The backup user needs `+info +sync +replconf +cluster|nodes`. A restore
+    places the RDB file as the server's `dump.rdb` and starts it; documented
+    in `chart/README.md`, "Restoring Redis and Valkey", not scripted.
+  * Tested end to end against Redis 7 and 8 and Valkey 8 and 9, standalone
+    and as a cluster of three primaries.
+
 * **CloudNativePG credentials** (issue #48). A `secretRef` to CloudNativePG's
   `<cluster>-superuser` Secret (`usernameKey: username`,
   `passwordKey: password`, `host: <cluster>-rw.<ns>.svc`) works as it is; the

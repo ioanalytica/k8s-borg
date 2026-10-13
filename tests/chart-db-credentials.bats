@@ -4,7 +4,8 @@
 # of secretRef database instances. Its script is taken from the rendered
 # console StatefulSet and run with a stub kubectl that serves the Secrets'
 # keys, its /out and /static directories moved below $TMP: the files must be
-# what backup-mariadb / backup-mysql / backup-postgres / backup-mongodb read,
+# what backup-mariadb / backup-mysql / backup-postgres / backup-mongodb /
+# backup-redis read,
 # values escaped for their file, mode 600, and each client's option for no TLS
 # for an instance with `tls: false`. Every value reaches the script as one
 # single-quoted word: nothing in it runs or expands. A Secret value keeps its
@@ -59,12 +60,25 @@ databases:
       - name: pg
         host: pg.db.svc
         secretRef: { namespace: db, name: pg-creds, usernameKey: username, passwordKey: password }
+  redis:
+    enabled: true
+    instances:
+      - name: valkey-acl
+        host: valkey.cache.svc
+        cacert: /etc/cache-ca/ca.crt
+        tls: true
+        secretRef: { namespace: cache, name: valkey, usernameKey: username, passwordKey: password }
+      - name: redis-default
+        host: redis.cache.svc
+        port: 6380
+        insecure: true
+        secretRef: { namespace: cache, name: redis, passwordKey: redis-password }
 YAML
 
   # kubectl get secret -n NS NAME -o jsonpath={.data.KEY} → base64 of
   # $TMP/secrets/NS/NAME/KEY, as the API serves it.
   mkdir -p "$TMP/bin" "$TMP/secrets/db/maria" "$TMP/secrets/db/old-maria" "$TMP/secrets/db/pg-creds" \
-    "$TMP/secrets/db/mysql" "$TMP/secrets/db/plain-mysql"
+    "$TMP/secrets/db/mysql" "$TMP/secrets/db/plain-mysql" "$TMP/secrets/cache/valkey" "$TMP/secrets/cache/redis"
   cat >"$TMP/bin/kubectl" <<EOF
 #!/usr/bin/env bash
 key=\${7#jsonpath=\{.data.}; key=\${key%\}}
@@ -79,6 +93,9 @@ EOF
   printf '%s' plain >"$TMP/secrets/db/plain-mysql/password"
   printf '%s' zalando >"$TMP/secrets/db/pg-creds/username"
   printf '%s' 'pg:pa\ss' >"$TMP/secrets/db/pg-creds/password"
+  printf '%s' backup >"$TMP/secrets/cache/valkey/username"
+  printf '%s' 'p=w "d\ #x' >"$TMP/secrets/cache/valkey/password"
+  printf '%s' plain >"$TMP/secrets/cache/redis/redis-password"
 }
 
 teardown() { common_teardown; }
@@ -90,7 +107,7 @@ resolve() {
     | yq 'select(.kind == "StatefulSet") | .spec.template.spec.initContainers[] | select(.name == "resolve-db-credentials") | .command[2]' \
     | sed -e "s|/out/|$TMP/out/|g" -e "s|/static/|$TMP/static/|g" >"$TMP/resolve.sh"
   grep -q "$TMP/out/" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
-  mkdir -p "$TMP/out/mariadb" "$TMP/out/mysql" "$TMP/out/postgres" "$TMP/out/mongodb"
+  mkdir -p "$TMP/out/mariadb" "$TMP/out/mysql" "$TMP/out/postgres" "$TMP/out/mongodb" "$TMP/out/redis"
   (cd "$TMP" && PATH="$TMP/bin:$PATH" bash "$TMP/resolve.sh")
 }
 
@@ -252,4 +269,61 @@ YAML
   [ "$status" -ne 0 ] || fail "the resolver succeeded: $output"
   [[ "$output" == *"mongodb instance mongo: password holds a line break"* ]] || fail "$output"
   [[ "$output" != *secret-pw* ]] || fail "the value is in the output: $output"
+}
+
+@test "a Redis instance gets key=value lines, the password verbatim, TLS and CA as configured" {
+  resolve || fail "the resolver failed"
+  [ "$(cat "$TMP/out/redis/valkey-acl.conf")" = 'host=valkey.cache.svc
+port=6379
+user=backup
+password=p=w "d\ #x
+tls=true
+cacert=/etc/cache-ca/ca.crt' ] || fail "$(cat "$TMP/out/redis/valkey-acl.conf")"
+  [ "$(stat -c %a "$TMP/out/redis/valkey-acl.conf" 2>/dev/null || stat -f %Lp "$TMP/out/redis/valkey-acl.conf")" = 600 ]
+}
+
+@test "a Redis instance without a user is the default user" {
+  resolve || fail "the resolver failed"
+  [ "$(cat "$TMP/out/redis/redis-default.conf")" = 'host=redis.cache.svc
+port=6380
+password=plain
+insecure=true' ] || fail "$(cat "$TMP/out/redis/redis-default.conf")"
+}
+
+@test "a Redis password with a line break or a CR stops the resolver, also a trailing one, without the value" {
+  local password
+  for password in 'secret\nlines' 'secret-trailing\n' 'secret-cr\r' 'sec\rret'; do
+    # shellcheck disable=SC2059  # the \n and \r are meant
+    printf "$password" >"$TMP/secrets/cache/redis/redis-password"
+    run resolve
+    [ "$status" -ne 0 ] || fail "$password: the resolver passed"
+    [[ $output == *"redis instance redis-default: password holds a line break"* ]] || fail "$password: $output"
+    [[ $output != *secret* ]] || fail "$password: the value is in the output: $output"
+  done
+}
+
+@test "Redis values reach the file as they are, nothing in them runs" {
+  # shellcheck disable=SC2016  # the $ are the point
+  local value='$(touch ran-dollar)`touch ran-backtick` it'"'"'s "$HOME" \ ${PATH}'
+  local v=${value//\\/\\\\}; v=${v//\"/\\\"}
+  cat >"$TMP/redis.yaml" <<YAML
+databases:
+  redis:
+    instances:
+      - { name: redis-default, host: "h-$v", user: "u-$v", secretRef: { namespace: cache, name: redis, passwordKey: redis-password } }
+YAML
+  resolve "$TMP/redis.yaml" || fail "the resolver failed"
+  [ -z "$(cd "$TMP" && ls ran-* 2>/dev/null)" ] || fail "ran: $(cd "$TMP" && ls ran-*)"
+  [ "$(head -3 "$TMP/out/redis/redis-default.conf")" = "host=h-$value
+port=6379
+user=u-$value" ] || fail "$(cat "$TMP/out/redis/redis-default.conf")"
+}
+
+@test "a Redis secretRef instance takes at most one of user and usernameKey; the others exactly one" {
+  run helm template rel "$CHART" -n backup -f "$VALUES" --set 'databases.redis.instances[0].user=x'
+  [ "$status" -ne 0 ] && [[ $output == *"databases.redis.instances[0] must define at most one of user or secretRef.usernameKey"* ]] \
+    || fail "$output"
+  run helm template rel "$CHART" -n backup -f "$VALUES" --set 'databases.postgres.instances[0].secretRef.usernameKey=null'
+  [ "$status" -ne 0 ] && [[ $output == *"databases.postgres.instances[0] must define exactly one of user or secretRef.usernameKey"* ]] \
+    || fail "$output"
 }

@@ -22,8 +22,13 @@
 #
 # The server images come from Docker Hub: postgres:<version>-alpine,
 # mariadb:<version>, mysql:<version>, percona/percona-server:<version> (for
-# percona:<version>) and mongo:<version>. MySQL and Percona Server run with
-# GTIDs on and share mysql.bats. SQLite has no server: its "version" is the
+# percona:<version>), mongo:<version>, redis:<version> and
+# valkey/valkey:<version>. MySQL and Percona Server run with GTIDs on and share
+# mysql.bats. Redis and Valkey run redis.bats, with a cluster of three
+# primaries (c1-c3) next to `src`, and `dst` restarting on its own: its data
+# directory is shared with the tests, which restore by placing dump.rdb there
+# and shutting the server down without saving, so that it starts again on the
+# file. SQLite has no server: its "version" is the
 # image of the application that writes the databases, with the SQLite of its
 # distribution (python:3.13-alpine, python:3.13-slim-bookworm,
 # python:3.12-slim-bullseye).
@@ -32,7 +37,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 self="$PWD/tests/e2e/db/run.sh"
 
-DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8 sqlite:alpine sqlite:bookworm sqlite:bullseye"
+DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8 redis:7 redis:8 valkey:8 valkey:9 sqlite:alpine sqlite:bookworm sqlite:bullseye"
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
@@ -50,7 +55,9 @@ if [ "${1:-}" = "--one" ]; then
   # image and arguments after it for the server of ROLE, one per line.
   server_opts() { :; }
   server_args() { :; }
-  tests=$engine
+  # roles: the servers; tests: the bats file; tests_args: docker run options
+  # of the test container.
+  roles=(src dst dst2) tests=$engine tests_args=()
   # The entrypoint of the MySQL and Percona images puts the root password into
   # SQL unescaped and fails on DB_PASSWORD; the servers start with this one
   # and the tests set DB_PASSWORD (helpers/mysql.bash).
@@ -79,19 +86,47 @@ if [ "${1:-}" = "--one" ]; then
         printf '%s\n' -c 'openssl rand -base64 48 >/tmp/keyfile && chmod 400 /tmp/keyfile && chown mongodb /tmp/keyfile && exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile'
       }
       ;;
+    redis|valkey)
+      server_image="redis:${version}" server_bin=redis-server
+      [ "$engine" = redis ] || { server_image="valkey/valkey:${version}" server_bin=valkey-server; }
+      roles=(src dst c1 c2 c3) tests=redis server_env=()
+      tests_args=(-v "${name}-dst-data:/restore")
+      server_opts() {
+        [ "$1" != dst ] || printf '%s\n' --restart always -v "${name}-dst-data:/data"
+      }
+      server_args() {
+        printf '%s\n' "$server_bin" --requirepass "$DB_PASSWORD"
+        case "$1" in c?) printf '%s\n' --cluster-enabled yes ;; esac
+      }
+      ;;
     sqlite)
       case "$version" in
         alpine)   server_image="python:3.13-alpine" ;;
         bookworm) server_image="python:3.13-slim-bookworm" ;;
         bullseye) server_image="python:3.12-slim-bullseye" ;;
         *) echo "unknown SQLite application image in $spec" >"$log"; exit 1 ;;
-      esac ;;
+      esac
+      # The application: a writer per journal mode on a volume of its own,
+      # which the tests see read-only where a node sees a pod's volume, once
+      # as a local volume and once as the kubelet's mount of a CSI volume.
+      roles=(src) server_env=()
+      server_opts() {
+        printf '%s\n' -v "${name}-data:/data" -v "$PWD/tests/e2e/helpers/sqlite-writer.py:/writer.py:ro"
+      }
+      server_args() {
+        printf '%s\n' sh -c 'mkdir -p /data/wal /data/delete; python3 /writer.py /data/wal/app.db wal /data/wal/ready & python3 /writer.py /data/delete/app.db delete /data/delete/ready & wait'
+      }
+      tests_args=(-e "SQLITE_APP_IMAGE=$server_image"
+                  -v "${name}-data:/node/var/lib/rancher/k3s/storage/pvc-local_app_local-data:ro"
+                  -v "${name}-data:/node/var/lib/kubelet/pods/e2e-pod/volumes/kubernetes.io~csi/pvc-csi/mount:ro")
+      ;;
     *) echo "unknown engine in $spec" >"$log"; exit 1 ;;
   esac
 
   cleanup() {
-    docker rm -f "${name}-src" "${name}-dst" "${name}-dst2" "${name}-tests" >/dev/null 2>&1 || true
-    docker volume rm "${name}-data" >/dev/null 2>&1 || true
+    local role
+    for role in "${roles[@]}" tests; do docker rm -f "${name}-${role}" >/dev/null 2>&1 || true; done
+    docker volume rm "${name}-data" "${name}-dst-data" >/dev/null 2>&1 || true
     docker network rm "$name" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT
@@ -102,7 +137,7 @@ if [ "${1:-}" = "--one" ]; then
     checkout=(-v "$PWD/tests/e2e:/tests/e2e:ro")
     for script in docker/rootfs/usr/local/bin/backup-* docker/rootfs/usr/local/bin/restore-* \
                   docker/rootfs/usr/local/bin/mongodb-admin \
-                  docker/rootfs/usr/local/bin/sqlite-copy; do
+                  docker/rootfs/usr/local/bin/sqlite-copy docker/rootfs/usr/local/bin/redis-rdb-sync; do
       checkout+=(-v "$PWD/$script:/usr/local/bin/${script##*/}:ro")
     done
     checkout+=(-v "$PWD/docker/rootfs/usr/local/lib/mysql-engine.sh:/usr/local/lib/mysql-engine.sh:ro")
@@ -111,39 +146,24 @@ if [ "${1:-}" = "--one" ]; then
   {
     echo "▶ $spec ($server_image)"
     docker network create "$name" >/dev/null
-    volumes=()
-    if [ "$engine" = sqlite ]; then
-      # The application: a writer per journal mode on a volume of its own,
-      # which the tests see read-only where a node sees a pod's volume, once
-      # as a local volume and once as the kubelet's mount of a CSI volume.
-      docker volume create "${name}-data" >/dev/null
-      docker run -d -q --name "${name}-src" --network "$name" \
-        -v "${name}-data:/data" -v "$PWD/tests/e2e/helpers/sqlite-writer.py:/writer.py:ro" \
-        "$server_image" sh -c 'mkdir -p /data/wal /data/delete
-          python3 /writer.py /data/wal/app.db wal /data/wal/ready &
-          python3 /writer.py /data/delete/app.db delete /data/delete/ready &
-          wait' >/dev/null
-      volumes=(-e "SQLITE_APP_IMAGE=$server_image"
-               -v "${name}-data:/node/var/lib/rancher/k3s/storage/pvc-local_app_local-data:ro"
-               -v "${name}-data:/node/var/lib/kubelet/pods/e2e-pod/volumes/kubernetes.io~csi/pvc-csi/mount:ro")
-    else
-      for role in src dst dst2; do
-        opts=() args=()
-        while IFS= read -r line; do opts+=("$line"); done < <(server_opts "$role")
-        while IFS= read -r line; do args+=("$line"); done < <(server_args "$role")
-        docker run -d -q --name "${name}-${role}" --network "$name" --network-alias "$role" \
-          "${server_env[@]}" ${opts[@]+"${opts[@]}"} "$server_image" ${args[@]+"${args[@]}"} >/dev/null
-      done
-    fi
+    for role in "${roles[@]}"; do
+      opts=() args=()
+      while IFS= read -r line; do opts+=("$line"); done < <(server_opts "$role")
+      while IFS= read -r line; do args+=("$line"); done < <(server_args "$role")
+      docker run -d -q --name "${name}-${role}" --network "$name" --network-alias "$role" \
+        ${server_env[@]+"${server_env[@]}"} ${opts[@]+"${opts[@]}"} "$server_image" ${args[@]+"${args[@]}"} >/dev/null
+    done
     rc=0
     # ${a[@]+…}: an empty array is "unbound" to set -u in bash 3.2 (macOS).
+    # An image from before backup-redis has no valkey-cli: added here, as bats.
     docker run -q --name "${name}-tests" --network "$name" ${checkout[@]+"${checkout[@]}"} \
-      ${volumes[@]+"${volumes[@]}"} \
+      ${tests_args[@]+"${tests_args[@]}"} \
       -e "DB_ENGINE=$engine" -e "DB_VERSION=$version" -e "DB_PASSWORD=$DB_PASSWORD" -e "DB_TESTS=$tests" \
       -e "DB_BOOTSTRAP_PASSWORD=$bootstrap_password" \
       -e "BATS_TEST_NAME_PREFIX=$spec: " \
       --entrypoint sh "$E2E_IMAGE" -c \
       'command -v bats >/dev/null || apk add -q --no-cache bats >/dev/null
+       [ "$DB_TESTS" != redis ] || command -v valkey-cli >/dev/null || apk add -q --no-cache valkey-cli >/dev/null
        exec bats --print-output-on-failure "/tests/e2e/db/$DB_TESTS.bats"' || rc=$?
     exit "$rc"
   } >"$log" 2>&1
