@@ -196,6 +196,17 @@ dedicated servers) need a matching entry in `node.tolerations`. Not covered:
 an etcd outside the cluster's nodes (kubeadm's external etcd), and other
 datastores of k3s (kine with PostgreSQL or MySQL).
 
+> **RKE2, and k3s with embedded etcd, snapshot etcd themselves** (by default
+> every 12 hours, into `<data-dir>/server/db/snapshots`). Archiving that
+> directory through `node.include` is enough and needs no part of this
+> feature, for example
+> `R /node/var/lib/rancher/rke2/server/db/snapshots`. Archive the server
+> token with it (`<data-dir>/server/token`, or the `token` in the server's
+> config file): the restore refuses without it. Such a snapshot is as old as
+> the last scheduled one, and it stays on the node's disk. This feature is
+> for datastores without built-in snapshots, k3s with SQLite and kubeadm, or
+> for a snapshot taken at backup time.
+
 etcd is reached at the node's IP, on which k3s and kubeadm listen as well as
 on localhost, with the node's etcd client certificate, read through the
 read-only host root. Where etcd listens on localhost only,
