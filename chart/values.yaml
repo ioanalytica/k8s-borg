@@ -286,8 +286,9 @@ databases:
     ## Dumped and restored with MySQL's own client (8.4), not MariaDB's. Its options:
     ## TLS when the server offers it, its certificate unchecked (ssl-mode=PREFERRED);
     ## `tls: false` on a secretRef instance writes `ssl-mode=DISABLED` and
-    ## `get-server-public-key`, `ssl-mode=VERIFY_IDENTITY` with `ssl-ca` in a static
-    ## config checks the certificate.
+    ## `get-server-public-key`. Neither authenticates the server, so both are for a
+    ## trusted network; a static config checks it with `ssl-mode=VERIFY_IDENTITY`
+    ## and `ssl-ca` (or `server-public-key-path` without TLS). See chart/README.md.
     instances: []
     #  - name: mysql-example
     #    config: |

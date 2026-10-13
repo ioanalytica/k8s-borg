@@ -194,8 +194,13 @@ engine to use.
 - **TLS:** MySQL's client uses TLS when the server offers it, without checking
   the certificate (`ssl-mode=PREFERRED`). `tls: false` on a `secretRef`
   instance writes `ssl-mode=DISABLED` and `get-server-public-key` (a
-  `caching_sha2_password` user cannot log in without TLS otherwise); a static
-  `config` checks the certificate with `ssl-mode=VERIFY_IDENTITY` and `ssl-ca`.
+  `caching_sha2_password` user cannot log in without TLS otherwise). Neither
+  authenticates the server: someone who can intercept the connection can pose
+  as the server, and with `get-server-public-key` hand out the RSA key the
+  password is encrypted with, and read the password. Both are meant for a
+  network you trust, such as the cluster's own. Elsewhere use a static
+  `config` that checks the server: `ssl-mode=VERIFY_IDENTITY` with `ssl-ca`,
+  or, without TLS, `server-public-key-path` with the server's key.
 - **GTIDs:** the dumps carry none (`--set-gtid-purged=OFF`). A restore brings
   back the data into a server that keeps its own GTIDs; it does not make that
   server a replica of the source.
