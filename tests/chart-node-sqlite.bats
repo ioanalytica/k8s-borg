@@ -136,14 +136,16 @@ for line in sys.stdin:
   run rbac -f "$ON"
   [ "$status" -eq 0 ] || fail "$output"
   [ "$(q DaemonSet 'spec["serviceAccountName"]' -f "$ON")" = rel-k8s-borg-node ] || fail
+  # The first 10 hex digits of SHA-256, as sha256sum | trunc 10 in the chart.
+  sha10() { python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:10])' "$1"; }
   subject='[{"kind": "ServiceAccount", "name": "rel-k8s-borg-node", "namespace": "backup"}]'
   expected="ServiceAccount backup rel-k8s-borg-node []
 ClusterRole - rel-k8s-borg-node-sqlite-backup [{\"apiGroups\": [\"\"], \"resources\": [\"persistentvolumes\"], \"verbs\": [\"get\"]}]
 ClusterRoleBinding - rel-k8s-borg-node-sqlite-backup $subject
-Role git rel-k8s-borg-node-sqlite-$(printf backup/git | shasum -a 256 | cut -c1-10) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"gitea-data\", \"runner-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
-RoleBinding git rel-k8s-borg-node-sqlite-$(printf backup/git | shasum -a 256 | cut -c1-10) $subject
-Role vaultwarden rel-k8s-borg-node-sqlite-$(printf backup/vaultwarden | shasum -a 256 | cut -c1-10) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"vaultwarden-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
-RoleBinding vaultwarden rel-k8s-borg-node-sqlite-$(printf backup/vaultwarden | shasum -a 256 | cut -c1-10) $subject"
+Role git rel-k8s-borg-node-sqlite-$(sha10 backup/git) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"gitea-data\", \"runner-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
+RoleBinding git rel-k8s-borg-node-sqlite-$(sha10 backup/git) $subject
+Role vaultwarden rel-k8s-borg-node-sqlite-$(sha10 backup/vaultwarden) [{\"apiGroups\": [\"\"], \"resourceNames\": [\"vaultwarden-data\"], \"resources\": [\"persistentvolumeclaims\"], \"verbs\": [\"get\"]}]
+RoleBinding vaultwarden rel-k8s-borg-node-sqlite-$(sha10 backup/vaultwarden) $subject"
   expected=$(LC_ALL=C sort <<<"$expected")
   [ "$output" = "$expected" ] || fail "$(diff <(echo "$expected") <(echo "$output"))"
 }
