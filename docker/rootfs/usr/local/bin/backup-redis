@@ -167,9 +167,13 @@ else
   written+=("${instance_name}-cluster-nodes.txt")
 fi
 
+# Everything that can fail happens to the .tmp files; publishing them is
+# renames within the directory they were just written to.
+for file in "${written[@]}"; do
+  chmod 600 "${DB_BACKUP_DIR}/${file}.tmp"
+done
 for file in "${written[@]}"; do
   mv -f "${DB_BACKUP_DIR}/${file}.tmp" "${DB_BACKUP_DIR}/${file}"
-  chmod 600 "${DB_BACKUP_DIR}/${file}"
 done
 
 # Files this run did not write — a primary that no longer holds the same
