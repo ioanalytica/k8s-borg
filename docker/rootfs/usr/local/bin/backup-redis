@@ -116,8 +116,9 @@ query() {
 }
 
 # Every file is written as FILE.tmp first and renamed only once all of them
-# are complete: a failing run leaves the previous dump intact, also the RDB
-# files of the primaries that did answer.
+# are complete: a failing dump leaves the previous one intact, also the RDB
+# files of the primaries that did answer. The renames come one after another;
+# only a failing rename could leave a mixed set.
 written=()
 
 # dump_rdb HOST PORT FILE — stream the RDB snapshot of HOST:PORT into

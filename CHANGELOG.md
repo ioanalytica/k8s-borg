@@ -12,7 +12,9 @@
     replication protocol: `<instance>.rdb` of a standalone server, or one
     `<instance>-slots-<range>.rdb` per primary of a cluster with
     `<instance>-cluster-nodes.txt`. Mode 600, no extra compression, every
-    failure rc 2 with the previous dump left in place.
+    failure rc 2. A failed dump leaves the previous one in place: a
+    cluster's files are renamed into place one after another once all are
+    complete, so only a failing rename could leave a mixed set.
   * `redis-rdb-sync` does what `valkey-cli --rdb` does and tells a Valkey
     server its version, without which Valkey 9 cannot send a hash field with
     a TTL of its own. It makes every connection of a dump, `INFO` and

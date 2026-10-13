@@ -15,8 +15,8 @@ wait_for() {
   local seconds=$1 end=$((SECONDS + $1))
   shift
   until "$@" >/dev/null 2>&1; do
-    [ "$SECONDS" -lt "$end" ] || { fail "not ready after ${seconds}s: $*"; return; }
     sleep 1
+    [ "$SECONDS" -lt "$end" ] || { fail "not ready after ${seconds}s: $*"; return; }
   done
 }
 
