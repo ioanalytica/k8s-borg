@@ -10,7 +10,8 @@
 # for an instance with `tls: false`. Every value reaches the script as one
 # single-quoted word: nothing in it runs or expands. A Secret value keeps its
 # trailing line breaks, written as \n where the file can carry them and
-# refused where it cannot.
+# refused where it cannot. Releases of the same name in two namespaces get
+# Roles and RoleBindings of their own in a namespace both read Secrets from.
 
 setup() {
   load helpers/common
@@ -326,4 +327,19 @@ user=u-$value" ] || fail "$(cat "$TMP/out/redis/redis-default.conf")"
   run helm template rel "$CHART" -n backup -f "$VALUES" --set 'databases.postgres.instances[0].secretRef.usernameKey=null'
   [ "$status" -ne 0 ] && [[ $output == *"databases.postgres.instances[0] must define exactly one of user or secretRef.usernameKey"* ]] \
     || fail "$output"
+}
+
+@test "releases of the same name in two namespaces get Roles and RoleBindings of their own in a namespace both list" {
+  # names NAMESPACE — "Kind name roleRef" of the RBAC objects rendered into db.
+  names() {
+    helm template rel "$CHART" -n "$1" -f "$VALUES" \
+      | yq -N 'select((.kind == "Role" or .kind == "RoleBinding") and .metadata.namespace == "db")
+               | .kind + " " + .metadata.name + " " + (.roleRef.name // "-")'
+  }
+  a=$(names backup) b=$(names other)
+  [ "$(printf '%s\n' "$a" | wc -l)" -eq 2 ] && [ "$(printf '%s\n' "$b" | wc -l)" -eq 2 ] || fail "backup: $a; other: $b"
+  [ -z "$(comm -12 <(printf '%s\n' "$a" | awk '{print $2}' | sort) <(printf '%s\n' "$b" | awk '{print $2}' | sort))" ] \
+    || fail "shared names: backup: $a; other: $b"
+  # Each binding still points at its own release's Role.
+  printf '%s\n' "$a" | awk '$1 == "RoleBinding" && $2 != $3 {exit 1}' || fail "$a"
 }

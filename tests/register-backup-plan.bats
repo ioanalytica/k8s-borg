@@ -8,9 +8,13 @@
 # result. Without names the plan carries no hooks, and Borg UI keeps the ones it
 # has. With BORG_PLAN_OWNED_AGENT_SCRIPTS (the node plan's datastore snapshot)
 # only the owned hooks are replaced or removed; the plan keeps the others.
+# A node plan carries --one-file-system in its custom flags, a cluster plan
+# does not. A node with no existing root left disables its plan instead of
+# leaving it unchanged; a cluster plan is left unchanged.
 #
 # curl is a stub that answers the endpoints the script talks to and keeps the
-# plan payload in $TMP/payload. An existing plan (id 1) is $TMP/plan.
+# plan payload in $TMP/payload. An existing plan (id 1) is $TMP/plan, disabled
+# when $TMP/plan-disabled exists; a toggle of it is counted in $TMP/toggled.
 
 bats_require_minimum_version 1.5.0
 
@@ -43,9 +47,11 @@ case "\$method \$url" in
   "GET http://ui/api/auth/me")       printf 200 ;;
   "GET http://ui/api/repositories/") printf '{"repositories": [{"id": 4, "name": "console", "path": "%s", "agent_machine_id": 7}]}' "\$BORG_REPO" ;;
   "GET http://ui/api/backup-plans/")
-    if [ -f "$TMP/plan" ]; then printf '{"backup_plans": [{"id": 1, "name": "backup-console"}]}'
+    if [ -f "$TMP/plan-disabled" ]; then printf '{"backup_plans": [{"id": 1, "name": "backup-console", "enabled": false}]}'
+    elif [ -f "$TMP/plan" ]; then printf '{"backup_plans": [{"id": 1, "name": "backup-console", "enabled": true}]}'
     else printf '{"backup_plans": []}'; fi ;;
   "GET http://ui/api/backup-plans/1") cat "$TMP/plan" ;;
+  "POST http://ui/api/backup-plans/1/toggle") echo toggle >>"$TMP/toggled"; printf '{"id": 1, "enabled": false}' ;;
   "POST http://ui/api/backup-plans/") printf '%s' "\$data" >"$TMP/payload"; printf '{"id": 1}' >"\$out"; printf 201 ;;
   "PUT http://ui/api/backup-plans/1") printf '%s' "\$data" >"$TMP/payload"; printf '{"id": 1}' >"\$out"; printf 200 ;;
   *) echo "unexpected \$method \$url" >&2; exit 22 ;;
@@ -182,3 +188,119 @@ sys.exit(lib["parameter_values"] != {"KEY": "v"} or "id" in lib)' "$TMP/payload"
   [ "$(hooks_with_library)" = "1 datastore-snapshot pre-backup False" ] || fail "$(hooks_with_library)"
 }
 
+
+# --- node plans: --one-file-system (#64) ---------------------------------------
+
+# custom_flags — the plan's custom_flags, empty when it has none.
+custom_flags() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("custom_flags") or "")' "$TMP/payload"
+}
+
+node_patterns() {
+  {
+    for line in "$@"; do echo "$line"; done
+  } >"$TMP/patterns/node-include.patterns"
+  : >"$TMP/patterns/node-exclude.patterns"
+}
+
+@test "a node plan stays on the node's own file systems" {
+  node_patterns "R $TMP"
+  BORG_MODE=node run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(custom_flags)" = "--one-file-system" ] || fail "$(custom_flags)"
+}
+
+@test "a node plan keeps the operator's flags first and adds --one-file-system once" {
+  node_patterns "R $TMP"
+  BORG_MODE=node BORG_PLAN_CUSTOM_FLAGS="--exclude-caches" run "$BIN/register-backup-plan"
+  [ "$(custom_flags)" = "--exclude-caches --one-file-system" ] || fail "$(custom_flags)"
+  BORG_MODE=node BORG_PLAN_CUSTOM_FLAGS="--one-file-system --exclude-caches" run "$BIN/register-backup-plan"
+  [ "$(custom_flags)" = "--one-file-system --exclude-caches" ] || fail "$(custom_flags)"
+  BORG_MODE=node BORG_PLAN_CUSTOM_FLAGS="-x" run "$BIN/register-backup-plan"
+  [ "$(custom_flags)" = "-x" ] || fail "$(custom_flags)"
+}
+
+@test "a cluster plan follows mounts" {
+  run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ -z "$(custom_flags)" ] || fail "$(custom_flags)"
+}
+
+# --- no source left (#58) ------------------------------------------------------
+
+@test "a node with no existing root disables its plan, without a PUT" {
+  existing_plan
+  node_patterns "R $TMP/gone" "# only a comment"
+  BORG_MODE=node run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"Backup plan 'backup-console' disabled: no existing 'R <root>' source paths on this node"* ]] \
+    || fail "$output"
+  [ "$(cat "$TMP/toggled")" = "toggle" ] || fail "toggled: $(cat "$TMP/toggled" 2>/dev/null)"
+  [ ! -e "$TMP/payload" ] || fail "plan sent: $(cat "$TMP/payload")"
+}
+
+@test "a node with no existing root disables its plan also when missing roots are kept" {
+  existing_plan
+  node_patterns "R $TMP/gone"
+  BORG_MODE=node BORG_PLAN_SKIP_MISSING_SOURCES=0 run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"Backup plan 'backup-console' disabled"* ]] || fail "$output"
+  [ "$(cat "$TMP/toggled")" = "toggle" ] || fail "toggled: $(cat "$TMP/toggled" 2>/dev/null)"
+  [ ! -e "$TMP/payload" ] || fail "plan sent: $(cat "$TMP/payload")"
+  # One existing root is enough; the missing one stays in the plan.
+  rm -f "$TMP/toggled"
+  node_patterns "R $TMP/gone" "R $TMP"
+  BORG_MODE=node BORG_PLAN_SKIP_MISSING_SOURCES=0 run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["source_directories"] != sys.argv[2:])' \
+    "$TMP/payload" "$TMP/gone" "$TMP" || fail "$(cat "$TMP/payload")"
+  [ ! -e "$TMP/toggled" ] || fail "toggled"
+}
+
+@test "a node plan already disabled is not toggled again" {
+  existing_plan
+  touch "$TMP/plan-disabled"
+  node_patterns
+  BORG_MODE=node run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"Backup plan 'backup-console' stays disabled"* ]] || fail "$output"
+  [ ! -e "$TMP/toggled" ] || fail "toggled"
+}
+
+@test "a node with no existing root and no plan creates none" {
+  node_patterns "R $TMP/gone"
+  BORG_MODE=node run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"Backup plan 'backup-console' not created"* ]] || fail "$output"
+  [ ! -e "$TMP/payload" ] && [ ! -e "$TMP/toggled" ] || fail "plan touched"
+}
+
+@test "a disabled node plan is enabled again once a root exists" {
+  existing_plan
+  touch "$TMP/plan-disabled"
+  node_patterns "R $TMP"
+  BORG_MODE=node run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["enabled"] is not True)' "$TMP/payload" \
+    || fail "$(cat "$TMP/payload")"
+}
+
+@test "a cluster plan with no existing root is left unchanged" {
+  existing_plan
+  echo "R $TMP/gone" >"$TMP/patterns/cluster-include.patterns"
+  run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"leaving backup plan unchanged"* ]] || fail "$output"
+  [ ! -e "$TMP/payload" ] && [ ! -e "$TMP/toggled" ] || fail "plan touched"
+}
+
+@test "a node plan names the node's partitions below a root that --one-file-system skips" {
+  node_patterns "R $TMP"
+  printf '1 0 8:0 / / rw - ext4 /dev/sda1 rw\n2 1 8:1 / %s rw - ext4 /dev/sdb1 rw\n3 1 0:9 / %s rw - tmpfs tmpfs rw\n' \
+    "$TMP/patterns" "$TMP/schedules" >"$TMP/mountinfo"
+  BORG_MODE=node NODE_MOUNTINFO="$TMP/mountinfo" run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"WARNING: file systems of the node below a root are skipped by --one-file-system"* ]] || fail "$output"
+  [[ "$output" == *"$TMP/patterns (ext4 /dev/sdb1)"* ]] || fail "$output"
+  [[ "$output" != *"$TMP/schedules"* ]] || fail "$output"
+}

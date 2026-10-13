@@ -15,7 +15,9 @@ alike.
 ## Features
 
 - **Node backups**: a DaemonSet backs up every node's local file systems, one
-  repository per node. Before the file backup, optionally:
+  repository per node, staying on the node's own file systems: mounts below a
+  root (kubelet and CSI volumes, NFS, other partitions) are skipped and named
+  in the pod's log. Before the file backup, optionally:
   - a snapshot of the cluster datastore on control-plane nodes — the etcd of
     k3s or kubeadm, or k3s's SQLite — with the k3s server token or kubeadm's
     PKI, held in memory only and removed after the run;

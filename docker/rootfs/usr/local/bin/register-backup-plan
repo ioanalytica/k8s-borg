@@ -19,6 +19,10 @@
 # Declarative (GitOps): the plan is fully managed from config, so an existing
 # plan of the same name is reconciled to match (PUT, full replace) rather than
 # left drifted; a missing one is created. Manual UI edits are NOT preserved.
+# A node with no existing "R <root>" left has nothing to back up: in node mode
+# its plan is disabled (not deleted, which would drop its run history from
+# Borg UI); the next reconcile with sources enables it again. In cluster mode
+# the plan is left unchanged.
 #
 #   BORG_UI_SERVER            e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
 #   BORG_REPO                 repository path/URL (to locate the repo record)
@@ -27,6 +31,7 @@
 #                               (borg-native {now:FMT} passes through for borg1;
 #                                borg-ui placeholders {date}/{time}/{timestamp} also work)
 #   BORG_PLAN_SKIP_MISSING_SOURCES  optional; default 1 = drop non-existent roots
+#   NODE_MOUNTINFO / NODE_FS_TYPES  optional; see node-skipped-mounts (node mode)
 #   KEEP_DAILY/WEEKLY/MONTHLY prune retention (default 7/4/6)
 #   BORG_PLAN_RUN_PRUNE       optional; run prune after backup (default true)
 #   BORG_PLAN_RUN_COMPACT     optional; run compact after backup (default true)
@@ -37,7 +42,8 @@
 #   BORG_PLAN_CUSTOM_FLAGS    optional; extra `borg create` flags stored as the
 #                             plan's custom_flags (e.g. "--filter AME --list
 #                             --exclude-caches"). The files-cache flag below is
-#                             appended automatically.
+#                             appended automatically, and in node mode
+#                             --one-file-system.
 #   BORG_PLAN_PRE_AGENT_SCRIPTS   optional; space-separated agent-script NAMES to
 #                             attach as pre-backup hooks (agent repos only). The
 #                             agent resolves each name against its own allow-list
@@ -130,15 +136,18 @@ fi
 # --- declarative: find OUR plan (by name) to reconcile, else create ----------
 # GitOps-style — the plan is fully managed from config, so an existing one is
 # updated (PUT, full replace) to match, not left drifted.
-plan_id=$(borgui_api "$jwt" GET /api/backup-plans/ \
+# "<id>\t<enabled>", empty when there is no plan of that name.
+plan_row=$(borgui_api "$jwt" GET /api/backup-plans/ \
           | PLAN_NAME="$plan_name" python3 -c '
 import sys, json, os
 data = json.load(sys.stdin)
 plans = data.get("backup_plans", data if isinstance(data, list) else [])
 name = os.environ["PLAN_NAME"]
 m = [p for p in plans if p.get("name") == name]
-print(m[0]["id"] if m else "")') \
+print("%s\t%s" % (m[0]["id"], "true" if m[0].get("enabled", True) else "false") if m else "")') \
   || borgui_die "could not list backup plans"
+plan_id="${plan_row%%$'\t'*}"
+plan_enabled="${plan_row##*$'\t'}"
 
 # Owned hooks are reconciled against the plan's current ones, which only the
 # plan's own endpoint returns.
@@ -156,8 +165,17 @@ fi
 plan_custom_flags="${BORG_PLAN_CUSTOM_FLAGS:-}"
 fc_mode="$(borg-files-cache-flag)"
 [ -n "$fc_mode" ] && plan_custom_flags="${plan_custom_flags:+${plan_custom_flags} }--files-cache=$fc_mode"
+# The node backup keeps to the node's own file systems: no kubelet, CSI or NFS
+# mounts below a root. Each root is still archived whatever file system it is
+# on (e.g. the SQLite copies' and the datastore snapshot's emptyDirs).
+if [ "$BORG_MODE" = "node" ]; then
+  case " ${plan_custom_flags} " in
+    *" --one-file-system "*|*" -x "*) ;;
+    *) plan_custom_flags="${plan_custom_flags:+${plan_custom_flags} }--one-file-system" ;;
+  esac
+fi
 
-if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" \
+if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" MODE="$BORG_MODE" \
              ARCHIVE_TEMPLATE="$BORG_ARCHIVE_NAME_TEMPLATE" SKIP_MISSING="$BORG_PLAN_SKIP_MISSING_SOURCES" \
              REPO_ID="$repo_id" AGENT_MID="$agent_mid" CRON="$cron" \
              COMPRESSION="${BORG_COMPRESSION:-auto,lz4}" \
@@ -206,7 +224,9 @@ if os.environ.get("SKIP_MISSING", "1") == "1":
     if missing:
         sys.stderr.write("dropping source roots that do not exist on this node: %r\n" % missing)
     sources = [p for p in sources if os.path.isdir(p)]
-if not sources:
+# A node plan needs one existing root, also when missing ones are kept
+# (BORG_PLAN_SKIP_MISSING_SOURCES=0).
+if not sources or (os.environ.get("MODE") == "node" and not any(os.path.isdir(p) for p in sources)):
     sys.stderr.write("no existing \"R <root>\" source paths (%s)\n" % os.environ["INC_FILE"])
     sys.exit(3)
 
@@ -288,7 +308,28 @@ print(json.dumps(plan))'); then
 else
   rc=$?
   if [ "$rc" = "3" ]; then
-    echo "No 'R <root>' source paths configured for ${BORG_MODE} mode (${inc}) — leaving backup plan unchanged."
+    if [ "$BORG_MODE" != "node" ]; then
+      echo "No 'R <root>' source paths configured for ${BORG_MODE} mode (${inc}) — leaving backup plan unchanged."
+      exit 0
+    fi
+    # Nothing to back up on this node. Disable the plan rather than delete
+    # it: deleting would drop its run history from Borg UI. Borg UI refuses a
+    # plan without sources, so it is toggled, not sent: it keeps its old
+    # sources and hooks, but neither its schedule nor a manual run starts a
+    # disabled plan. The next reconcile with sources enables it again (PUT).
+    why="no existing 'R <root>' source paths on this node (${inc})"
+    if [ -z "$plan_id" ]; then
+      echo "Backup plan '${plan_name}' not created: ${why}."
+    elif [ "$plan_enabled" = "false" ]; then
+      echo "Backup plan '${plan_name}' stays disabled: ${why}."
+    else
+      # The endpoint flips the state; the answer says which one it set.
+      toggled=$(borgui_api "$jwt" POST "/api/backup-plans/${plan_id}/toggle") \
+        || borgui_die "could not disable backup plan '${plan_name}' (id ${plan_id})"
+      printf '%s' "$toggled" | python3 -c 'import json,sys; sys.exit(json.load(sys.stdin).get("enabled") is not False)' \
+        || borgui_die "backup plan '${plan_name}' (id ${plan_id}) is still enabled after the toggle"
+      echo "Backup plan '${plan_name}' disabled: ${why}."
+    fi
     exit 0
   fi
   borgui_die "could not build backup-plan payload"
@@ -317,4 +358,15 @@ if [ -n "$cron" ]; then
   echo "Backup plan '${plan_name}' ${verb} for repo id ${repo_id} (schedule '${cron}')."
 else
   echo "Backup plan '${plan_name}' ${verb} for repo id ${repo_id} (no schedule — run manually)."
+fi
+
+# Borg skips a partition of the node itself below a root without a word (it
+# stores an empty directory): name them at pod start, so that one that should
+# be archived can be given as its own root. Information only.
+if [ "$BORG_MODE" = "node" ]; then
+  skipped="$(node-skipped-mounts "$inc")"
+  if [ -n "$skipped" ]; then
+    echo "WARNING: file systems of the node below a root are skipped by --one-file-system; give each one to archive its own 'R' root in node.include:"
+    printf '%s\n' "$skipped"
+  fi
 fi

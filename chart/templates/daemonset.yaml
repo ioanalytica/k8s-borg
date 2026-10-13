@@ -171,9 +171,11 @@ spec:
               value: {{ include "k8s-borg.sqliteCopyDir" . | quote }}
             - name: SQLITE_BUSY_TIMEOUT
               value: {{ $sqlite.busyTimeout | quote }}
+            {{- end }}
+            {{- /* sqlite-copy finds CSI volumes there; node-skipped-mounts
+                   leaves the kubelet's volumes out of its warning. */}}
             - name: KUBELET_DIR
               value: {{ $sqlite.kubeletDir | quote }}
-            {{- end }}
           volumeMounts:
             {{- include "k8s-borg.volumeMounts.common" . | nindent 12 }}
             - name: rootfs

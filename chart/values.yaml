@@ -484,10 +484,13 @@ node:
     sizeLimit: ""
     ## @param node.sqlite.busyTimeout Seconds a copy waits for the application's write lock before it fails
     busyTimeout: 60
-    ## @param node.sqlite.kubeletDir The kubelet's root directory on the node (kubelet --root-dir)
+    ## @param node.sqlite.kubeletDir The kubelet's root directory on the node (kubelet --root-dir); also what the node backup's skipped-mount warning leaves out
     kubeletDir: /var/lib/kubelet
   ## Borg patterns for node backups (ConfigMap -> /root/.borg, node-*.patterns).
   ## Only the elementary "P fm" line is a default; add your own roots/excludes.
+  ## Node backups run with --one-file-system: mounts below a root (kubelet,
+  ## CSI, NFS, btrfs subvolumes) are skipped; give such a file system its own
+  ## "R" root to archive it.
   ## @param node.include Borg include patterns for node backups (prepend the /node mount)
   include:
     - "P fm"

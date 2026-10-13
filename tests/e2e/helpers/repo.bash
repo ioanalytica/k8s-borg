@@ -41,6 +41,13 @@ e2e_teardown() {
     borg umount /mnt/borg 2>/dev/null || umount /mnt/borg 2>/dev/null || true
   fi
   end_mounts
+  # File systems a test mounted below $TMP, innermost first.
+  if [ -n "${TMP:-}" ]; then
+    local mnt
+    for mnt in $(awk -v t="$TMP/" 'index($2, t) == 1 { print $2 }' /proc/mounts | sort -r); do
+      umount "$mnt" 2>/dev/null || true
+    done
+  fi
   [ -n "${TMP:-}" ] && rm -rf "$TMP"
   return 0
 }
@@ -135,6 +142,18 @@ mounted_path() {
   else
     printf '/mnt/borg%s' "$1"
   fi
+}
+
+# archived_paths — the paths in the oldest archive, one per line.
+archived_paths() {
+  borg list "$(archive_ref "$(first_archive)")" --format '{path}{NL}'
+}
+
+# mount_tmpfs DIR — a file system of its own at DIR (the container has
+# CAP_SYS_ADMIN for FUSE). e2e_teardown unmounts it.
+mount_tmpfs() {
+  mkdir -p "$1"
+  mount -t tmpfs -o size=1m "e2e-tmpfs" "$1"
 }
 
 fail() { printf '%s\n' "$*" >&2; return 1; }

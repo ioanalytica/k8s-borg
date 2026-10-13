@@ -129,6 +129,36 @@ teardown() { e2e_teardown; }
   [ "$(archive_count)" -eq 1 ]
 }
 
+@test "borg-backup in node mode stays on a root's file system, and archives every root" {
+  # A mount below a root (kubelet, CSI, NFS on a node) is skipped; a root on a
+  # file system of its own (the SQLite copies' emptyDir) is still archived.
+  mount_tmpfs "$SRC/mnt"
+  echo "foreign" >"$SRC/mnt/foreign.txt"
+  mount_tmpfs "$TMP/own"
+  echo "own root" >"$TMP/own/root.txt"
+  BORG_MODE=node write_patterns "R $SRC" "R $TMP/own"
+  # The container has no partition to spare: a tmpfs stands in for one.
+  BORG_MODE=node NODE_FS_TYPES=tmpfs run borg-backup
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  # The skipped mount is named, the root on its own file system is not.
+  [[ "$output" == *"skipped by --one-file-system"* ]] || fail "$output"
+  [[ "$output" == *"$SRC/mnt (tmpfs e2e-tmpfs)"* ]] || fail "$output"
+  [[ "$output" != *"$TMP/own ("* ]] || fail "$output"
+  run archived_paths
+  [[ "$output" == *"${SRC#/}/hello.txt"* ]] || fail "$output"
+  [[ "$output" == *"${TMP#/}/own/root.txt"* ]] || fail "$output"
+  [[ "$output" != *"foreign.txt"* ]] || fail "$output"
+}
+
+@test "borg-backup in cluster mode follows mounts below a root" {
+  mount_tmpfs "$SRC/mnt"
+  echo "mounted on purpose" >"$SRC/mnt/share.txt"
+  run borg-backup
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  run archived_paths
+  [[ "$output" == *"${SRC#/}/mnt/share.txt"* ]] || fail "$output"
+}
+
 @test "borg-backup passes extra arguments through to borg create" {
   run borg-backup --comment "e2e marker"
   [ "$status" -eq 0 ]

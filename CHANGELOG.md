@@ -176,9 +176,40 @@
   load in WAL and rollback-journal mode, with the SQLite of Alpine, Debian 12
   and Debian 11 (`tests/e2e/db/sqlite.bats`). Usage and restore: chart
   README, "SQLite databases".
+* **Node backups stay on the node's own file systems** (#64). Interval-mode
+  node backups (`borg-backup`) and the node plans `register-backup-plan`
+  writes run `borg create` with `--one-file-system` (appended to the plan's
+  custom flags, once). Mounts below a `node.include` root (kubelet, CSI and
+  Longhorn volumes, NFS shares, btrfs subvolumes) are skipped; every root is
+  still archived, the SQLite copies and the datastore snapshot included.
+  Cluster backups are unchanged. A partition of the node below a root is
+  stored as an empty directory, without a word from Borg: the new
+  `node-skipped-mounts` names each one from the pod's mount table, as a
+  warning before every interval run and at the start of every agent-mode
+  node pod. Tested end to end with a tmpfs below a root and one as a root
+  of its own (`tests/e2e/lifecycle.bats`).
+* **A node plan without sources is disabled** (#58). When no root of
+  `node.include` exists on a node, `register-backup-plan` disables the
+  node's plan in Borg UI and logs why, instead of leaving it with its old
+  sources and hooks. It is not deleted, which would drop its run history;
+  the next pod start with a root enables it again. Cluster plans are left
+  unchanged as before.
+* **Credentials resolver Roles per release namespace** (#66). The Role and
+  RoleBinding `db-credentials-rbac.yaml` renders in a `secretRef` namespace
+  hash the release's namespace with the target namespace, as the
+  `node.sqlite` Roles do: releases of the same name in two namespaces no
+  longer collide.
 
 ### Upgrade notes
 
+* Node archives may shrink: a `node.include` root that contained mounts of
+  other file systems no longer archives them, a partition of the node
+  itself included (e.g. `/var/lib` of its own under `R /node/var`). Give
+  every partition to keep its own `R` root; the node pod's log names the
+  ones skipped.
+* The credentials resolver's Roles and RoleBindings
+  (`<fullname>-db-<hash>`) are renamed once: Helm deletes the old ones and
+  creates the new ones in the same upgrade.
 * `databases.<engine>.enabled: true` without instances and without an
   `existingSecret` now fails every render, with a message naming the engine.
   Before, it failed only where the cluster workloads were rendered (not with
