@@ -89,21 +89,33 @@ fi
 # backups capture the node filesystem, not logical DB dumps.
 if [[ "${BORG_MODE}" = "node" ]]; then
   echo "Running borg-backup for node ${NODE_NAME} …"
-  # The datastore snapshot (node.datastoreSnapshot) exists only for this run:
-  # removed after the backup, and by the trap on any other way out. A failed
-  # snapshot does not stop the file backup, but fails the run, as does a
-  # snapshot that cannot be removed.
-  if [[ "${DATASTORE_SNAPSHOT:-false}" = "true" ]]; then
-    trap 'datastore-snapshot clean' EXIT
-    snapshot_rc=0
-    datastore-snapshot save || snapshot_rc=$?
+  # The SQLite copies (node.sqlite) and the datastore snapshot
+  # (node.datastoreSnapshot) exist only for this run: removed after the
+  # backup, and by the trap on any other way out. A failed step does not stop
+  # the file backup, but fails the run, as does one that cannot be removed.
+  steps=()
+  [[ "${SQLITE_COPY:-false}" = "true" ]] && steps+=(sqlite-copy)
+  [[ "${DATASTORE_SNAPSHOT:-false}" = "true" ]] && steps+=(datastore-snapshot)
+  if (( ${#steps[@]} > 0 )); then
+    clean_steps() {
+      local step rc=0
+      for step in "${steps[@]}"; do "${step}" clean || rc=$?; done
+      return "${rc}"
+    }
+    trap clean_steps EXIT
+    step_rc=0
+    for step in "${steps[@]}"; do
+      rc=0
+      "${step}" save || rc=$?
+      (( step_rc == 0 )) && step_rc=${rc}
+    done
     backup_rc=0
     borg-backup || backup_rc=$?
     clean_rc=0
-    datastore-snapshot clean || clean_rc=$?
+    clean_steps || clean_rc=$?
     trap - EXIT
     (( backup_rc != 0 )) && exit "${backup_rc}"
-    (( snapshot_rc != 0 )) && exit "${snapshot_rc}"
+    (( step_rc != 0 )) && exit "${step_rc}"
     exit "${clean_rc}"
   fi
 else

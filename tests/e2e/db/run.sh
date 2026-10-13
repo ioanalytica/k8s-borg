@@ -6,6 +6,7 @@
 #
 #   ./tests/e2e/db/run.sh                         # every server version
 #   ./tests/e2e/db/run.sh postgres:17 mariadb:11.8 mongodb:8
+#   ./tests/e2e/db/run.sh sqlite:bookworm
 #
 # Environment:
 #   E2E_IMAGE      the image the tests run in (default k8s-borg:e2e, the test
@@ -22,13 +23,16 @@
 # The server images come from Docker Hub: postgres:<version>-alpine,
 # mariadb:<version>, mysql:<version>, percona/percona-server:<version> (for
 # percona:<version>) and mongo:<version>. MySQL and Percona Server run with
-# GTIDs on and share mysql.bats.
+# GTIDs on and share mysql.bats. SQLite has no server: its "version" is the
+# image of the application that writes the databases, with the SQLite of its
+# distribution (python:3.13-alpine, python:3.13-slim-bookworm,
+# python:3.12-slim-bullseye).
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 self="$PWD/tests/e2e/db/run.sh"
 
-DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8"
+DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8 sqlite:alpine sqlite:bookworm sqlite:bullseye"
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
@@ -75,11 +79,19 @@ if [ "${1:-}" = "--one" ]; then
         printf '%s\n' -c 'openssl rand -base64 48 >/tmp/keyfile && chmod 400 /tmp/keyfile && chown mongodb /tmp/keyfile && exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile'
       }
       ;;
+    sqlite)
+      case "$version" in
+        alpine)   server_image="python:3.13-alpine" ;;
+        bookworm) server_image="python:3.13-slim-bookworm" ;;
+        bullseye) server_image="python:3.12-slim-bullseye" ;;
+        *) echo "unknown SQLite application image in $spec" >"$log"; exit 1 ;;
+      esac ;;
     *) echo "unknown engine in $spec" >"$log"; exit 1 ;;
   esac
 
   cleanup() {
     docker rm -f "${name}-src" "${name}-dst" "${name}-dst2" "${name}-tests" >/dev/null 2>&1 || true
+    docker volume rm "${name}-data" >/dev/null 2>&1 || true
     docker network rm "$name" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT
@@ -89,7 +101,8 @@ if [ "${1:-}" = "--one" ]; then
   if [ "${E2E_DB_SCRIPTS_FROM_CHECKOUT:-}" = "1" ]; then
     checkout=(-v "$PWD/tests/e2e:/tests/e2e:ro")
     for script in docker/rootfs/usr/local/bin/backup-* docker/rootfs/usr/local/bin/restore-* \
-                  docker/rootfs/usr/local/bin/mongodb-admin; do
+                  docker/rootfs/usr/local/bin/mongodb-admin \
+                  docker/rootfs/usr/local/bin/sqlite-copy; do
       checkout+=(-v "$PWD/$script:/usr/local/bin/${script##*/}:ro")
     done
     checkout+=(-v "$PWD/docker/rootfs/usr/local/lib/mysql-engine.sh:/usr/local/lib/mysql-engine.sh:ro")
@@ -98,16 +111,34 @@ if [ "${1:-}" = "--one" ]; then
   {
     echo "▶ $spec ($server_image)"
     docker network create "$name" >/dev/null
-    for role in src dst dst2; do
-      opts=() args=()
-      while IFS= read -r line; do opts+=("$line"); done < <(server_opts "$role")
-      while IFS= read -r line; do args+=("$line"); done < <(server_args "$role")
-      docker run -d -q --name "${name}-${role}" --network "$name" --network-alias "$role" \
-        "${server_env[@]}" ${opts[@]+"${opts[@]}"} "$server_image" ${args[@]+"${args[@]}"} >/dev/null
-    done
+    volumes=()
+    if [ "$engine" = sqlite ]; then
+      # The application: a writer per journal mode on a volume of its own,
+      # which the tests see read-only where a node sees a pod's volume, once
+      # as a local volume and once as the kubelet's mount of a CSI volume.
+      docker volume create "${name}-data" >/dev/null
+      docker run -d -q --name "${name}-src" --network "$name" \
+        -v "${name}-data:/data" -v "$PWD/tests/e2e/helpers/sqlite-writer.py:/writer.py:ro" \
+        "$server_image" sh -c 'mkdir -p /data/wal /data/delete
+          python3 /writer.py /data/wal/app.db wal /data/wal/ready &
+          python3 /writer.py /data/delete/app.db delete /data/delete/ready &
+          wait' >/dev/null
+      volumes=(-e "SQLITE_APP_IMAGE=$server_image"
+               -v "${name}-data:/node/var/lib/rancher/k3s/storage/pvc-local_app_local-data:ro"
+               -v "${name}-data:/node/var/lib/kubelet/pods/e2e-pod/volumes/kubernetes.io~csi/pvc-csi/mount:ro")
+    else
+      for role in src dst dst2; do
+        opts=() args=()
+        while IFS= read -r line; do opts+=("$line"); done < <(server_opts "$role")
+        while IFS= read -r line; do args+=("$line"); done < <(server_args "$role")
+        docker run -d -q --name "${name}-${role}" --network "$name" --network-alias "$role" \
+          "${server_env[@]}" ${opts[@]+"${opts[@]}"} "$server_image" ${args[@]+"${args[@]}"} >/dev/null
+      done
+    fi
     rc=0
     # ${a[@]+…}: an empty array is "unbound" to set -u in bash 3.2 (macOS).
     docker run -q --name "${name}-tests" --network "$name" ${checkout[@]+"${checkout[@]}"} \
+      ${volumes[@]+"${volumes[@]}"} \
       -e "DB_ENGINE=$engine" -e "DB_VERSION=$version" -e "DB_PASSWORD=$DB_PASSWORD" -e "DB_TESTS=$tests" \
       -e "DB_BOOTSTRAP_PASSWORD=$bootstrap_password" \
       -e "BATS_TEST_NAME_PREFIX=$spec: " \

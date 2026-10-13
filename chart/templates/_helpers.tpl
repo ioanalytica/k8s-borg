@@ -185,14 +185,19 @@ exec /usr/local/bin/backup-cluster-{{ .engine }} "$@"
 
 {{/*
 Effective node agent scripts: with node.datastoreSnapshot.enabled the snapshot
-and its removal, deep-merged with user-provided node.agentScripts (user keys win
-on collision). Returns a YAML map (consume with `| fromYaml`).
+and its removal, with node.sqlite.enabled the SQLite copies and theirs,
+deep-merged with user-provided node.agentScripts (user keys win on collision).
+Returns a YAML map (consume with `| fromYaml`).
 */}}
 {{- define "k8s-borg.node.agentScripts" -}}
 {{- $scripts := .Values.node.agentScripts | default dict | deepCopy -}}
 {{- if .Values.node.datastoreSnapshot.enabled -}}
 {{- $scripts = merge $scripts (dict "datastore-snapshot" "#!/bin/sh\n# borg-ui: Snapshot the cluster datastore (etcd, k3s) for the backup\nexec /usr/local/bin/datastore-snapshot save") -}}
 {{- $scripts = merge $scripts (dict "datastore-snapshot-clean" "#!/bin/sh\n# borg-ui: Remove the cluster datastore snapshot after the backup\nexec /usr/local/bin/datastore-snapshot clean") -}}
+{{- end -}}
+{{- if .Values.node.sqlite.enabled -}}
+{{- $scripts = merge $scripts (dict "sqlite-copy" "#!/bin/sh\n# borg-ui: Copy the listed SQLite databases for the backup\nexec /usr/local/bin/sqlite-copy save") -}}
+{{- $scripts = merge $scripts (dict "sqlite-copy-clean" "#!/bin/sh\n# borg-ui: Remove the SQLite copies after the backup\nexec /usr/local/bin/sqlite-copy clean") -}}
 {{- end -}}
 {{- toYaml $scripts -}}
 {{- end -}}
@@ -203,6 +208,22 @@ emptyDir); the node include patterns archive it from there.
 */}}
 {{- define "k8s-borg.datastoreSnapshotDir" -}}
 /var/lib/k8s-borg/datastore
+{{- end -}}
+
+{{/*
+Where the node pod writes the SQLite copies during a run (an emptyDir on the
+node's disk); the node include patterns archive them from there.
+*/}}
+{{- define "k8s-borg.sqliteCopyDir" -}}
+/var/lib/k8s-borg/sqlite
+{{- end -}}
+
+{{/*
+The node pods' ServiceAccount with node.sqlite: get on the listed claims and on
+persistent volumes (node-sqlite-rbac.yaml).
+*/}}
+{{- define "k8s-borg.nodeSAName" -}}
+{{- printf "%s-node" (include "common.names.fullname" .) -}}
 {{- end -}}
 
 {{/*

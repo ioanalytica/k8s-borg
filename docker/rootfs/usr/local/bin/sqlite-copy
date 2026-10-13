@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+#
+# sqlite-copy — consistent copies of the SQLite databases listed in
+# node.sqlite.databases, so that the node backup archives those instead of
+# files an application writes while they are read.
+#
+# Each database is named by the PersistentVolumeClaim that holds it and its
+# path inside the volume. The claim is resolved read-only through the
+# Kubernetes API to its PersistentVolume, and the volume to where this node
+# has it:
+#
+#   local, hostPath   the volume's path on the node; skipped on a node its
+#                     node affinity does not name
+#   any other (CSI)   the kubelet's mount of the volume for a pod on this
+#                     node; skipped on a node without one
+#
+# The node that has the volume copies the database with SQLite's online
+# backup (what `sqlite3 DB ".backup COPY"` does), read-only through the host
+# root and with the application's locks honoured: a database in WAL mode is
+# written on during the copy, a rollback-journal database waits for it. The
+# copy is one consistent state of the database, keeps its journal mode, is
+# checked (PRAGMA quick_check) and is written as a single file, mode 600, to
+# SQLITE_COPY_DIR/<namespace>/<claim>/<path>.
+#
+# Usage: sqlite-copy [save|clean]
+#   save (default)  remove the earlier copies, then copy every listed database
+#   clean           remove the copies
+#
+# Exit: 0 when every listed database this node has is copied (one on another
+# node, or on none, is skipped), 2 when any failed: a claim that does not
+# exist or is not bound, a database missing on the node that has its volume,
+# a copy that fails or does not check. The other databases are still copied;
+# a failed copy leaves nothing behind. In the agent script contract 1 is a
+# warning, so a failure is never 1.
+#
+# Environment:
+#   SQLITE_DATABASES_FILE  JSON list of {namespace, pvc, path}
+#                          (default /root/.borg/node-sqlite-databases.json)
+#   SQLITE_COPY_DIR        where the copies go (default /var/lib/k8s-borg/sqlite)
+#   SQLITE_BUSY_TIMEOUT    seconds a copy waits for the application's write
+#                          lock (default 60)
+#   HOST_ROOT              the node's root file system (default /node)
+#   KUBELET_DIR            the kubelet's root directory on the node
+#                          (default /var/lib/kubelet)
+#   NODE_NAME              this node
+#   K8S_API                the API server (default https://kubernetes.default.svc)
+#   K8S_SA_DIR             the ServiceAccount's token and CA
+#                          (default /var/run/secrets/kubernetes.io/serviceaccount)
+
+import glob
+import json
+import os
+import shutil
+import sqlite3
+import ssl
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DATABASES_FILE = os.environ.get("SQLITE_DATABASES_FILE", "/root/.borg/node-sqlite-databases.json")
+COPY_DIR = os.environ.get("SQLITE_COPY_DIR") or "/var/lib/k8s-borg/sqlite"
+BUSY_TIMEOUT = float(os.environ.get("SQLITE_BUSY_TIMEOUT") or 60)
+HOST_ROOT = os.environ.get("HOST_ROOT", "/node").rstrip("/")
+KUBELET_DIR = os.environ.get("KUBELET_DIR") or "/var/lib/kubelet"
+NODE_NAME = os.environ.get("NODE_NAME", "")
+K8S_API = (os.environ.get("K8S_API") or "https://kubernetes.default.svc").rstrip("/")
+K8S_SA_DIR = os.environ.get("K8S_SA_DIR") or "/var/run/secrets/kubernetes.io/serviceaccount"
+
+SIDECARS = ("-wal", "-shm", "-journal")
+
+
+class Failure(Exception):
+    """A database that cannot be copied; the others still are."""
+
+
+def say(message):
+    print("sqlite-copy: %s" % message, flush=True)
+
+
+def error(message):
+    print("sqlite-copy: ERROR: %s" % message, file=sys.stderr, flush=True)
+
+
+def api_get(path):
+    """GET an object from the API server; None when it does not exist."""
+    headers = {"Accept": "application/json"}
+    token_file = os.path.join(K8S_SA_DIR, "token")
+    if os.path.exists(token_file):
+        with open(token_file) as f:
+            headers["Authorization"] = "Bearer " + f.read().strip()
+    context = None
+    if K8S_API.startswith("https:"):
+        ca_file = os.path.join(K8S_SA_DIR, "ca.crt")
+        context = ssl.create_default_context(cafile=ca_file if os.path.exists(ca_file) else None)
+    request = urllib.request.Request(K8S_API + path, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=30, context=context) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise Failure("GET %s: HTTP %d %s" % (path, e.code, e.reason))
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise Failure("GET %s: %s" % (path, e))
+
+
+def hostname_affinity(pv_spec):
+    """The node names a volume's node affinity allows, None without any."""
+    terms = (((pv_spec.get("nodeAffinity") or {}).get("required") or {}).get("nodeSelectorTerms")) or []
+    names = None
+    for term in terms:
+        for expression in term.get("matchExpressions") or []:
+            if expression.get("key") == "kubernetes.io/hostname" and expression.get("operator") == "In":
+                names = (names or set()) | set(expression.get("values") or [])
+    return names
+
+
+def locate(entry):
+    """Where this node has the entry's volume: its directory under the host
+    root, or None and why not."""
+    namespace, claim = entry["namespace"], entry["pvc"]
+    pvc = api_get("/api/v1/namespaces/%s/persistentvolumeclaims/%s"
+                  % (urllib.parse.quote(namespace, safe=""), urllib.parse.quote(claim, safe="")))
+    if pvc is None:
+        raise Failure("claim %s/%s not found" % (namespace, claim))
+    volume = (pvc.get("spec") or {}).get("volumeName")
+    if (pvc.get("status") or {}).get("phase") != "Bound" or not volume:
+        raise Failure("claim %s/%s is not bound" % (namespace, claim))
+    pv = api_get("/api/v1/persistentvolumes/%s" % urllib.parse.quote(volume, safe=""))
+    if pv is None:
+        raise Failure("volume %s of claim %s/%s not found" % (volume, namespace, claim))
+    spec = pv.get("spec") or {}
+
+    host_path = (spec.get("local") or spec.get("hostPath") or {}).get("path")
+    if host_path:
+        nodes = hostname_affinity(spec)
+        if nodes is not None and NODE_NAME not in nodes:
+            return None, "volume %s is on node %s" % (volume, ", ".join(sorted(nodes)))
+        directory = HOST_ROOT + host_path
+        # A hostPath volume without node affinity is wherever a pod uses it:
+        # a node without the database does not have it.
+        if nodes is None and not os.path.isfile(os.path.join(directory, entry["path"])):
+            return None, "volume %s has no %s on this node" % (volume, entry["path"])
+        return directory, None
+
+    # Any other volume is reachable on a node only while the kubelet has it
+    # mounted for a pod there, below the pod's directory. Pods on the same
+    # node share the one volume, so any of their mounts will do.
+    pods = glob.escape(HOST_ROOT + KUBELET_DIR) + "/pods/*/volumes/"
+    if spec.get("csi"):
+        mounts = glob.glob(pods + "kubernetes.io~csi/" + glob.escape(volume) + "/mount")
+    else:
+        mounts = glob.glob(pods + "*/" + glob.escape(volume))
+    if not mounts:
+        return None, "volume %s is not mounted on this node" % volume
+    mounts.sort(key=lambda m: not os.path.isfile(os.path.join(m, entry["path"])))
+    return mounts[0], None
+
+
+def remove(path):
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    elif os.path.lexists(path):
+        os.remove(path)
+
+
+def copy(source, target):
+    """SQLite's online backup of SOURCE (read-only) to TARGET, checked, mode 600."""
+    os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+    temporary = target + ".tmp"
+    try:
+        for suffix in ("",) + SIDECARS:
+            remove(temporary + suffix)
+        src = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(source), uri=True,
+                              timeout=BUSY_TIMEOUT, isolation_level=None)
+        try:
+            # The read transaction first: it waits for the application's lock
+            # no longer than the busy timeout, where backup() would retry for
+            # as long as the lock is held. The copy is then of its snapshot.
+            src.execute("BEGIN")
+            src.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            dst = sqlite3.connect(temporary)
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+            src.execute("COMMIT")
+        finally:
+            src.close()
+        check = sqlite3.connect(temporary)
+        try:
+            result = check.execute("PRAGMA quick_check").fetchone()[0]
+            mode = check.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            check.close()
+        if result != "ok":
+            raise Failure("the copy does not check: %s" % result)
+        # Closed for the last time, a WAL database has nothing left in a -wal
+        # file: the copy is the one file.
+        for suffix in SIDECARS:
+            if os.path.exists(temporary + suffix) and os.path.getsize(temporary + suffix) > 0:
+                raise Failure("the copy left a non-empty %s file" % suffix)
+            remove(temporary + suffix)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+        return mode
+    except sqlite3.Error as e:
+        raise Failure(str(e))
+    finally:
+        for suffix in ("",) + SIDECARS:
+            if os.path.lexists(temporary + suffix):
+                remove(temporary + suffix)
+
+
+def save_one(entry):
+    for key in ("namespace", "pvc", "path"):
+        if not isinstance(entry.get(key), str) or not entry[key]:
+            raise Failure("entry %s has no %s" % (json.dumps(entry), key))
+    path = entry["path"]
+    if os.path.isabs(path) or ".." in path.split("/"):
+        raise Failure("path %s must be relative to the volume, without '..'" % path)
+    directory, reason = locate(entry)
+    if directory is None:
+        say("%s, skipped" % reason)
+        return
+    source = os.path.join(directory, path)
+    # The database must not lead out of its volume, e.g. by a symlink the
+    # application placed.
+    root = os.path.realpath(directory)
+    real = os.path.realpath(source)
+    if not real.startswith(root + os.sep):
+        raise Failure("%s leads out of its volume" % path)
+    if not os.path.isfile(real):
+        raise Failure("%s not found in the volume (%s)" % (path, directory[len(HOST_ROOT):]))
+    target = os.path.join(COPY_DIR, entry["namespace"], entry["pvc"], path)
+    mode = copy(real, target)
+    say("copied %s (%d bytes, journal mode %s)" % (target, os.path.getsize(target), mode))
+
+
+def clean():
+    if not os.path.isdir(COPY_DIR):
+        return
+    for name in os.listdir(COPY_DIR):
+        remove(os.path.join(COPY_DIR, name))
+
+
+def save():
+    clean()
+    with open(DATABASES_FILE) as f:
+        entries = json.load(f)
+    if not isinstance(entries, list):
+        raise Failure("%s holds no list of databases" % DATABASES_FILE)
+    os.makedirs(COPY_DIR, mode=0o700, exist_ok=True)
+    failed = 0
+    for entry in entries:
+        name = "%s/%s/%s" % (entry.get("namespace"), entry.get("pvc"), entry.get("path"))
+        say("%s …" % name)
+        try:
+            save_one(entry)
+        except Failure as e:
+            error("%s: %s" % (name, e))
+            failed += 1
+    if failed:
+        error("%d of %d databases not copied" % (failed, len(entries)))
+        return 2
+    return 0
+
+
+def main(argv):
+    action = argv[1] if len(argv) > 1 else "save"
+    if action not in ("save", "clean") or len(argv) > 2:
+        print("usage: sqlite-copy [save|clean]", file=sys.stderr)
+        return 2
+    os.umask(0o077)
+    try:
+        if action == "clean":
+            clean()
+            return 0
+        return save()
+    except Failure as e:
+        error(str(e))
+    except Exception as e:  # anything unforeseen fails, never warns
+        error("%s: %s" % (type(e).__name__, e))
+    if action == "save":
+        try:
+            clean()
+        except OSError:
+            pass
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
+
+# end

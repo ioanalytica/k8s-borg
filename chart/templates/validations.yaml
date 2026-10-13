@@ -61,3 +61,29 @@ what the script accepts. Any borg.version but 2 is Borg 1, as for the scripts.
 {{- end }}
 {{- include "k8s-borg.repoServer.validate" . }}
 {{- include "k8s-borg.ui.notifications.validate" . }}
+{{- /*
+node.sqlite: each database names its claim and a path inside the volume, which
+sqlite-copy also uses below its copy directory.
+*/}}
+{{- if .Values.node.sqlite.enabled }}
+{{- if empty .Values.node.sqlite.databases }}
+{{- fail "node.sqlite.enabled is true, but node.sqlite.databases is empty: list the databases (namespace, pvc, path) or set node.sqlite.enabled=false" }}
+{{- end }}
+{{- range $index, $database := .Values.node.sqlite.databases }}
+{{- $where := printf "node.sqlite.databases[%d]" $index }}
+{{- range $key := list "namespace" "pvc" "path" }}
+{{- if not (and (kindIs "string" (get $database $key)) (get $database $key)) }}
+{{- fail (printf "%s.%s is required" $where $key) }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $database.namespace) }}
+{{- fail (printf "%s.namespace %q is no namespace name" $where $database.namespace) }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" $database.pvc) }}
+{{- fail (printf "%s.pvc %q is no claim name" $where $database.pvc) }}
+{{- end }}
+{{- if or (hasPrefix "/" $database.path) (has ".." (splitList "/" $database.path)) }}
+{{- fail (printf "%s.path %q must be relative to the volume, without '..'" $where $database.path) }}
+{{- end }}
+{{- end }}
+{{- end }}

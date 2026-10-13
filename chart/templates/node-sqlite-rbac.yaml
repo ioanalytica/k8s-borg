@@ -1,0 +1,82 @@
+{{- /*
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
+
+The node pods' ServiceAccount with node.sqlite: sqlite-copy resolves each
+listed claim to its volume through the API. Read-only: get on exactly the
+listed claims, one Role per namespace, and get on persistent volumes, whose
+names are not known before the claims are bound. With a reconcile gate in
+agent mode, agent-rbac.yaml also binds this ServiceAccount to its Role.
+*/}}
+{{- if and .Values.node.enabled .Values.node.sqlite.enabled }}
+{{- $saName := include "k8s-borg.nodeSAName" . }}
+{{- $rbacName := printf "%s-node-sqlite" (include "common.names.fullname" .) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s" $rbacName .Release.Namespace }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s" $rbacName .Release.Namespace }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s" $rbacName .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ .Release.Namespace | quote }}
+---
+{{- $claimsByNamespace := dict }}
+{{- range .Values.node.sqlite.databases }}
+{{- $_ := set $claimsByNamespace .namespace (append (get $claimsByNamespace .namespace | default list) .pvc | uniq) }}
+{{- end }}
+{{- range $namespace, $claims := $claimsByNamespace }}
+{{- $name := printf "%s-%s" $rbacName (sha256sum $namespace | trunc 10) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get"]
+    resourceNames:
+      {{- range $claims }}
+      - {{ . | quote }}
+      {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ $.Release.Namespace | quote }}
+---
+{{- end }}
+{{- end }}
