@@ -189,7 +189,8 @@ FROM python:${PYTHON_VERSION}-alpine
 # only started by the repository server. mongodb-tools brings mongodump and
 # mongorestore for the MongoDB dumps; the package's six other tools, ~13 MB
 # each and unused here, are removed in the same layer. valkey-cli (the client
-# alone, without a server) is for backup-redis's INFO and CLUSTER NODES.
+# alone, without a server) is for working with Redis and Valkey from the
+# console pod; backup-redis talks to the servers through redis-rdb-sync.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \

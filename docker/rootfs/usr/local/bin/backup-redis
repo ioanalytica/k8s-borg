@@ -12,8 +12,10 @@
 #
 # Each RDB file is the server's own consistent snapshot, streamed over the
 # replication protocol by redis-rdb-sync (what valkey-cli --rdb does, and
-# Valkey 9's own format, see there). The server forks for it, as for BGSAVE. An RDB file is restored by placing it as
-# the server's dump.rdb and starting the server (see chart/README.md).
+# Valkey 9's own format, see there). The server forks for it, as for BGSAVE.
+# An RDB file is restored by placing it as the server's dump.rdb and starting
+# the server (see chart/README.md). redis-rdb-sync makes every connection,
+# INFO and CLUSTER NODES included.
 #
 # CONF holds one key=value per line; the value is taken verbatim after the
 # first '=', blank lines and lines starting with '#' are skipped:
@@ -25,6 +27,10 @@
 #   tls=true                 default false
 #   cacert=/path/ca.crt      CA bundle to verify the server with (implies tls)
 #   insecure=true            TLS without verifying the server (implies tls)
+#
+# With TLS the certificate must name the host: host as configured, and a
+# cluster's nodes by the hostname they announce (cluster-announce-hostname),
+# or else by their IP address.
 #
 # An ACL user needs `+info +sync +replconf +cluster|nodes`: INFO tells a cluster
 # from a standalone server and Valkey from Redis, SYNC/REPLCONF carry the
@@ -90,9 +96,8 @@ done <"$conf"
 [ -n "$host" ] || die "$conf: host is not set"
 [[ $port =~ ^[0-9]+$ ]] || die "$conf: port must be a number, not '$port'"
 
-# Options for every connection, the host and port aside; valkey-cli and
-# redis-rdb-sync take the same ones. Both read the password from the
-# environment, so it never shows in the process list.
+# Options for every connection, the host and port aside. redis-rdb-sync reads
+# the password from the environment, so it never shows in the process list.
 opts=()
 [ -z "$user" ] || opts+=(--user "$user")
 if [ "$tls" = true ]; then
@@ -102,11 +107,12 @@ if [ "$tls" = true ]; then
 fi
 if [ -n "$password" ]; then export REDISCLI_AUTH=$password; else unset REDISCLI_AUTH; fi
 
-# cli HOST PORT ARG… — valkey-cli against HOST:PORT.
-cli() {
+# query HOST PORT ARG… — the answer of HOST:PORT to the command ARG…; an
+# error answer (NOPERM, NOAUTH) fails.
+query() {
   local h=$1 p=$2
   shift 2
-  valkey-cli -h "$h" -p "$p" "${opts[@]}" "$@"
+  redis-rdb-sync "${opts[@]}" --query "$h" "$p" "$@" </dev/null
 }
 
 # Every file is written as FILE.tmp first and renamed only once all of them
@@ -127,13 +133,12 @@ mkdir -p "${DB_BACKUP_DIR}"
 # Half-written files go, whatever the run's outcome.
 trap 'rm -f "${DB_BACKUP_DIR}"/*.tmp' EXIT
 
-# valkey-cli exits 0 on an error reply (NOPERM, NOAUTH), so what INFO says is
-# checked, not its exit code.
-info=$(cli "$host" "$port" INFO cluster </dev/null | tr -d '\r')
+info=$(query "$host" "$port" INFO cluster) \
+  || die "INFO cluster on ${host}:${port} failed (the user needs +info)"
 case "$info" in
   *cluster_enabled:0*) cluster=false ;;
   *cluster_enabled:1*) cluster=true ;;
-  *) die "INFO cluster on ${host}:${port} failed (the user needs +info): ${info:-no answer}" ;;
+  *) die "INFO cluster on ${host}:${port} has no cluster_enabled: ${info:-no answer}" ;;
 esac
 
 if [ "$cluster" = false ]; then
@@ -143,7 +148,8 @@ else
   # The primaries are dumped one after another: each RDB file is consistent
   # in itself, the cluster as a whole is not frozen at one instant.
   echo "Dumping Redis cluster: $instance_name (one RDB file per primary)"
-  nodes=$(cli "$host" "$port" CLUSTER NODES </dev/null | tr -d '\r')
+  nodes=$(query "$host" "$port" CLUSTER NODES) \
+    || die "CLUSTER NODES on ${host}:${port} failed (the user needs +cluster|nodes)"
   # A node line: <id> <ip:port@cport[,hostname]> <flags> <primary> <ping-sent>
   # <pong-recv> <epoch> <link-state> <slot>…, the slots as N, N-M, or
   # [N->-id]/[N-<-id] while one migrates (skipped: it still belongs here).
@@ -152,12 +158,17 @@ else
     for (i = 9; i <= NF; i++) if ($i !~ /^\[/) { first = $i; break }
     if (first != "") print $2, first
   }' <<<"$nodes")
-  [ -n "$primaries" ] || die "CLUSTER NODES on ${host}:${port} lists no primary with slots (the user needs +cluster|nodes): ${nodes:-no answer}"
+  [ -n "$primaries" ] || die "CLUSTER NODES on ${host}:${port} lists no primary with slots: ${nodes:-no answer}"
 
   while read -r addr first; do
-    addr=${addr%%,*}   # drop ,hostname
-    addr=${addr%%@*}   # drop @cport
-    node_host=${addr%:*} node_port=${addr##*:}
+    endpoint=${addr%%,*}         # ip:port@cport
+    endpoint=${endpoint%%@*}
+    node_host=${endpoint%:*} node_port=${endpoint##*:}
+    hostname=""
+    case "$addr" in *,*) hostname=${addr#*,}; hostname=${hostname%%,*} ;; esac
+    case "$hostname" in *=*) hostname="" ;; esac   # an auxiliary field
+    # With TLS the certificate names the node: by its announced hostname.
+    if [ "$tls" = true ] && [ -n "$hostname" ]; then node_host=$hostname; fi
     # A node that has not learnt its own address reports it empty.
     [ -n "$node_host" ] || node_host=$host
     dump_rdb "$node_host" "$node_port" "${instance_name}-slots-${first}.rdb"

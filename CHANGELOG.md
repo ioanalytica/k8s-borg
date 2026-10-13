@@ -15,7 +15,10 @@
     failure rc 2 with the previous dump left in place.
   * `redis-rdb-sync` does what `valkey-cli --rdb` does and tells a Valkey
     server its version, without which Valkey 9 cannot send a hash field with
-    a TTL of its own. `valkey-cli` joins the image.
+    a TTL of its own. It makes every connection of a dump, `INFO` and
+    `CLUSTER NODES` included, and with TLS checks the server's name: `host`,
+    and a cluster's nodes by their announced hostname or their IP address.
+    `valkey-cli` joins the image, for work from the console pod.
   * The backup user needs `+info +sync +replconf +cluster|nodes`. A restore
     places the RDB file as the server's `dump.rdb` and starts it; documented
     in `chart/README.md`, "Restoring Redis and Valkey", not scripted.

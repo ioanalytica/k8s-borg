@@ -1,11 +1,12 @@
 #!/usr/bin/env bats
 #
 # `backup-redis`: the config file (read, never sourced), the options handed to
-# valkey-cli and redis-rdb-sync (the password only through REDISCLI_AUTH), one
-# RDB file for a standalone server, one per primary of a cluster named after
-# its first slot range, all-or-nothing replacement of the previous dump, and
-# rc 2 for every failure. valkey-cli and redis-rdb-sync are stubs; the real
-# servers are the database end-to-end tests' job.
+# redis-rdb-sync for every connection (the password only through
+# REDISCLI_AUTH), one RDB file for a standalone server, one per primary of a
+# cluster named after its first slot range (with TLS reached by its announced
+# hostname), all-or-nothing replacement of the previous dump, and rc 2 for
+# every failure. redis-rdb-sync is a stub; the real servers are the database
+# end-to-end tests' job.
 
 bats_require_minimum_version 1.5.0   # run --separate-stderr
 
@@ -18,21 +19,21 @@ setup() {
   export STUB="$TMP" DB_BACKUP_LOCATION="$TMP/dumps"
   printf 'cluster_enabled:0\r\n' >"$TMP/info"
   : >"$TMP/nodes"; : >"$TMP/broken"; : >"$TMP/calls"
-  # valkey-cli answers INFO and CLUSTER NODES from files, as valkey-cli does
-  # with rc 0 also for an error reply.
-  cat >"$TMP/stubs/valkey-cli" <<'STUB'
-#!/usr/bin/env bash
-echo "valkey-cli $* auth=${REDISCLI_AUTH-unset}" >>"$STUB/calls"
-case "$*" in
-  *"INFO cluster") cat "$STUB/info" ;;
-  *"CLUSTER NODES") cat "$STUB/nodes" ;;
-esac
-STUB
-  # redis-rdb-sync writes "RDB <host>:<port>"; a host:port listed in
-  # $STUB/broken leaves half a file and fails.
+  # redis-rdb-sync --query answers INFO and CLUSTER NODES from files, and an
+  # answer starting with NOPERM is an error (rc 2, as the real one). A dump
+  # writes "RDB <host>:<port>"; a host:port listed in $STUB/broken leaves
+  # half a file and fails.
   cat >"$TMP/stubs/redis-rdb-sync" <<'STUB'
 #!/usr/bin/env bash
 echo "redis-rdb-sync $* auth=${REDISCLI_AUTH-unset}" >>"$STUB/calls"
+answer() {
+  if grep -q '^NOPERM' "$1"; then echo "Error: $2: $(cat "$1")" >&2; exit 2; fi
+  cat "$1"
+}
+case "$*" in
+  *"--query "*"INFO cluster") answer "$STUB/info" "INFO cluster"; exit 0 ;;
+  *"--query "*"CLUSTER NODES") answer "$STUB/nodes" "CLUSTER NODES"; exit 0 ;;
+esac
 args=("$@"); n=${#args[@]}
 host=${args[n-3]} port=${args[n-2]} file=${args[n-1]}
 if grep -qxF "$host:$port" "$STUB/broken"; then
@@ -66,11 +67,11 @@ e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 10.0.0.5:6379@16379 slave 07c37dfeb2352
   [ "$(cat "$TMP/dumps/cache/cache.rdb")" = "RDB redis.cache.svc:6379" ]
 }
 
-@test "user, TLS and CA go to both tools; the password only through REDISCLI_AUTH" {
+@test "user, TLS and CA go to every connection; the password only through REDISCLI_AUTH" {
   conf host=r port=6380 user=backup 'password=p=w d#"' tls=true cacert=/ca.crt
   backup
   [ "$status" -eq 0 ] || fail "status $status: $stderr"
-  [ "$(cat "$TMP/calls")" = "valkey-cli -h r -p 6380 --user backup --tls --cacert /ca.crt INFO cluster auth=p=w d#\"
+  [ "$(cat "$TMP/calls")" = "redis-rdb-sync --user backup --tls --cacert /ca.crt --query r 6380 INFO cluster auth=p=w d#\"
 redis-rdb-sync --user backup --tls --cacert /ca.crt r 6380 $TMP/dumps/cache/cache.rdb.tmp auth=p=w d#\"" ] \
     || fail "$(cat "$TMP/calls")"
 }
@@ -129,8 +130,8 @@ redis-rdb-sync --user backup --tls --cacert /ca.crt r 6380 $TMP/dumps/cache/cach
   echo "NOPERM User backup has no permissions to run the 'info' command" >"$TMP/info"
   backup
   [ "$status" -eq 2 ] || fail "status $status"
-  [[ $stderr == *"the user needs +info"*"NOPERM"* ]] || fail "$stderr"
-  ! grep -q redis-rdb-sync "$TMP/calls"
+  [[ $stderr == *"NOPERM"*"the user needs +info"* ]] || fail "$stderr"
+  ! grep -qv -- '--query' "$TMP/calls" || fail "$(cat "$TMP/calls")"
 }
 
 @test "a cluster: one RDB file per primary with slots, named after its first range, and CLUSTER NODES" {
@@ -156,6 +157,25 @@ cache-slots-5461-10921.rdb 600" ] || fail "$(files)"
   backup
   [ "$status" -eq 0 ] || fail "status $status: $stderr"
   [ "$(cat "$TMP/dumps/cache/cache-slots-0-16383.rdb")" = "RDB redis-cluster.cache.svc:7000" ]
+}
+
+@test "with TLS, cluster nodes are reached by their announced hostname, else by IP address" {
+  conf host=redis-cluster.cache.svc tls=true cacert=/ca.crt
+  printf 'cluster_enabled:1\r\n' >"$TMP/info"
+  printf '%s\n' "$CLUSTER_NODES" >"$TMP/nodes"
+  backup
+  [ "$status" -eq 0 ] || fail "status $status: $stderr"
+  [ "$(cat "$TMP/dumps/cache/cache-slots-0-5460.rdb")" = "RDB redis-0.redis:6379" ]
+  [ "$(cat "$TMP/dumps/cache/cache-slots-5461-10921.rdb")" = "RDB 10.0.0.3:6379" ]
+}
+
+@test "an auxiliary field after the address is no hostname" {
+  conf host=r tls=true
+  printf 'cluster_enabled:1\r\n' >"$TMP/info"
+  echo '07c37dfeb235213a872192d90877d0cd55635b91 10.0.0.2:6380@16380,,shard-id=abc myself,master - 0 0 1 connected 0-16383' >"$TMP/nodes"
+  backup
+  [ "$status" -eq 0 ] || fail "status $status: $stderr"
+  [ "$(cat "$TMP/dumps/cache/cache-slots-0-16383.rdb")" = "RDB 10.0.0.2:6380" ]
 }
 
 @test "CLUSTER NODES refused: rc 2 and the permission it needs" {

@@ -2,7 +2,9 @@
 #
 # backup-redis and backup-cluster-redis against real Redis and Valkey servers
 # (run by run.sh, one server version per run): the seeded standalone server
-# `src` and the cluster of three primaries c1–c3 are dumped with config files
+# `src` and the cluster of three primaries c1–c3 (TLS only, the nodes known
+# by the hostnames they announce, which the certificate carries and no IP
+# address) are dumped with config files
 # in the chart's format and the ACL user chart/README.md documents, archived
 # and extracted with Borg, and restored as chart/README.md describes it — the
 # RDB file as dump.rdb of a server started on it (`dst`). Every restore is
@@ -31,7 +33,7 @@ setup_file() {
   # The chart mounts one config file per instance at /root/.redis; the
   # cluster is reached through any one of its nodes.
   write_conf /root/.redis/e2e.conf src
-  write_conf /root/.redis/e2e-cluster.conf c2
+  write_conf /root/.redis/e2e-cluster.conf c2 tls=true cacert=/tls/ca.crt
 
   export DUMPS="$E2E_TMP/dumps"
   DB_BACKUP_LOCATION=$DUMPS backup-cluster-redis >"$E2E_TMP/backup.log" 2>&1 \
@@ -111,6 +113,19 @@ teardown_file() {
     [ "$status" -ge 2 ] || fail "$conf: rc=$status"
     [ "$(md5sum "$DUMPS"/e2e/*)" = "$before" ] || fail "$conf: the previous dump changed"
   done
+}
+
+@test "TLS: a node reached by a name its certificate does not carry fails with rc 2; insecure=true dumps" {
+  local ip
+  ip=$(getent hosts c2 | awk '{print $1}')
+  write_conf "$E2E_TMP/by-ip/e2e-cluster.conf" "$ip" tls=true cacert=/tls/ca.crt
+  run --separate-stderr env DB_BACKUP_LOCATION="$E2E_TMP/by-ip-dumps" backup-redis "$E2E_TMP/by-ip/e2e-cluster.conf"
+  [ "$status" -ge 2 ] || fail "rc=$status"
+  [[ $stderr == *"$ip"* ]] || fail "$stderr"
+  write_conf "$E2E_TMP/insecure/e2e-cluster.conf" "$ip" insecure=true
+  run --separate-stderr env DB_BACKUP_LOCATION="$E2E_TMP/insecure-dumps" backup-redis "$E2E_TMP/insecure/e2e-cluster.conf"
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  [ "$(ls "$E2E_TMP"/insecure-dumps/e2e-cluster/*.rdb | wc -l)" -eq 3 ]
 }
 
 @test "backup-cluster-databases dumps Redis only when BORG_DB_ENGINES names it" {

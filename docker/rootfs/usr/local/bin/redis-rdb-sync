@@ -2,9 +2,12 @@
 """redis-rdb-sync — stream the RDB snapshot of a Redis or Valkey server to a file.
 
     redis-rdb-sync [--user U] [--tls] [--cacert F] [--insecure] HOST PORT FILE
+    redis-rdb-sync [--user U] [--tls] [--cacert F] [--insecure] --query HOST PORT ARG…
 
 The password comes from REDISCLI_AUTH, as for valkey-cli, so that it never
-shows in the process list.
+shows in the process list. --query sends one command (backup-redis: INFO
+cluster, CLUSTER NODES) and prints its answer; an error answer is rc 2, where
+valkey-cli would exit 0.
 
 This is what `valkey-cli --rdb` does — REPLCONF capa eof, REPLCONF rdb-only 1,
 SYNC — plus one step it lacks: a Valkey server is told its own version with
@@ -14,11 +17,12 @@ the old format, which cannot hold its new types (hash fields with a TTL), and
 the transfer fails. Redis writes its own format to every replica and is told
 nothing.
 
-The server's certificate chain is verified (against --cacert, or the system's
-CAs), its host name is not — as valkey-cli does, and as a cluster needs, whose
-nodes announce themselves by IP address.
+With TLS the server's certificate is verified against --cacert (or the
+system's CAs), and so is its name: HOST must be a DNS name or an IP address
+the certificate carries. --insecure verifies neither.
 
-Exit codes: 0 the file holds a complete RDB file, 2 anything else (in the
+Exit codes: 0 the file holds a complete RDB file (or the query answered), 2
+anything else (in the
 borg-ui agent script contract rc 1 is only a warning, which a failed dump is
 not).
 """
@@ -43,15 +47,17 @@ def connect(host, port, use_tls, cacert, insecure, timeout):
     if not use_tls:
         return sock
     ctx = ssl.create_default_context(cafile=cacert or None)
-    ctx.check_hostname = False
     if insecure:
+        ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    try:
-        ipaddress.ip_address(host)
-        sni = None
-    except ValueError:
-        sni = host
-    return ctx.wrap_socket(sock, server_hostname=sni)
+        # No name to check; an IP address is no server name to send either.
+        try:
+            ipaddress.ip_address(host)
+            return ctx.wrap_socket(sock, server_hostname=None)
+        except ValueError:
+            pass
+    # Checked against the certificate's DNS names, or its IP addresses.
+    return ctx.wrap_socket(sock, server_hostname=host)
 
 
 class Conn:
@@ -177,10 +183,14 @@ def main():
     p.add_argument("--insecure", action="store_true")
     p.add_argument("--timeout", type=float, default=300.0,
                    help="seconds without any data before giving up (default 300)")
+    p.add_argument("--query", action="store_true",
+                   help="send the command ARG… and print its answer instead")
     p.add_argument("host")
     p.add_argument("port", type=int)
-    p.add_argument("file")
+    p.add_argument("rest", nargs="+", metavar="FILE | ARG")
     a = p.parse_args()
+    if not a.query and len(a.rest) != 1:
+        p.error("one FILE, or --query with a command")
     where = "%s:%d" % (a.host, a.port)
     try:
         conn = Conn(connect(a.host, a.port, a.tls or a.cacert or a.insecure,
@@ -188,6 +198,14 @@ def main():
         password = os.environ.get("REDISCLI_AUTH")
         if password:
             conn.call("AUTH", *([a.user] if a.user else []), password)
+        if a.query:
+            try:
+                answer = conn.call(*a.rest)
+            except SyncError as e:
+                raise SyncError("%s: %s" % (" ".join(a.rest), e))
+            sys.stdout.write(answer.decode(errors="replace").replace("\r\n", "\n"))
+            return 0
+        file = a.rest[0]
         version = valkey_version(conn.call("INFO", "server"))
         # Older servers may not know an option; SYNC then still works, or
         # fails with the reason (valkey-cli goes on in the same way).
@@ -196,11 +214,11 @@ def main():
                 conn.call("REPLCONF", *args)
             except SyncError as e:
                 print("%s: REPLCONF %s: %s" % (where, args[0], e), file=sys.stderr)
-        with open(a.file, "wb") as out:
+        with open(file, "wb") as out:
             size = receive_rdb(conn, out)
             out.flush()
             os.fsync(out.fileno())
-        check_rdb(a.file)
+        check_rdb(file)
     except (SyncError, OSError, ValueError) as e:
         print("Error: %s: %s" % (where, e), file=sys.stderr)
         return 2

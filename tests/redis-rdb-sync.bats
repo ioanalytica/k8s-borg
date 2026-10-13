@@ -140,3 +140,53 @@ commands() { cat "$TMP/commands"; }
   sync_rdb
   [ "$status" -eq 2 ] || fail "status $status"
 }
+
+@test "--query prints the answer to one command" {
+  start_fake FAKE_VALKEY_VERSION=9.1.2
+  run --separate-stderr "$BIN/redis-rdb-sync" --query 127.0.0.1 "$PORT" INFO server
+  [ "$status" -eq 0 ] || fail "status $status: $stderr"
+  [[ $output == *"valkey_version:9.1.2"* ]] || fail "$output"
+  [[ $output != *$'\r'* ]] || fail "CR left in the answer"
+}
+
+@test "--query: an error answer is rc 2, with the command and the server's reason" {
+  start_fake
+  run --separate-stderr "$BIN/redis-rdb-sync" --query 127.0.0.1 "$PORT" CLUSTER NODES
+  [ "$status" -eq 2 ] || fail "status $status"
+  [[ $stderr == *"CLUSTER NODES: ERR unknown command"* ]] || fail "$stderr"
+}
+
+# tls_certs — a CA and a server certificate for the name localhost (no IP
+# address), and a second CA that signed nothing here.
+tls_certs() {
+  command -v openssl >/dev/null || skip "openssl is not installed"
+  local d="$TMP/tls"
+  mkdir -p "$d"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=test-ca -keyout "$d/ca.key" -out "$d/ca.crt" 2>/dev/null
+  openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=other-ca -keyout "$d/other.key" -out "$d/other.crt" 2>/dev/null
+  openssl req -newkey rsa:2048 -nodes -subj /CN=localhost -keyout "$d/server.key" -out "$d/server.csr" 2>/dev/null
+  printf 'subjectAltName=DNS:localhost\n' >"$d/ext"
+  openssl x509 -req -in "$d/server.csr" -CA "$d/ca.crt" -CAkey "$d/ca.key" -CAcreateserial -days 2 \
+    -extfile "$d/ext" -out "$d/server.crt" 2>/dev/null
+}
+
+@test "TLS: the certificate's CA and name are checked; --insecure checks neither" {
+  tls_certs
+  start_fake FAKE_TLS_CERT="$TMP/tls/server.crt" FAKE_TLS_KEY="$TMP/tls/server.key"
+  run --separate-stderr "$BIN/redis-rdb-sync" --cacert "$TMP/tls/ca.crt" localhost "$PORT" "$TMP/out.rdb"
+  [ "$status" -eq 0 ] || fail "the certificate's own name: status $status: $stderr"
+  cmp "$TMP/payload" "$TMP/out.rdb"
+  # 127.0.0.1 is the same server, but not a name the certificate carries.
+  run --separate-stderr "$BIN/redis-rdb-sync" --cacert "$TMP/tls/ca.crt" 127.0.0.1 "$PORT" "$TMP/ip.rdb"
+  [ "$status" -eq 2 ] || fail "an address the certificate does not name: status $status"
+  [[ $stderr == *"127.0.0.1"* ]] || fail "$stderr"
+  [ ! -e "$TMP/ip.rdb" ]
+  run --separate-stderr "$BIN/redis-rdb-sync" --cacert "$TMP/tls/other.crt" localhost "$PORT" "$TMP/other.rdb"
+  [ "$status" -eq 2 ] || fail "another CA: status $status"
+  run --separate-stderr "$BIN/redis-rdb-sync" --insecure 127.0.0.1 "$PORT" "$TMP/insecure.rdb"
+  [ "$status" -eq 0 ] || fail "--insecure: status $status: $stderr"
+  # The password is only sent once the certificate passed.
+  REDISCLI_AUTH=never-sent run "$BIN/redis-rdb-sync" --cacert "$TMP/tls/ca.crt" --query 127.0.0.1 "$PORT" INFO server
+  [ "$status" -eq 2 ]
+  ! grep -q AUTH "$TMP/commands" || fail "AUTH reached the server: $(cat "$TMP/commands")"
+}

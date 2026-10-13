@@ -222,9 +222,13 @@ An instance's config file is key=value lines, the value taken verbatim after
 the first `=`: `host` (required), `port` (6379), `user`, `password`, `tls`
 (`true`/`false`), `cacert` (a CA bundle to verify the server with; mount it
 through `cluster.extraVolumes`/`cluster.extraVolumeMounts`) and `insecure`
-(TLS without verifying the server); `cacert` and `insecure` turn TLS on. As
-valkey-cli does, the certificate chain is verified, not the host name — the
-nodes of a cluster announce themselves by IP address. A `secretRef` instance
+(TLS without verifying the server); `cacert` and `insecure` turn TLS on.
+With TLS, the certificate must name the server: `host` as configured, and
+each node of a cluster by the hostname it announces
+(`cluster-announce-hostname`), or else by its IP address. Every connection is
+checked, `INFO` and `CLUSTER NODES` included, before the password is sent
+(tested against a TLS-only cluster whose certificate names its nodes'
+hostnames and no IP address). A `secretRef` instance
 sets the same as `host`, `port`, `user`/`secretRef.usernameKey` (either or
 neither), `tls`, `cacert` and `insecure`.
 

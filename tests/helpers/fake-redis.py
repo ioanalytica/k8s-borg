@@ -17,6 +17,8 @@ redis-rdb-sync: AUTH, INFO server, REPLCONF and SYNC, one connection at a time.
   FAKE_VALKEY_VERSION valkey_version in INFO server; without it a Redis
   FAKE_NEEDS_VERSION  refuse SYNC unless REPLCONF version announced at least
                       this one (Valkey 9 with its new types)
+  FAKE_TLS_CERT, FAKE_TLS_KEY
+                      speak TLS with this certificate and key
 
 Every command is appended to FAKE_DIR/commands as one JSON list per line, the
 password replaced by "***".
@@ -24,6 +26,7 @@ password replaced by "***".
 import json
 import os
 import socket
+import ssl
 
 DIR = os.environ["FAKE_DIR"]
 PAYLOAD = open(os.environ["FAKE_PAYLOAD"], "rb").read() if os.environ.get("FAKE_PAYLOAD") else b""
@@ -123,11 +126,17 @@ def main():
     with open(os.path.join(DIR, "port.tmp"), "w") as f:
         f.write(str(srv.getsockname()[1]))
     os.rename(os.path.join(DIR, "port.tmp"), os.path.join(DIR, "port"))
+    tls = None
+    if os.environ.get("FAKE_TLS_CERT"):
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(os.environ["FAKE_TLS_CERT"], os.environ["FAKE_TLS_KEY"])
     while True:
         conn, _ = srv.accept()
         try:
+            if tls:
+                conn = tls.wrap_socket(conn, server_side=True)
             serve(conn)
-        except OSError:
+        except OSError:  # a client that refused the certificate included
             pass
         finally:
             conn.close()

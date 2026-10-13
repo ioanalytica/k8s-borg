@@ -20,11 +20,13 @@ write_conf() {
   chmod 600 "$file"
 }
 
-# rd HOST ARG… — valkey-cli as the administrator.
+# rd HOST ARG… — valkey-cli as the administrator; with TLS to the cluster
+# nodes c1–c3, which speak nothing else.
 rd() {
-  local host=$1
+  local host=$1 tls=()
   shift
-  REDISCLI_AUTH=$DB_PASSWORD valkey-cli -h "$host" "$@"
+  case "$host" in c?) tls=(--tls --cacert /tls/ca.crt) ;; esac
+  REDISCLI_AUTH=$DB_PASSWORD valkey-cli -h "$host" ${tls[@]+"${tls[@]}"} "$@"
 }
 
 rd_ready() { [ "$(rd "$1" PING)" = PONG ]; }
@@ -83,15 +85,16 @@ rd_fingerprint() {
   done
 }
 
-# rd_cluster — c1–c3 as a cluster of three primaries, ready on every node;
-# then 3000 keys spread over the slots.
+# rd_cluster — c1–c3 as a cluster of three primaries over TLS, ready on
+# every node; then 3000 keys spread over the slots.
 rd_cluster() {
   local nodes=() host ip i
   for host in c1 c2 c3; do
     ip=$(getent hosts "$host" | awk '{print $1}')
     nodes+=("$ip:6379")
   done
-  REDISCLI_AUTH=$DB_PASSWORD valkey-cli --cluster create "${nodes[@]}" --cluster-yes >/dev/null
+  REDISCLI_AUTH=$DB_PASSWORD valkey-cli --tls --cacert /tls/ca.crt \
+    --cluster create "${nodes[@]}" --cluster-yes >/dev/null
   for host in c1 c2 c3; do
     wait_for 60 rd_cluster_ok "$host"
   done

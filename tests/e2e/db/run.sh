@@ -57,7 +57,7 @@ if [ "${1:-}" = "--one" ]; then
   server_args() { :; }
   # roles: the servers; tests: the bats file; tests_args: docker run options
   # of the test container.
-  roles=(src dst dst2) tests=$engine tests_args=()
+  roles=(src dst dst2) tests=$engine tests_args=() tls_names=() tls_dir=""
   # The entrypoint of the MySQL and Percona images puts the root password into
   # SQL unescaped and fails on DB_PASSWORD; the servers start with this one
   # and the tests set DB_PASSWORD (helpers/mysql.bash).
@@ -90,13 +90,24 @@ if [ "${1:-}" = "--one" ]; then
       server_image="redis:${version}" server_bin=redis-server
       [ "$engine" = redis ] || { server_image="valkey/valkey:${version}" server_bin=valkey-server; }
       roles=(src dst c1 c2 c3) tests=redis server_env=()
+      # The cluster speaks TLS only (certificates below), its nodes announce
+      # their hostnames, and the certificate names them and nothing else.
+      tls_names=(c1 c2 c3)
       tests_args=(-v "${name}-dst-data:/restore")
       server_opts() {
-        [ "$1" != dst ] || printf '%s\n' --restart always -v "${name}-dst-data:/data"
+        case "$1" in
+          dst) printf '%s\n' --restart always -v "${name}-dst-data:/data" ;;
+          c?)  printf '%s\n' -v "$tls_dir:/tls:ro" ;;
+        esac
       }
       server_args() {
         printf '%s\n' "$server_bin" --requirepass "$DB_PASSWORD"
-        case "$1" in c?) printf '%s\n' --cluster-enabled yes ;; esac
+        case "$1" in
+          c?) printf '%s\n' --cluster-enabled yes --cluster-announce-hostname "$1" \
+                --cluster-preferred-endpoint-type hostname --port 0 --tls-port 6379 \
+                --tls-cluster yes --tls-auth-clients no --tls-ca-cert-file /tls/ca.crt \
+                --tls-cert-file /tls/server.crt --tls-key-file /tls/server.key ;;
+        esac
       }
       ;;
     sqlite)
@@ -130,9 +141,26 @@ if [ "${1:-}" = "--one" ]; then
     for role in "${roles[@]}" tests; do docker rm -f -v "${name}-${role}" >/dev/null 2>&1 || true; done
     docker volume rm "${name}-data" "${name}-dst-data" >/dev/null 2>&1 || true
     docker network rm "$name" >/dev/null 2>&1 || true
+    [ -z "${tls_dir:-}" ] || rm -rf "$tls_dir"
   }
   trap cleanup EXIT
   cleanup
+
+  # tls_names: a CA and a server certificate for these DNS names (no IP
+  # address) in $tls_dir, mounted at /tls into the test container.
+  if [ -n "${tls_names[*]:-}" ]; then
+    tls_dir=$(mktemp -d)
+    san=$(printf 'DNS:%s,' "${tls_names[@]}")
+    openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=e2e-ca \
+      -keyout "$tls_dir/ca.key" -out "$tls_dir/ca.crt" 2>/dev/null
+    openssl req -newkey rsa:2048 -nodes -subj "/CN=${tls_names[0]}" \
+      -keyout "$tls_dir/server.key" -out "$tls_dir/server.csr" 2>/dev/null
+    printf 'subjectAltName=%s\n' "${san%,}" >"$tls_dir/ext"
+    openssl x509 -req -in "$tls_dir/server.csr" -CA "$tls_dir/ca.crt" -CAkey "$tls_dir/ca.key" \
+      -CAcreateserial -days 2 -extfile "$tls_dir/ext" -out "$tls_dir/server.crt" 2>/dev/null
+    chmod 644 "$tls_dir"/*   # the servers run as an unprivileged user
+    tests_args+=(-v "$tls_dir:/tls:ro")
+  fi
 
   checkout=()
   if [ "${E2E_DB_SCRIPTS_FROM_CHECKOUT:-}" = "1" ]; then
