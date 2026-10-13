@@ -219,11 +219,13 @@ of two ways:
 `port`, `options` and the user and password keys go without.
 
 A database in the URI's path (`…:27017/admin?…`, as in the Community
-operator's connection strings) is the one to authenticate against, but
-`mongodump` and `mongorestore` would dump or restore that database alone. The
-scripts therefore hand the tools the file through `mongodb-admin config`,
-which makes such a database the URI's `authSource` (unless it has one) —
-through a pipe, so the password is not written anywhere.
+operator's connection strings) is the one to authenticate against when the
+URI has credentials and no `authSource` (an `authSource` takes precedence),
+but `mongodump` and `mongorestore` would also dump or restore that database
+alone. The scripts therefore hand the tools the file through
+`mongodb-admin config`, which drops the path and, for a URI with credentials
+and no `authSource`, makes the database its `authSource` — through a pipe, so
+the password is not written anywhere.
 
 ### Restoring
 
