@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#
+# backup-mongodb CONFIG — dump one MongoDB instance into
+# $DB_BACKUP_LOCATION/<instance>/<instance>.archive, <instance> being the file
+# name without its extension. CONFIG is the YAML file mongodump reads with
+# --config: `uri` and, optionally, `password` (so that the password never
+# shows on a command line).
+#
+# One mongodump archive of every database, the users and roles of
+# admin.system.users / admin.system.roles included. On a replica set the dump
+# takes the oplog of its own run along (--oplog), and restore-mongodb --all
+# replays it: the restore is the instance as it was at the end of the dump.
+# A standalone server has no oplog and is dumped without one. A sharded
+# cluster (mongos) is refused: a dump through mongos is consistent neither
+# across the shards nor in time.
+#
+# The archive is uncompressed on purpose, and its collections are written one
+# after the other (--numParallelCollections=1) instead of interleaved: both
+# keep unchanged data byte-identical between runs, so that Borg deduplicates
+# it, and Borg compresses on its own.
+#
+# Any failure must FAIL the backup (rc>=2), never warn — a truncated or missing
+# dump would otherwise be archived silently. pipefail and -E (the trap also
+# fires inside functions) map every failure to rc>=2 through the ERR trap (in
+# the borg-ui agent script contract rc 1 is only a non-fatal warning, which a
+# dump failure is not).
+set -Eeo pipefail
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mongodb backup failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+# The dump holds every document and the password hashes: nobody but the owner
+# reads it, also not while it is being written.
+umask 077
+
+config_file=$1
+
+if [ -z "$config_file" ]; then
+  echo "Error: No mongodb config file specified!"
+  exit 2
+fi
+
+if [ -z "$DB_BACKUP_LOCATION" ]; then
+  echo "Error: environment variable DB_BACKUP_LOCATION not set!"
+  exit 2
+fi
+
+xbase=${config_file##*/}
+instance_name=${xbase%.*}
+
+DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+archive=${DB_BACKUP_DIR}/${instance_name}.archive
+
+mkdir -p "${DB_BACKUP_DIR}"
+# What a failing dump leaves half written; after a successful one it is gone.
+trap 'rm -f "${archive}.tmp"' EXIT
+
+# The config as mongodb-admin config hands it to the tools (a database in the
+# URI's path would make mongodump dump that database alone). Generated here,
+# so that a failure stops the backup instead of leaving mongodump an empty
+# config; the tool reads it through a pipe, so the password is not written
+# anywhere.
+config=$(mongodb-admin config "$config_file")
+
+topology=$(mongodb-admin topology "$config_file")
+case "$topology" in
+  replset)    oplog=--oplog ;;
+  standalone) oplog="" ;;
+  sharded)
+    echo "Error: $instance_name is a sharded cluster (mongos): dump the shards' replica sets instead"
+    exit 2
+    ;;
+  *)
+    echo "Error: unknown topology '$topology' of $instance_name"
+    exit 2
+    ;;
+esac
+
+echo "Dumping instance: $instance_name ($topology) -> $archive"
+# A temporary file first, so a failing run leaves the previous dump intact.
+mongodump --config=<(printf '%s\n' "$config") ${oplog:+"$oplog"} --numParallelCollections=1 --archive="${archive}.tmp"
+mv -f "${archive}.tmp" "$archive"
+chmod 600 "$archive"
+
+# end

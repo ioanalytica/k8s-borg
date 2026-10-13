@@ -1,0 +1,148 @@
+#!/opt/mongodb-admin/venv/bin/python
+"""What backup-mongodb and restore-mongodb need beyond mongodump and
+mongorestore; the image has no MongoDB shell:
+
+  mongodb-admin config CONFIG
+      print CONFIG for mongodump and mongorestore, with a database in the
+      URI's path made its authSource (dropped without credentials): the
+      tools would otherwise dump or restore that database alone (the MongoDB
+      Community operator's connection strings name admin there)
+  mongodb-admin topology CONFIG
+      print what CONFIG connects to: replset, standalone or sharded (mongos)
+  mongodb-admin drop-database CONFIG DATABASE
+      drop every collection and view of DATABASE, which is then gone
+      (nothing happens when it does not exist)
+  mongodb-admin archive-oplog ARCHIVE
+      print yes when the mongodump archive ARCHIVE holds an oplog (a dump
+      with --oplog, which mongorestore --oplogReplay needs), else no
+  mongodb-admin archive-databases ARCHIVE
+      print the databases ARCHIVE holds, one per line
+
+CONFIG is the instance's credentials file, the YAML file mongodump and
+mongorestore read with --config: `uri` (a connection string) and, optionally,
+`password`, which then goes with the user named in the URI. Every command
+reads it as `config` prints it.
+
+Exit codes: 0 done, 2 any error (bad arguments, an unreadable CONFIG or
+ARCHIVE, a server that cannot be reached or refuses).
+"""
+
+import struct
+import sys
+import urllib.parse
+
+import bson
+import pymongo
+import yaml
+
+# How long to look for a server before giving up, as the tools do by default.
+TIMEOUT_MS = 30_000
+
+# A mongodump archive starts with this number, then its prelude: a header
+# document and one document per dumped namespace, ended by a length of -1.
+# The oplog is the namespace with an empty database and the collection
+# "oplog" (mongo-tools, common/archive/prelude.go).
+ARCHIVE_MAGIC = 0x8199E26D
+
+
+def read_config(config_file):
+    with open(config_file, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    if not isinstance(config, dict) or not config.get("uri"):
+        raise ValueError(f"{config_file} has no uri")
+    uri = urllib.parse.urlsplit(str(config["uri"]))
+    database = uri.path.lstrip("/")
+    if database:
+        # With credentials, the path's database is the one to authenticate
+        # against, unless authSource says otherwise (the connection string
+        # specification); without, it means nothing but what to dump.
+        query = uri.query
+        keys = [option.split("=", 1)[0].lower() for option in query.split("&")]
+        if "@" in uri.netloc and "authsource" not in keys:
+            query = "&".join(filter(None, [query, f"authSource={database}"]))
+        uri = uri._replace(path="/", query=query)
+    result = {"uri": urllib.parse.urlunsplit(uri)}
+    if config.get("password") is not None:
+        result["password"] = str(config["password"])
+    return result
+
+
+def client(config_file):
+    config = read_config(config_file)
+    kwargs = {"serverSelectionTimeoutMS": TIMEOUT_MS}
+    if "password" in config:
+        kwargs["password"] = config["password"]
+    return pymongo.MongoClient(config["uri"], **kwargs)
+
+
+def topology(config_file):
+    with client(config_file) as c:
+        hello = c.admin.command("hello")
+    if hello.get("msg") == "isdbgrid":
+        return "sharded"
+    if hello.get("setName"):
+        return "replset"
+    return "standalone"
+
+
+# Collection by collection: the restore role may drop collections, but not a
+# database. A database without collections no longer exists. The system
+# collections (system.views, system.js) go last.
+def drop_database(config_file, name):
+    with client(config_file) as c:
+        db = c[name]
+        names = db.list_collection_names()
+        for collection in sorted(names, key=lambda n: (n.startswith("system."), n)):
+            db.drop_collection(collection)
+
+
+# The (db, collection) of every namespace in the archive's prelude.
+def archive_namespaces(path):
+    with open(path, "rb") as f:
+        (magic,) = struct.unpack("<I", f.read(4))
+        if magic != ARCHIVE_MAGIC:
+            raise ValueError(f"{path} is not a mongodump archive")
+        while True:
+            raw = f.read(4)
+            (length,) = struct.unpack("<i", raw)
+            if length == -1:
+                return
+            doc = bson.decode(raw + f.read(length - 4))
+            if "collection" in doc:  # the header document has no namespace
+                yield doc.get("db"), doc["collection"]
+
+
+def archive_oplog(path):
+    return ("", "oplog") in archive_namespaces(path)
+
+
+def archive_databases(path):
+    return sorted({db for db, _ in archive_namespaces(path) if db})
+
+
+def main(argv):
+    if argv[1:] in (["-h"], ["--help"]):
+        print(__doc__.strip())
+    elif len(argv) == 3 and argv[1] == "config":
+        print(yaml.safe_dump(read_config(argv[2]), default_flow_style=False), end="")
+    elif len(argv) == 3 and argv[1] == "topology":
+        print(topology(argv[2]))
+    elif len(argv) == 4 and argv[1] == "drop-database":
+        drop_database(argv[2], argv[3])
+    elif len(argv) == 3 and argv[1] == "archive-oplog":
+        print("yes" if archive_oplog(argv[2]) else "no")
+    elif len(argv) == 3 and argv[1] == "archive-databases":
+        for db in archive_databases(argv[2]):
+            print(db)
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except Exception as e:  # noqa: BLE001 - every failure is rc 2 for the callers
+        print(f"Error: mongodb-admin: {e}", file=sys.stderr)
+        sys.exit(2)

@@ -83,6 +83,46 @@
 * A MariaDB server without TLS needs `tls: false` (secretRef instances) or
   `skip-ssl` in its static config.
 
+* **MongoDB dumps and restores** (#50). `databases.mongodb` adds MongoDB to
+  the cluster backup, configured like the other engines: a static `config`,
+  an `existingSecret`, or a `secretRef` resolved at pod start, either to a
+  whole connection string (`uriKey`, e.g. the MongoDB Community operator's
+  `connectionString.standard`) or from `host`, `port`, `options` and user and
+  password keys (Percona operator, Bitnami chart). An instance's credentials
+  file is the YAML file `mongodump`/`mongorestore` read with `--config`, so
+  the password never shows on a command line; a database in the URI's path
+  (the Community operator's `…/admin?…`) is handed to the tools as
+  `authSource`, as they would otherwise dump or restore that database alone.
+  * `backup-mongodb` dumps an instance into one uncompressed archive,
+    `<instance>/<instance>.archive`, mode 600, the users and roles included;
+    on a replica set with the oplog of its own run (`--oplog`). The
+    collections are written one after the other, so that two dumps of
+    unchanged data are the same bytes and Borg deduplicates them. A sharded
+    cluster (mongos) is refused; any failure fails the backup with rc ≥ 2
+    and keeps the previous archive.
+  * `backup-cluster-mongodb` runs it for every instance, in the CronJob and,
+    published to the cluster agent, as the plan's pre-backup hook.
+  * `restore-mongodb` restores the whole instance (`--all`, the oplog
+    replayed; `--no-oplog` without), one database (dropped and created
+    again), or one database under another name (`--as`); a database the
+    archive does not hold is refused before anything is dropped. With an
+    oplog, `--all` restores the users and roles first, so that the replay
+    keeps a session the restored users would otherwise end. The user needs
+    the `restore` role, and for `--all` with an oplog `root` or `anyAction`
+    on `anyResource` as well: the replayed oplog starts with the last entry
+    before the dump, often a command.
+  * The image carries `mongodump` and `mongorestore` from Alpine's
+    `mongodb-tools` (100.14.1; the package's six other tools are removed)
+    and `mongodb-admin`, a small pymongo helper for what they cannot do:
+    the server's topology, the config with the URI's database moved, dropping
+    a database collection by collection (the `restore` role may not drop a
+    database), and whether an archive holds an oplog.
+  * The credentials resolver reads Secret keys with a `.` in their name.
+  * `tests/e2e/db/mongodb.bats` runs dump, Borg archive and extract, and
+    every restore mode against MongoDB 7 and 8 (replica sets and a
+    standalone server), comparing each restore with a fingerprint of the
+    source.
+
 ## 1.1.9-beta.12
 
 * **Integration test beta: Borg UI 2.3.10-52-g2e4031646, agent 0.1.21.**

@@ -5,7 +5,7 @@
 # on a Docker network of its own, the tests in the e2e image next to them.
 #
 #   ./tests/e2e/db/run.sh                         # every server version
-#   ./tests/e2e/db/run.sh postgres:17 mariadb:11.8
+#   ./tests/e2e/db/run.sh postgres:17 mariadb:11.8 mongodb:8
 #
 # Environment:
 #   E2E_IMAGE      the image the tests run in (default k8s-borg:e2e, the test
@@ -19,14 +19,14 @@
 #                  Tests script changes on a published image without building
 #                  one, e.g. E2E_IMAGE=ghcr.io/ioanalytica/k8s-borg:<tag>.
 #
-# The server images come from Docker Hub: postgres:<version>-alpine and
-# mariadb:<version>.
+# The server images come from Docker Hub: postgres:<version>-alpine,
+# mariadb:<version> and mongo:<version>.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 self="$PWD/tests/e2e/db/run.sh"
 
-DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8"
+DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mongodb:7 mongodb:8"
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
@@ -40,9 +40,28 @@ if [ "${1:-}" = "--one" ]; then
   spec=$2 log=$3
   engine=${spec%%:*} version=${spec#*:}
   name="${PREFIX}-${engine}${version//./-}"
+  # server_opts ROLE / server_args ROLE — docker run options before the
+  # image and arguments after it for the server of ROLE, one per line.
+  server_opts() { :; }
+  server_args() { :; }
   case "$engine" in
     postgres) server_image="postgres:${version}-alpine"; server_env=(-e "POSTGRES_PASSWORD=$DB_PASSWORD") ;;
     mariadb)  server_image="mariadb:${version}";         server_env=(-e "MARIADB_ROOT_PASSWORD=$DB_PASSWORD") ;;
+    mongodb)
+      server_image="mongo:${version}"
+      server_env=(-e MONGO_INITDB_ROOT_USERNAME=root -e "MONGO_INITDB_ROOT_PASSWORD=$DB_PASSWORD")
+      # `src` and `dst` are single-member replica sets (the oplog case, with
+      # authentication, which a replica set only has with a key file); `dst2`
+      # is a standalone server. The tests initiate the replica sets.
+      server_opts() {
+        [ "$1" != dst2 ] || return 0
+        printf '%s\n' --entrypoint bash
+      }
+      server_args() {
+        [ "$1" != dst2 ] || return 0
+        printf '%s\n' -c 'openssl rand -base64 48 >/tmp/keyfile && chmod 400 /tmp/keyfile && chown mongodb /tmp/keyfile && exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile'
+      }
+      ;;
     *) echo "unknown engine in $spec" >"$log"; exit 1 ;;
   esac
 
@@ -56,7 +75,8 @@ if [ "${1:-}" = "--one" ]; then
   checkout=()
   if [ "${E2E_DB_SCRIPTS_FROM_CHECKOUT:-}" = "1" ]; then
     checkout=(-v "$PWD/tests/e2e:/tests/e2e:ro")
-    for script in docker/rootfs/usr/local/bin/backup-* docker/rootfs/usr/local/bin/restore-*; do
+    for script in docker/rootfs/usr/local/bin/backup-* docker/rootfs/usr/local/bin/restore-* \
+                  docker/rootfs/usr/local/bin/mongodb-admin; do
       checkout+=(-v "$PWD/$script:/usr/local/bin/${script##*/}:ro")
     done
   fi
@@ -65,8 +85,11 @@ if [ "${1:-}" = "--one" ]; then
     echo "▶ $spec ($server_image)"
     docker network create "$name" >/dev/null
     for role in src dst dst2; do
+      opts=() args=()
+      while IFS= read -r line; do opts+=("$line"); done < <(server_opts "$role")
+      while IFS= read -r line; do args+=("$line"); done < <(server_args "$role")
       docker run -d -q --name "${name}-${role}" --network "$name" --network-alias "$role" \
-        "${server_env[@]}" "$server_image" >/dev/null
+        "${server_env[@]}" ${opts[@]+"${opts[@]}"} "$server_image" ${args[@]+"${args[@]}"} >/dev/null
     done
     rc=0
     # ${a[@]+…}: an empty array is "unbound" to set -u in bash 3.2 (macOS).
