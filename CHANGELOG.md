@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+* **Repository server: an external copy, `repoServer.offsite`** (issue #54).
+  * A CronJob mirrors every repository below the data directory to an rclone
+    remote — S3-compatible storage, an SFTP target such as a Hetzner Storage
+    Box, or any other — for the case that the server's storage fails. Off by
+    default. A mirror, not a second backup: deletions and compactions reach
+    the copy with the next run.
+  * `borg-offsite-copy` copies one repository at a time; one that does not
+    exist locally is never touched on the remote, so a server on a new, empty
+    volume does not empty the copy. No lock and no passphrase: Borg 2 seals
+    its locks with the repository key. Each repository is copied in Borg's
+    write order (segments or packs, then what refers to them, then the
+    deletions) and copied again when a client wrote to it or held a lock
+    meanwhile; a run that cannot settle a repository fails, the others are
+    copied all the same.
+  * The job reads the server's volume read-only, as the server's user, on its
+    node, without root or capabilities. `rcloneConfig`, `sshKey` and
+    `knownHosts` each from a value or an existing Secret; `schedule`,
+    `timeZone`, `suspend`, `bwlimit`, `transfers`, `retries`, `extraArgs`.
+  * `chart/README.md` describes the restore: the server rebuilt from the copy
+    (with umask 077 — rclone leaves the files readable for everyone), Borg 1
+    clients that saw a newer state, and reading a copy directly with Borg 1
+    and Borg 2 for each kind of target.
+  * Tested end to end against Garage and an SFTP target that runs `borg
+    serve`, for Borg 1 and Borg 2.
+
 * **Redis and Valkey: consistent RDB snapshots** (issue #52).
   * New engine `databases.redis` (off by default), for Redis and Valkey
     alike: instances with a static key=value `config` (`host`, `port`,

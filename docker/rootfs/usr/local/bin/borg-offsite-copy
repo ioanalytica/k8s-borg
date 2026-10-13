@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+#
+# Copy job of the repository server: mirror every repository below the data
+# directory to an rclone remote, so that the repositories survive a failure of
+# the server's storage.
+#
+#   borg-offsite-copy [RCLONE OPTION…]
+#
+# Options are handed to every rclone call (--transfers, --bwlimit, …).
+#
+# One repository at a time, Borg 1 and Borg 2 alike. A repository that does not
+# exist locally is never touched on the remote: after a storage failure the
+# server may start on a new, empty volume, and a sync of the whole data
+# directory would then empty the copy.
+#
+# No lock, and no key: Borg 2 seals its lock objects with the repository key,
+# and the server never holds a passphrase. Instead every repository is copied
+# in the order Borg writes it — data (segments / packs) first, then the files
+# that refer to it, then the deletions — and the copy counts only if nothing in
+# the repository changed meanwhile and no client held a lock at either end.
+# Otherwise it is repeated, BORG_OFFSITE_RETRIES times at most.
+#
+# The copy is a mirror: what a client deletes or compacts disappears from it
+# with the next run.
+#
+# Inputs:
+#   BORG_OFFSITE_TARGET       rclone remote and path, e.g. offsite:k8s-borg (required)
+#   BORG_OFFSITE_SOURCE       data directory                             (/repos)
+#   BORG_OFFSITE_RETRIES      attempts per repository                    (3)
+#   BORG_OFFSITE_RETRY_DELAY  seconds between two attempts               (60)
+#   BORG_OFFSITE_RCLONE       the rclone binary                          (rclone)
+#
+# Exit status: 0 when every repository was copied, 1 when one or more were not
+# (the others are still copied), 2 when nothing could be started.
+set -uo pipefail
+
+die() { echo "FATAL: $*" >&2; exit 2; }
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
+
+SOURCE="${BORG_OFFSITE_SOURCE:-/repos}"
+TARGET="${BORG_OFFSITE_TARGET:-}"
+RETRIES="${BORG_OFFSITE_RETRIES:-3}"
+RETRY_DELAY="${BORG_OFFSITE_RETRY_DELAY:-60}"
+RCLONE="${BORG_OFFSITE_RCLONE:-rclone}"
+
+[ -n "$TARGET" ] || die "BORG_OFFSITE_TARGET is not set — it names the rclone remote and path, e.g. offsite:k8s-borg"
+case "$TARGET" in
+  *:*) ;;
+  *) die "BORG_OFFSITE_TARGET \"$TARGET\" is not an rclone remote — expected <remote>:<path>" ;;
+esac
+[[ "$RETRIES" =~ ^[1-9][0-9]*$ ]] || die "BORG_OFFSITE_RETRIES must be 1 or more (got \"$RETRIES\")"
+[[ "$RETRY_DELAY" =~ ^[0-9]+$ ]] || die "BORG_OFFSITE_RETRY_DELAY must be a number of seconds (got \"$RETRY_DELAY\")"
+# A missing data directory is a volume that is not there, not an empty server.
+[ -d "$SOURCE" ] && [ -r "$SOURCE" ] && [ -x "$SOURCE" ] \
+  || die "data directory $SOURCE does not exist or cannot be read"
+command -v "$RCLONE" >/dev/null 2>&1 || die "$RCLONE not found"
+
+# GNU and busybox stat first, BSD stat for the tests.
+if stat -c '%n' / >/dev/null 2>&1; then
+  stat_format=(-c '%n %s %Y')
+else
+  stat_format=(-f '%N %z %m')
+fi
+
+# Lock files are the clients' business, never part of the copy: Borg 1's
+# lock.exclusive and lock.roster, Borg 2's locks/.
+lock_filters=(--filter '- /lock.roster' --filter '- /lock.exclusive/**' --filter '- /locks/**')
+
+is_borg1() {
+  [ -f "$1/config" ] && [ -d "$1/data" ] && [ -f "$1/README" ] \
+    && [ "$(head -1 "$1/README" 2>/dev/null)" = "This is a Borg Backup repository." ]
+}
+
+# The namespaces Borg 2 creates with every repository.
+is_borg2() { [ -d "$1/packs" ] && [ -d "$1/archives" ] && [ -d "$1/index" ] && [ -d "$1/config" ]; }
+
+# find_repositories DIR — "<major> <path>" for every repository below DIR.
+# Nothing below a repository is searched, symlinks are not followed.
+find_repositories() {
+  local sub
+  for sub in "$1"/*/; do
+    sub="${sub%/}"
+    [ -d "$sub" ] && [ ! -L "$sub" ] || continue
+    if is_borg1 "$sub"; then
+      echo "1 $sub"
+    elif is_borg2 "$sub"; then
+      echo "2 $sub"
+    else
+      find_repositories "$sub"
+    fi
+  done
+}
+
+locked() {
+  case "$1" in
+    1) [ -e "$2/lock.exclusive" ] ;;
+    2) [ -n "$(ls -A "$2/locks" 2>/dev/null)" ] ;;
+  esac
+}
+
+# fingerprint DIR — every file outside the lock files with its size and mtime.
+# Borg writes new files under new names, so this changes with every write.
+fingerprint() {
+  (cd "$1" && find . \( -path ./locks -o -path ./lock.exclusive \) -prune \
+    -o -type f ! -name lock.roster -exec stat "${stat_format[@]}" {} + | sort | cksum)
+}
+
+# remote_path REL — the repository's place on the remote, below TARGET.
+remote_path() {
+  case "$TARGET" in
+    *:) echo "$TARGET$1" ;;
+    *) echo "${TARGET%/}/$1" ;;
+  esac
+}
+
+# copy_once MAJOR DIR DEST — one pass in Borg's own write order.
+copy_once() {
+  local major="$1" dir="$2" dest="$3" data
+  case "$major" in
+    1) data='/data/**' ;;
+    2) data='/packs/**' ;;
+  esac
+  "$RCLONE" copy "$dir" "$dest" "${lock_filters[@]}" --filter "+ $data" --filter '- **' ${rclone_args[@]+"${rclone_args[@]}"} \
+    && "$RCLONE" copy "$dir" "$dest" "${lock_filters[@]}" --filter "- $data" ${rclone_args[@]+"${rclone_args[@]}"} \
+    && "$RCLONE" sync "$dir" "$dest" "${lock_filters[@]}" ${rclone_args[@]+"${rclone_args[@]}"}
+}
+
+# copy_repository MAJOR DIR — until a pass sees the repository unchanged.
+copy_repository() {
+  local major="$1" dir="$2" rel dest attempt before
+  rel="${dir#"$SOURCE"/}"
+  dest="$(remote_path "$rel")"
+  for ((attempt = 1; attempt <= RETRIES; attempt++)); do
+    if [ "$attempt" -gt 1 ]; then
+      sleep "$RETRY_DELAY"
+    fi
+    if locked "$major" "$dir"; then
+      log "  $rel: locked by a client (attempt $attempt of $RETRIES)"
+      continue
+    fi
+    before="$(fingerprint "$dir")"
+    if ! copy_once "$major" "$dir" "$dest"; then
+      log "  $rel: rclone failed (attempt $attempt of $RETRIES)"
+      continue
+    fi
+    if [ "$(fingerprint "$dir")" = "$before" ] && ! locked "$major" "$dir"; then
+      log "  $rel: copied (Borg $major, attempt $attempt)"
+      return 0
+    fi
+    log "  $rel: changed during the copy (attempt $attempt of $RETRIES)"
+  done
+  log "  $rel: NOT copied — the copy on the remote may be incomplete until the next run"
+  return 1
+}
+
+rclone_args=("$@")
+SOURCE="${SOURCE%/}"
+
+repositories="$(find_repositories "$SOURCE")"
+if [ -z "$repositories" ]; then
+  log "no repository below $SOURCE — nothing to copy"
+  exit 0
+fi
+
+total=0
+failed=()
+log "copying $(wc -l <<<"$repositories" | tr -d ' ') repositories from $SOURCE to $TARGET"
+while read -r major dir; do
+  total=$((total + 1))
+  copy_repository "$major" "$dir" </dev/null || failed+=("${dir#"$SOURCE"/}")
+done <<<"$repositories"
+
+if [ "${#failed[@]}" -gt 0 ]; then
+  log "${#failed[@]} of $total repositories not copied: ${failed[*]}"
+  exit 1
+fi
+log "all $total repositories copied"

@@ -1252,3 +1252,55 @@ the install instead of a pod.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+External copy of the repository server (repoServer.offsite.enabled).
+*/}}
+{{- define "k8s-borg.repoServer.offsite.fullname" -}}
+{{- printf "%s-offsite" (include "k8s-borg.repoServer.fullname" .) -}}
+{{- end -}}
+
+{{/* Where the copy job finds rclone.conf and the files it refers to. */}}
+{{- define "k8s-borg.repoServer.offsite.configDir" -}}/etc/borg-offsite{{- end -}}
+
+{{/* The files of the config directory: published name, value field, default key
+in an existing Secret. */}}
+{{- define "k8s-borg.repoServer.offsite.files" -}}
+{{- toJson (list
+  (dict "name" "rcloneConfig" "file" "rclone.conf")
+  (dict "name" "sshKey" "file" "ssh_key")
+  (dict "name" "knownHosts" "file" "known_hosts")) -}}
+{{- end -}}
+
+{{/* Non-empty when one of the files comes from the chart's own Secret. */}}
+{{- define "k8s-borg.repoServer.offsite.secretManaged" -}}
+{{- $o := .Values.repoServer.offsite -}}
+{{- range (include "k8s-borg.repoServer.offsite.files" . | fromJsonArray) -}}
+{{- $ref := get $o .name -}}
+{{- if and $ref.value (not $ref.existingSecret) -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "k8s-borg.repoServer.offsite.validate" -}}
+{{- $o := .Values.repoServer.offsite -}}
+{{- if $o.enabled -}}
+{{- if not .Values.repoServer.enabled -}}
+{{- fail "repoServer.offsite.enabled requires repoServer.enabled: the copy job reads the server's data directory" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9_][A-Za-z0-9_.-]*:" (toString $o.target)) -}}
+{{- fail (printf "repoServer.offsite.target must be <remote>:<path>, the remote as named in the rclone config (got %q)" (toString $o.target)) -}}
+{{- end -}}
+{{- if not (or $o.rcloneConfig.value $o.rcloneConfig.existingSecret) -}}
+{{- fail "repoServer.offsite.enabled requires an rclone config: set repoServer.offsite.rcloneConfig.value, or repoServer.offsite.rcloneConfig.existingSecret" -}}
+{{- end -}}
+{{- if not (trim (toString $o.schedule)) -}}
+{{- fail "repoServer.offsite.schedule must be a cron schedule" -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString $o.retries)) -}}
+{{- fail (printf "repoServer.offsite.retries must be 1 or more (got %v)" $o.retries) -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString $o.transfers)) -}}
+{{- fail (printf "repoServer.offsite.transfers must be 1 or more (got %v)" $o.transfers) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

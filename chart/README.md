@@ -805,6 +805,139 @@ install -d -o 20222 -g 20222 -m 0700 /srv/borg
 
 Volume and claim created by the chart are kept on `helm uninstall`.
 
+### External copy
+
+`repoServer.offsite.enabled=true` adds a CronJob that copies every repository
+below the data directory to an rclone remote: S3-compatible storage, an SFTP
+target such as a Hetzner Storage Box, or any other remote rclone knows. It is
+there for one case: the server's storage fails.
+
+> **The copy is a mirror, not a second backup.** What a client deletes or
+> compacts disappears from the copy with the next run. Against deletions by a
+> client there is `no-delete` (see above); against everything else — a
+> compromised server included, which holds the credentials of the remote —
+> only the remote itself helps: versioning or object lock on a bucket, snapshots
+> of a Storage Box.
+
+What the job does:
+
+- **It reads the server's volume read-only**, as `repoServer.runAsUser`, on the
+  server's node, without root or capabilities, like the server itself. The
+  clients notice nothing and never see the remote's credentials.
+- **One repository at a time, at the same path below `target` as below the data
+  directory.** A repository that does not exist locally is never touched on the
+  remote: a server that starts on a new, empty volume does not empty the copy.
+  A repository a client deletes altogether stays on the remote until you remove
+  it there.
+- **No lock and no passphrase.** Borg 2 seals its locks with the repository key,
+  and the server never holds one. Instead every repository is copied in the
+  order Borg writes it — segments or packs first, then what refers to them, then
+  the deletions — and the copy only counts if nothing in the repository changed
+  meanwhile and no client held a lock at either end. Otherwise it is taken
+  again, `retries` times at most. **Schedule it outside the backup windows**:
+  a repository that keeps changing fails the run.
+- **A failed run is a failed Job** (`backoffLimit: 0`); its log names every
+  repository that was not copied. The others are copied all the same. A run
+  by hand: `kubectl create job --from=cronjob/<release>-repo-server-offsite offsite-now`.
+
+```yaml
+repoServer:
+  offsite:
+    enabled: true
+    target: offsite:k8s-borg        # <remote>:<path>, the remote from rclone.conf
+    schedule: "0 4 * * *"
+    bwlimit: "08:00,2M 20:00,off"   # rclone --bwlimit, optional
+    rcloneConfig:
+      existingSecret: k8s-borg-offsite   # key rclone.conf
+```
+
+`rcloneConfig`, `sshKey` and `knownHosts` each take a `value` or an existing
+Secret (`existingSecret`, `existingSecretKey`), and are mounted as
+`/etc/borg-offsite/rclone.conf`, `ssh_key` and `known_hosts`. Further rclone
+options go to `extraArgs`; `transfers` (default 4) is how many files move in
+parallel.
+
+S3-compatible storage:
+
+```ini
+[offsite]
+type = s3
+provider = Other
+endpoint = https://s3.example.com
+region = eu-central-1
+access_key_id = …
+secret_access_key = …
+# a key that may not create buckets:
+no_check_bucket = true
+```
+
+A Hetzner Storage Box (or any SFTP server), with `sshKey` and `knownHosts`:
+
+```ini
+[offsite]
+type = sftp
+host = u123456.your-storagebox.de
+port = 23
+user = u123456
+key_file = /etc/borg-offsite/ssh_key
+known_hosts_file = /etc/borg-offsite/known_hosts
+```
+
+```sh
+ssh-keyscan -p 23 u123456.your-storagebox.de   # the line for knownHosts
+```
+
+Without `known_hosts_file` rclone accepts any host key.
+
+#### Restoring from the copy
+
+**Rebuild the server** after its storage failed:
+
+1. Set `repoServer.offsite.suspend: true`, so that the job does not take a
+   half-restored repository for the current one and trims the copy to it.
+2. Provide the new data directory, owned by `repoServer.runAsUser` (see above).
+3. Copy the repositories back as that user, **with umask 077**: rclone would
+   leave the files readable for everyone.
+
+   ```sh
+   umask 077
+   rclone --config rclone.conf copy offsite:k8s-borg /srv/borg   # as uid 20222
+   ```
+
+4. Start the server, then set `suspend: false` again. The clients keep their
+   URLs.
+
+**Borg 1 clients that backed up after the last copy refuse the repository**:
+"Cache, or information obtained from the security directory is newer than
+repository". The archives since the last copy are lost; to carry on, the client
+forgets what it knew of this repository — its id is the `id` line of the
+repository's `config` — and rebuilds its cache:
+
+```sh
+rm -rf ~/.config/borg/security/<id> ~/.cache/borg/<id>   # below BORG_BASE_DIR, if set
+```
+
+Borg 2 clients carry on as they are.
+
+**Read the copy directly**, without a server:
+
+| Target | Borg 2 | Borg 1 |
+| --- | --- | --- |
+| S3 | `s3:<key-id>:<secret>@https://s3.example.com/<bucket>/<path>` | download it with `rclone copy`, then open the local directory |
+| Storage Box | `sftp://u123456@u123456.your-storagebox.de:23/<path>` | `ssh://u123456@u123456.your-storagebox.de:23/./<path>` with `--remote-path=borg-1.4` — the box runs Borg 1 itself |
+| other rclone remote | `rclone:<remote>:<path>` | download it with `rclone copy` |
+
+- A client that knew the repository at the server asks before it opens it at
+  another place, and gives up without a terminal: set
+  `BORG_RELOCATED_REPO_ACCESS_IS_OK=yes`.
+- The passphrase is needed as always. A repository in a keyfile mode also needs
+  the client's key file, which is not in the copy.
+- Borg 2 over sftp moves everything through one stream, and `borg check` reads
+  the whole repository. For a large restore from a Storage Box, download the
+  copy with rclone first (parallel transfers) and restore from the local
+  directory.
+- Run `borg check` on what you restored.
+
 ## Borg 1 vs 2
 
 `borg.version` (`1` or `2`) selects the borg **binary** used by the scripts. The

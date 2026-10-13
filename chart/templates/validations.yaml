@@ -60,6 +60,7 @@ what the script accepts. Any borg.version but 2 is Borg 1, as for the scripts.
 {{- end }}
 {{- end }}
 {{- include "k8s-borg.repoServer.validate" . }}
+{{- include "k8s-borg.repoServer.offsite.validate" . }}
 {{- include "k8s-borg.ui.notifications.validate" . }}
 {{- /*
 node.sqlite: each database names its claim and a path inside the volume, which
