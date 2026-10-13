@@ -125,7 +125,9 @@ if [ "${1:-}" = "--one" ]; then
 
   cleanup() {
     local role
-    for role in "${roles[@]}" tests; do docker rm -f "${name}-${role}" >/dev/null 2>&1 || true; done
+    # -v: the server images declare their data directory a volume, which
+    # would otherwise outlive the container.
+    for role in "${roles[@]}" tests; do docker rm -f -v "${name}-${role}" >/dev/null 2>&1 || true; done
     docker volume rm "${name}-data" "${name}-dst-data" >/dev/null 2>&1 || true
     docker network rm "$name" >/dev/null 2>&1 || true
   }
