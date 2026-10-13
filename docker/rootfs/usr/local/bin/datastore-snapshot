@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+#
+# Snapshot the cluster datastore of this node, so that the node backup archives
+# a consistent copy instead of a data directory read while it is written.
+#
+#   k3s, embedded etcd   etcdctl snapshot save, against the node's etcd
+#   k3s, SQLite (kine)   the SQLite online backup of state.db
+#   kubeadm, local etcd  etcdctl snapshot save, against the node's etcd
+#
+# Each snapshot goes with what its restore needs: the k3s server token (k3s
+# keeps its certificates in the datastore, encrypted with it), or kubeadm's
+# PKI directory. A node with none of these (a worker, a cluster with external
+# etcd) has nothing to snapshot, which is not an error.
+#
+# The snapshot holds every Secret of the cluster in clear text. It is written
+# only to DATASTORE_SNAPSHOT_DIR, a memory-backed volume of the pod, and `clean`
+# removes it again once the backup has archived it.
+#
+# Usage: datastore-snapshot [save|clean]
+#   save (default)  remove an earlier snapshot, then take a new one
+#   clean           remove the snapshot
+#
+# Exit: 0 done (or nothing to snapshot), 2 failed; a failed snapshot leaves
+# nothing behind. In the agent script contract 1 is a warning, so a failure is
+# never 1.
+#
+# Environment:
+#   DATASTORE_SNAPSHOT_DIR      where the snapshot goes (default /var/lib/k8s-borg/datastore)
+#   HOST_ROOT                   the node's root file system (default /node)
+#   K3S_DATA_DIR                k3s data directory on the node (default /var/lib/rancher/k3s)
+#   KUBEADM_DIR                 kubeadm configuration directory on the node (default /etc/kubernetes)
+#   DATASTORE_ETCD_ENDPOINT     etcd client URL (default https://$HOST_IP:2379, else https://127.0.0.1:2379)
+#   DATASTORE_SNAPSHOT_TIMEOUT  seconds one snapshot may take (default 600)
+set -uo pipefail
+
+dir="${DATASTORE_SNAPSHOT_DIR:-/var/lib/k8s-borg/datastore}"
+root="${HOST_ROOT:-/node}"
+k3s_server="${root}${K3S_DATA_DIR:-/var/lib/rancher/k3s}/server"
+kubeadm="${root}${KUBEADM_DIR:-/etc/kubernetes}"
+if [ -n "${DATASTORE_ETCD_ENDPOINT:-}" ]; then
+  endpoint="${DATASTORE_ETCD_ENDPOINT}"
+elif [ -n "${HOST_IP:-}" ]; then
+  endpoint="https://${HOST_IP}:2379"
+else
+  endpoint="https://127.0.0.1:2379"
+fi
+limit="${DATASTORE_SNAPSHOT_TIMEOUT:-600}"
+
+say() { echo "datastore-snapshot: $*"; }
+die() { echo "datastore-snapshot: ERROR: $*" >&2; clean; exit 2; }
+
+# Only the directories this script writes, never the whole volume.
+clean() { rm -rf "${dir:?}/k3s" "${dir:?}/kubeadm"; }
+
+with_timeout() {
+  if command -v timeout >/dev/null 2>&1; then timeout "${limit}" "$@"; else "$@"; fi
+}
+
+# etcd_snapshot OUT CACERT CERT KEY — etcdctl verifies the snapshot's checksum
+# when it saves it; the status line goes to the log.
+etcd_snapshot() {
+  local out=$1 cacert=$2 cert=$3 key=$4 f
+  for f in "${cacert}" "${cert}" "${key}"; do
+    [ -r "${f}" ] || die "etcd client certificate ${f#"${root}"} not found"
+  done
+  say "etcd snapshot from ${endpoint} …"
+  with_timeout etcdctl --endpoints="${endpoint}" --dial-timeout=10s \
+      --cacert="${cacert}" --cert="${cert}" --key="${key}" \
+      snapshot save "${out}" >/dev/null \
+    || die "etcdctl snapshot save from ${endpoint} failed"
+  etcdutl snapshot status "${out}" -w table || die "the snapshot does not verify"
+}
+
+# sqlite_snapshot SRC OUT — SQLite's online backup, read-only: the database is
+# in WAL mode and k3s keeps writing it; the copy is one consistent state, and
+# is checked before it counts.
+sqlite_snapshot() {
+  say "SQLite backup of ${1#"${root}"} …"
+  with_timeout python3 - "$1" "$2" <<'PY' || die "SQLite backup of ${1#"${root}"} failed"
+import sqlite3, sys, urllib.parse
+src = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(sys.argv[1]), uri=True, timeout=60)
+dst = sqlite3.connect(sys.argv[2])
+src.backup(dst)
+src.close()
+dst.execute("PRAGMA journal_mode=DELETE")
+result = dst.execute("PRAGMA integrity_check").fetchone()[0]
+dst.close()
+if result != "ok":
+    sys.exit("integrity check: %s" % result)
+PY
+}
+
+case "${1:-save}" in
+  clean) clean && exit 0; echo "datastore-snapshot: ERROR: cannot remove the snapshot in ${dir}" >&2; exit 2 ;;
+  save) ;;
+  *) echo "usage: datastore-snapshot [save|clean]" >&2; exit 2 ;;
+esac
+
+clean
+umask 077
+mkdir -p "${dir}" || die "cannot create ${dir}"
+found=0
+
+if [ -d "${k3s_server}/db/etcd/member" ]; then
+  found=1
+  mkdir -p "${dir}/k3s"
+  etcd_snapshot "${dir}/k3s/etcd-snapshot.db" "${k3s_server}/tls/etcd/server-ca.crt" \
+    "${k3s_server}/tls/etcd/client.crt" "${k3s_server}/tls/etcd/client.key"
+elif [ -f "${k3s_server}/db/state.db" ]; then
+  found=1
+  mkdir -p "${dir}/k3s"
+  sqlite_snapshot "${k3s_server}/db/state.db" "${dir}/k3s/state.db"
+fi
+if [ -d "${dir}/k3s" ]; then
+  cp "${k3s_server}/token" "${dir}/k3s/token" || die "k3s server token not found"
+  say "k3s datastore saved to ${dir}/k3s"
+fi
+
+if [ -f "${kubeadm}/manifests/etcd.yaml" ]; then
+  found=1
+  mkdir -p "${dir}/kubeadm"
+  etcd_snapshot "${dir}/kubeadm/etcd-snapshot.db" "${kubeadm}/pki/etcd/ca.crt" \
+    "${kubeadm}/pki/etcd/healthcheck-client.crt" "${kubeadm}/pki/etcd/healthcheck-client.key"
+  cp -R "${kubeadm}/pki" "${dir}/kubeadm/pki" || die "cannot copy ${KUBEADM_DIR:-/etc/kubernetes}/pki"
+  say "kubeadm etcd saved to ${dir}/kubeadm"
+fi
+
+[ "${found}" = 1 ] || say "no cluster datastore on this node, nothing to snapshot"
+exit 0

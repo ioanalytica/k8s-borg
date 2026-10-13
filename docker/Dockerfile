@@ -104,6 +104,36 @@ RUN set -eu; \
     make -j"$(nproc)"; \
     install -D -s -m 0755 src/s3fs /out/usr/bin/s3fs
 
+# --- etcd client: etcdctl and etcdutl -----------------------------------------
+# For the node backup's datastore snapshot (datastore-snapshot): etcdctl takes
+# the snapshot from the node's etcd, etcdutl checks it, and restores it. The
+# official release build, pinned with its checksum per architecture; tested
+# against the etcd 3.6 of k3s and the etcd 3.7 of kubeadm.
+FROM python:${PYTHON_VERSION}-alpine AS etcd-fetch
+
+ARG TARGETARCH
+ARG ETCD_VERSION=3.6.15
+ARG ETCD_SHA256_AMD64=b51d86e6bff2168de5ba8cd631c0fe6c785c7a1b32b083079f5677d6b7e2772c
+ARG ETCD_SHA256_ARM64=567d9b8fa9e75b349600d2b64ef9bf6bc6d512cea75a2ce1c39b1b3046131244
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl
+
+WORKDIR /build
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) sum="${ETCD_SHA256_AMD64}" ;; \
+      arm64) sum="${ETCD_SHA256_ARM64}" ;; \
+      *) echo "no etcd checksum for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    name="etcd-v${ETCD_VERSION}-linux-${TARGETARCH}"; \
+    curl -fsSL -o etcd.tar.gz "https://github.com/etcd-io/etcd/releases/download/v${ETCD_VERSION}/${name}.tar.gz"; \
+    printf '%s  etcd.tar.gz\n' "${sum}" >etcd.tar.gz.sha256; \
+    sha256sum -c etcd.tar.gz.sha256; \
+    tar -xzf etcd.tar.gz; \
+    install -D -m 0755 "${name}/etcdctl" /out/usr/local/bin/etcdctl; \
+    install -D -m 0755 "${name}/etcdutl" /out/usr/local/bin/etcdutl
+
 # --- agent image -------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-alpine
 
@@ -146,6 +176,7 @@ RUN apk add --no-cache \
 COPY --from=borg-builder /opt/borg-ui-agent/borg1/venv /opt/borg-ui-agent/borg1/venv
 COPY --from=borg-builder /opt/borg-ui-agent/borg2/venv /opt/borg-ui-agent/borg2/venv
 COPY --from=s3fs-builder /out/usr/bin/s3fs /usr/bin/s3fs
+COPY --from=etcd-fetch /out/usr/local/bin/ /usr/local/bin/
 
 # Version-independent paths, so the wrappers resolve Borg even without this
 # image's environment (`env -i`, a cron with no environment, `su -`).
@@ -206,11 +237,13 @@ ENV BORG2_DEFAULT_PARAMS=""
 ENV BORG_STORE_CACHE=1
 ENV BORG_PACK_CACHE_SIZE=2147483648
 
-# Build-time self-test: both Borg majors (via the wrappers), s3fs and the agent
-# CLI must work, or the build fails.
+# Build-time self-test: both Borg majors (via the wrappers), s3fs, the etcd
+# client and the agent CLI must work, or the build fails.
 RUN borg --version \
     && borg2 --version \
     && s3fs --version \
+    && etcdctl version \
+    && etcdutl version \
     && borg-ui-agent --help >/dev/null
 
 # The repository server's sshd_config must parse with the OpenSSH this image

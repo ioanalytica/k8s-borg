@@ -175,6 +175,144 @@ does. For such a server, set `tls: false` on a `secretRef` instance (the
 resolver writes `skip-ssl` into its credentials file), or add a `skip-ssl`
 line to the `[client]` section of a static `config`.
 
+## Cluster datastore snapshot
+
+`node.datastoreSnapshot.enabled=true` adds a snapshot of the cluster datastore
+to the node backup of every control-plane node: the objects, Secrets and
+configuration a lost control plane is rebuilt from. Copying the datastore's
+files while it runs does not give a consistent copy, so each node pod takes a
+snapshot first:
+
+| Datastore | Detected by | Snapshot | Goes along |
+| --- | --- | --- | --- |
+| k3s, embedded etcd | `<k3sDataDir>/server/db/etcd/member` | `etcdctl snapshot save` | the k3s server token |
+| k3s, SQLite | `<k3sDataDir>/server/db/state.db` | SQLite online backup (read-only) | the k3s server token |
+| kubeadm, local etcd | `<kubeadmDir>/manifests/etcd.yaml` | `etcdctl snapshot save` | `<kubeadmDir>/pki` |
+
+The node DaemonSet runs on every node and tolerates `NoSchedule` taints, so it
+reaches the control-plane nodes; a node without a datastore skips the step.
+Control-plane nodes with a `NoExecute` taint (k3s's `CriticalAddonsOnly` for
+dedicated servers) need a matching entry in `node.tolerations`. Not covered:
+an etcd outside the cluster's nodes (kubeadm's external etcd), and other
+datastores of k3s (kine with PostgreSQL or MySQL).
+
+> **RKE2, and k3s with embedded etcd, snapshot etcd themselves** (by default
+> every 12 hours, into `<data-dir>/server/db/snapshots`). Archiving that
+> directory through `node.include` is enough and needs no part of this
+> feature, for example
+> `R /node/var/lib/rancher/rke2/server/db/snapshots`. Archive the server
+> token with it (`<data-dir>/server/token`, or the `token` in the server's
+> config file, or the file its `token-file` names): the restore refuses
+> without it. Snapshot and token together give the cluster's Secrets and
+> keys, so the repository must encrypt (see below). Such a snapshot is as old
+> as the last scheduled one, and it stays on the node's disk. This feature is
+> for datastores without built-in snapshots, k3s with SQLite and kubeadm, or
+> for a snapshot taken at backup time.
+
+etcd is reached at the node's IP, on which k3s and kubeadm listen as well as
+on localhost, with the node's etcd client certificate, read through the
+read-only host root. Where etcd listens on localhost only,
+`node.datastoreSnapshot.hostNetwork=true` puts the node pods into the host
+network and uses `https://127.0.0.1:2379`; `node.datastoreSnapshot.etcdEndpoint`
+sets any other URL.
+
+**The snapshot holds every Secret of the cluster in clear text.** It is written
+to a memory-backed volume of the pod (`node.datastoreSnapshot.sizeLimit`,
+default `2Gi`, counts against the pod's memory), never to the node's disk,
+archived from there into the repository, and removed after the run.
+A run that ends early (a failed pre-backup hook before it, a cancelled run)
+leaves it in that memory until the next run or the pod's end.
+
+**Use it only with an encrypting repository mode** (`borg.encryption`: the
+`repokey*` and `keyfile*` modes, the default). `authenticated*` and `none` do
+not encrypt the archive contents: anyone who can read the repository reads the
+snapshot, the token and the PKI without the passphrase.
+
+- **Interval mode:** `run.sh` takes the snapshot before `borg-backup` and
+  removes it on every way out.
+- **Agent mode:** the chart publishes `datastore-snapshot` and
+  `datastore-snapshot-clean` to the node agent (next to `node.agentScripts`,
+  which win on a name collision) and attaches them to the node plan: the
+  snapshot as the last pre-backup hook, its removal as the first post-backup
+  hook, run whatever the backup's result. Hooks chosen in Borg UI stay on the
+  plan; switching the feature off removes only these two.
+
+A failed snapshot does not stop the file backup, and fails the run; in agent
+mode Borg UI can only show it as a warning (`continue_on_error`).
+
+### Archive layout
+
+```
+var/lib/k8s-borg/datastore/k3s/etcd-snapshot.db    k3s, embedded etcd
+var/lib/k8s-borg/datastore/k3s/state.db            k3s, SQLite
+var/lib/k8s-borg/datastore/k3s/token               k3s server token
+var/lib/k8s-borg/datastore/kubeadm/etcd-snapshot.db
+var/lib/k8s-borg/datastore/kubeadm/pki/            /etc/kubernetes/pki
+```
+
+### Restore
+
+The restore is done by hand on the node. Each procedure below was carried out
+once on a test cluster from an archive this chart wrote: the objects from
+before the backup were back, the ones created after it were gone, and the
+Secrets were readable.
+
+Get the files out of the archive with a Borg of the repository's version, for
+example the one in this chart's image, onto the node being restored, into a
+directory only root can read (`/root/restore` below). Delete them after the
+restore.
+
+```sh
+borg extract "$BORG_REPO::<archive>" var/lib/k8s-borg/datastore      # Borg 1
+borg -r "$BORG_REPO" extract <archive> var/lib/k8s-borg/datastore    # Borg 2
+```
+
+**k3s, embedded etcd** (tested on a fresh node with the same k3s version):
+
+```sh
+systemctl stop k3s
+k3s server --cluster-reset \
+  --cluster-reset-restore-path=/root/restore/var/lib/k8s-borg/datastore/k3s/etcd-snapshot.db \
+  --token="$(cat /root/restore/var/lib/k8s-borg/datastore/k3s/token)"
+systemctl start k3s
+```
+
+k3s keeps its certificates in the datastore, encrypted with the token: without
+`--token`, a node without the original token file refuses the restore. With
+more than one server, k3s documents the rest: on each other server stop k3s,
+move `/var/lib/rancher/k3s/server/db` away, and start k3s to rejoin (not
+tested here).
+
+**k3s, SQLite** (tested on a fresh node with the same k3s version):
+
+```sh
+systemctl stop k3s
+mkdir -p /root/restore/old && mv /var/lib/rancher/k3s/server/db/state.db* /root/restore/old/
+install -m 0600 /root/restore/var/lib/k8s-borg/datastore/k3s/state.db /var/lib/rancher/k3s/server/db/state.db
+systemctl start k3s     # on a fresh node: with --token "$(cat …/k3s/token)", as above
+```
+
+**kubeadm, local etcd** (tested on the same control-plane node). Take the
+member name and peer URL from `/etc/kubernetes/manifests/etcd.yaml`; `etcdutl`
+comes with the etcd release and with this chart's image:
+
+```sh
+mkdir -p /etc/kubernetes/manifests.stopped
+mv /etc/kubernetes/manifests/{etcd,kube-apiserver}.yaml /etc/kubernetes/manifests.stopped/
+# wait until crictl ps shows neither etcd nor kube-apiserver
+etcdutl snapshot restore /root/restore/var/lib/k8s-borg/datastore/kubeadm/etcd-snapshot.db \
+  --data-dir /var/lib/etcd-restored --name <member> \
+  --initial-cluster <member>=https://<node IP>:2380 \
+  --initial-advertise-peer-urls https://<node IP>:2380
+mv /var/lib/etcd /var/lib/etcd.before-restore && mv /var/lib/etcd-restored /var/lib/etcd
+mv /etc/kubernetes/manifests.stopped/{etcd,kube-apiserver}.yaml /etc/kubernetes/manifests/
+```
+
+On a rebuilt node, put `kubeadm/pki` back to `/etc/kubernetes/pki` first, so
+the cluster keeps its certificate authority; with several etcd members, each
+member restores the same snapshot with its own name and the full
+`--initial-cluster` (etcd's documentation). Neither was tested here.
+
 ## Repository server (optional)
 
 `repoServer.enabled=true` adds a Borg repository server to the release: `sshd`
@@ -512,7 +650,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
 | `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run. In plan mode the console pod's mounts live as long as the pod, so each plan run first mounts every bucket fresh (pre-backup hook `s3-remount-buckets`, the same mount and policy as at the start), then runs the check as the hook `s3-verify-listing`, ahead of `s3-check-mounts`, and a bucket that still misses objects ends the run with a warning in Borg UI (Borg UI has no way to fail a plan run after its backup) |
 | `ssh`, `databases` | SSH key + MariaDB/PostgreSQL logical-dump configs (→ Secrets) |
-| `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude` |
+| `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude`. `node.datastoreSnapshot` adds the cluster datastore — see [Cluster datastore snapshot](#cluster-datastore-snapshot) |
 
 > **Upgrade note (1.0.21):** two breaking value renames — the chart fails fast if
 > the old sections are still set.
@@ -704,6 +842,11 @@ The backup pods run **privileged** with `SYS_ADMIN` (node backups also mount the
 host `/` read-only). This is required to read arbitrary source paths and mount
 FUSE. Keep the Borg UI Ingress restricted to trusted networks — it can reach
 every repository.
+
+With `node.datastoreSnapshot` the node archives hold every Secret of the
+cluster, and with kubeadm its certificate authority's keys: whoever can read
+the repository and has its passphrase holds the cluster, and in an
+`authenticated*` or `none` repository whoever can read it.
 
 The repository server is the exception: unprivileged, no capabilities, read-only
 root filesystem. It shares the ssh Secret with the backup pods, so those pods
