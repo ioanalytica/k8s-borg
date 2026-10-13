@@ -91,8 +91,13 @@ if [[ "${BORG_MODE}" = "node" ]]; then
   echo "Running borg-backup for node ${NODE_NAME} …"
 else
   shopt -s nullglob
-  backup-cluster-mariadb
-  backup-cluster-postgres
+  # rc 1 is a warning (a PostgreSQL user without superuser rights: roles
+  # dumped without passwords) and the backup goes on; anything above stops it.
+  for dump in backup-cluster-mariadb backup-cluster-postgres; do
+    dump_rc=0
+    "$dump" || dump_rc=$?
+    (( dump_rc <= 1 )) || exit "$dump_rc"
+  done
   echo "Running borg-backup for cluster …"
 fi
 exec borg-backup

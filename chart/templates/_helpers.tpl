@@ -909,6 +909,8 @@ copies static confs from the chart/existing Secret (if any) and resolves
 secretRef instances by reading the referenced Secret from its namespace via
 the API (needs the get-only ClusterRole from db-credentials-rbac.yaml).
 Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
+A MariaDB instance with `tls: false` gets `skip-ssl`: the image's client asks
+for TLS by default, which a server without a certificate refuses.
 */}}
 {{- define "k8s-borg.dbResolverInitContainer" -}}
 {{- if (include "k8s-borg.dbResolverEnabled" .) }}
@@ -936,11 +938,12 @@ Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
         printf '%s:%s:*:%s:%s\n' "$5" "$6" "$u" "$p" > "/out/postgres/$8.conf"
         chmod 600 "/out/postgres/$8.conf"
       }
-      my() { # ns secret userKey passKey host port user name
+      my() { # ns secret userKey passKey host port user name extraOption
         local u p
         if [ -n "$3" ]; then u=$(get_key "$1" "$2" "$3"); else u=$7; fi
         p=$(get_key "$1" "$2" "$4"); p=${p//\\/\\\\}; p=${p//\"/\\\"}
         printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "$5" "$6" "$u" "$p" > "/out/mariadb/$8.conf"
+        if [ -n "$9" ]; then printf '%s\n' "$9" >> "/out/mariadb/$8.conf"; fi
         chmod 600 "/out/mariadb/$8.conf"
       }
       for d in /static/mariadb /static/postgres; do
@@ -952,7 +955,7 @@ Passwords are escaped for the target format (pgpass ':'/'\', MySQL '"'/'\').
       done
       {{- range .Values.databases.mariadb.instances }}
       {{- if .secretRef }}
-      my {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 3306 | quote }} {{ .user | default "" | quote }} {{ .name | quote }}
+      my {{ .secretRef.namespace | quote }} {{ .secretRef.name | quote }} {{ .secretRef.usernameKey | default "" | quote }} {{ .secretRef.passwordKey | quote }} {{ .host | quote }} {{ .port | default 3306 | quote }} {{ .user | default "" | quote }} {{ .name | quote }} {{ ternary "skip-ssl" "" (and (hasKey . "tls") (not .tls)) | quote }}
       {{- end }}
       {{- end }}
       {{- range .Values.databases.postgres.instances }}

@@ -1,12 +1,37 @@
 #!/usr/bin/env bash
-
-# Any failure must FAIL the backup (rc>=2), never warn — a truncated or missing
-# dump would otherwise be archived silently. pipefail catches a failed dump in
-# "dump | gzip"; the ERR trap maps every failure to rc>=2 (in the borg-ui agent
-# script contract rc 1 is only a non-fatal warning, which a dump failure is not).
-set -eo pipefail
+#
+# backup-postgres CREDENTIALS_FILE — dump one PostgreSQL instance into
+# $DB_BACKUP_LOCATION/<instance>/, <instance> being the file name without its
+# extension:
+#
+#   globals.sql   pg_dumpall --globals-only: roles, password hashes,
+#                 memberships, role settings, tablespaces
+#   <db>.dump     pg_dump -Fc -Z0, one per database, postgres and template1
+#                 included (template0 cannot be connected to and never changes)
+#
+# Together this is what pg_dumpall covers, with each database in a file of its
+# own. restore-postgres reads these files.
+#
+# The dumps are uncompressed on purpose: a compressed stream differs from the
+# first changed byte on, which defeats Borg's deduplication, and Borg
+# compresses on its own. An uncompressed custom-format dump also lets
+# pg_restore -j restore in parallel.
+#
+# Exit codes (the borg-ui agent script contract):
+#   0  every database and the globals dumped
+#   1  warning: the user is no superuser, so the globals were dumped without
+#      role passwords (pg_authid is readable for superusers only)
+#   2+ a dump failed. Any failure must FAIL the backup, never warn: a
+#      truncated or missing dump would otherwise be archived silently.
+# -E: the ERR trap also fires inside functions; without it a failing pg_dump
+# in dump_to would end the script with pg_dump's rc 1, a mere warning.
+set -Eeo pipefail
 # shellcheck disable=SC2154  # ec is assigned inside the trap body
 trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: postgres backup failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+# The dumps hold every row and the password hashes: nobody but the owner
+# reads them, also not while they are being written.
+umask 077
 
 credentials_file=$1
 
@@ -25,22 +50,54 @@ instance_name=${xbase%.*}
 
 DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
 
-mkdir -p ${DB_BACKUP_DIR}
+mkdir -p "${DB_BACKUP_DIR}"
 
+export PGPASSFILE=$credentials_file
+rc=0
 
-# DB/PASS are positional placeholders in the credentials line, not used here.
+# dump_to FILE COMMAND… — run COMMAND with its output in FILE. It goes to a
+# temporary file first, so a failing run leaves the previous dump intact.
+dump_to() {
+  local file=$1
+  shift
+  "$@" >"${file}.tmp"
+  mv -f "${file}.tmp" "$file"
+  chmod 600 "$file"
+}
+
+# The credentials are read on FD 3, so that no command in the loop can take
+# them from stdin. DB/PASS are positional placeholders in the credentials
+# line, not used here.
+exec 3<"$credentials_file"
 # shellcheck disable=SC2034
-while IFS=':' read -r HOST PORT DB USER PASS; do
-  echo Dumping Postgres databases ...
-  export PGPASSFILE=$credentials_file
-  databases=`psql -h $HOST -p $PORT -U $USER -A -q -t -c "SELECT datname FROM pg_database WHERE datistemplate=false;"`
+while IFS=':' read -r HOST PORT DB USER PASS <&3; do
+  pg=(-h "$HOST" -p "$PORT" -U "$USER")
+  echo "Dumping Postgres instance ${instance_name} (${HOST}:${PORT}) ..."
 
-  for db in $databases; do
-      echo "Dumping database: $db"
-      pg_dump -h $HOST -p $PORT -U $USER -c -C $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
-      pg_dump -h $HOST -p $PORT -U $USER -Fc $db | gzip > ${DB_BACKUP_DIR}/$db.dump.gz
-      chmod 600 ${DB_BACKUP_DIR}/$db.sql.gz
-  done
-done < "$credentials_file"
+  superuser=$(psql "${pg[@]}" -X -A -q -t -d postgres -c "SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+  if [ "$superuser" = "t" ]; then
+    echo "Dumping globals -> ${DB_BACKUP_DIR}/globals.sql"
+    dump_to "${DB_BACKUP_DIR}/globals.sql" pg_dumpall "${pg[@]}" --globals-only
+  else
+    echo "Warning: ${USER} is no superuser on ${HOST}:${PORT}; the roles are dumped without their passwords" >&2
+    echo "Dumping globals without role passwords -> ${DB_BACKUP_DIR}/globals.sql"
+    dump_to "${DB_BACKUP_DIR}/globals.sql" pg_dumpall "${pg[@]}" --globals-only --no-role-passwords
+    rc=1
+  fi
+
+  databases=$(psql "${pg[@]}" -X -A -q -t -d postgres -c "SELECT datname FROM pg_database WHERE datname <> 'template0' ORDER BY datname")
+  while IFS= read -r db; do
+    [ -n "$db" ] || continue
+    echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.dump"
+    dump_to "${DB_BACKUP_DIR}/$db.dump" pg_dump "${pg[@]}" -Fc -Z0 -d "$db"
+  done <<<"$databases"
+done
+
+# Compressed dumps of the releases before, which would otherwise be archived
+# with every backup from now on, and what an earlier failed run left half
+# written. Removed only after a successful run.
+rm -f "${DB_BACKUP_DIR}"/*.sql.gz "${DB_BACKUP_DIR}"/*.dump.gz "${DB_BACKUP_DIR}"/*.tmp
+
+exit "$rc"
 
 # end

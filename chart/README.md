@@ -95,6 +95,80 @@ cluster:
       pg_dumpall > /mnt/cluster/db.sql
 ```
 
+## Database dumps
+
+With `databases.mariadb.enabled` / `databases.postgres.enabled`, each cluster
+backup first dumps every configured instance (`backup-cluster-<engine>`) into
+`borg.dbBackupLocation/<instance>/`, which the cluster backup then archives.
+`<instance>` is the instance's `name` (the `*.conf` file name of a static
+config).
+
+| Engine | File | Content |
+| --- | --- | --- |
+| PostgreSQL | `globals.sql` | `pg_dumpall --globals-only`: roles, password hashes, memberships, role settings, tablespaces |
+| PostgreSQL | `<db>.dump` | `pg_dump -Fc -Z0`, one per database, `postgres` and `template1` included: schema, data, privileges, extensions, the database's owner, settings and grants |
+| MariaDB | `<db>.sql` | one per database, with routines, events and triggers |
+| MariaDB | `<instance>-full-dump.sql` | every database (`-A`), the `mysql` schema with the users and grants included |
+
+Every file is mode `600`. The dumps are **not compressed**: a compressed
+stream differs from the first changed byte on, so every dump would be new data
+in every archive. Uncompressed, Borg deduplicates them and compresses on its
+own; a second archive of an unchanged instance adds next to nothing. The
+directory needs room for the uncompressed dumps, several times the size of
+the gzipped ones before 1.1.9. A dump that fails fails the backup and leaves
+the previous dump of that database in place; the dump of a database that no
+longer exists stays in the directory.
+
+### Restoring
+
+From the console pod, with the instance's credentials file (static configs in
+`/root/.<engine>/`, secretRef instances resolved there too), after the dumps
+are extracted from an archive into `DB_BACKUP_LOCATION`:
+
+| Command | Restores |
+| --- | --- |
+| `restore-postgres /root/.postgres/<instance>.conf --all [-j N]` | the whole instance: `globals.sql`, then every database dropped and created again with its properties. The dumped roles' attributes and passwords replace the server's, the role in the credentials file included |
+| `restore-postgres /root/.postgres/<instance>.conf <db> [-j N]` | one database, dropped and created again with its properties |
+| `restore-postgres /root/.postgres/<instance>.conf <db> --as <name> [-j N]` | the dump of `<db>` into `<name>` (dropped first), to compare before replacing; the database-level properties (owner, `ALTER DATABASE … SET`, its grants) are not applied |
+| `restore-postgres /root/.postgres/<instance>.conf --globals` | roles and tablespaces alone (passwords as with `--all`) |
+| `restore-mariadb /root/.mariadb/<instance>.conf --all` | the whole instance from the full dump, users and grants included. Meant for an empty server: the dumped users replace the server's, the one in the credentials file included |
+| `restore-mariadb /root/.mariadb/<instance>.conf <db>` | one database, dropped and created again |
+| `restore-mariadb /root/.mariadb/<instance>.conf <db> --as <name>` | the dump of `<db>` into `<name>` (dropped first) |
+
+`-j N` sets pg_restore's parallel jobs (default 4; one for a server before 17). A database that is
+replaced is dropped with `WITH (FORCE)`, which ends its sessions. Every error
+ends a restore with rc ≥ 2. The image's `pg_restore` is PostgreSQL 18's;
+for a server before 17 `restore-postgres` accepts the two statements of a
+newer `pg_restore` that such a server rejects (`SET transaction_timeout`, and
+`LOCALE_PROVIDER` before 15). Restores are tested against PostgreSQL 13–18 and
+MariaDB 10.11, 11.4 and 11.8.
+
+A PostgreSQL dump can be read and edited as SQL without a server:
+`pg_restore -f db.sql <db>.dump` writes the SQL, `pg_restore -l <db>.dump >
+list` lists its objects, and `pg_restore -L list …` restores only the ones
+left in the list.
+
+### Privileges of the backup user
+
+- **PostgreSQL:** a superuser dumps everything. Without superuser rights the
+  role password hashes cannot be read: the roles are dumped without their
+  passwords (`--no-role-passwords`) and the dump ends with rc `1`, a warning
+  in Borg UI. Such a user needs `pg_read_all_data` (PostgreSQL 14+), `CONNECT`
+  on every database, and `SELECT` on every large object — `pg_read_all_data`
+  does not cover large objects, and a dump that cannot read one fails.
+- **MariaDB:** the dumps read every database, the `mysql` schema included:
+  `GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, SHOW DATABASES ON *.*` is enough
+  (tested), or `root`. A restore with `--all` writes the `mysql` schema and
+  needs `root`.
+
+### MariaDB servers without TLS
+
+The image's MariaDB client (11.8) asks for TLS by default and refuses a server
+that offers none, as a MariaDB before 11.4 without a certificate of its own
+does. For such a server, set `tls: false` on a `secretRef` instance (the
+resolver writes `skip-ssl` into its credentials file), or add a `skip-ssl`
+line to the `[client]` section of a static `config`.
+
 ## Repository server (optional)
 
 `repoServer.enabled=true` adds a Borg repository server to the release: `sshd`

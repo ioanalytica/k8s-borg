@@ -1,47 +1,262 @@
 #!/usr/bin/env bash
+#
+# Restore what backup-postgres dumped to $DB_BACKUP_LOCATION/<instance>/,
+# <instance> being the credentials file's name without its extension:
+#
+#   restore-postgres CREDENTIALS_FILE --all [-j N]
+#       the whole instance: globals.sql, then every <db>.dump, each database
+#       dropped and created again with its properties (pg_restore -C)
+#   restore-postgres CREDENTIALS_FILE DATABASE [-j N]
+#       one database, dropped and created again with its properties
+#   restore-postgres CREDENTIALS_FILE DATABASE --as NAME [-j N]
+#       the dump of DATABASE into the database NAME, which is dropped and
+#       created again first; DATABASE itself is not touched. Schema, data
+#       and object privileges come from the dump, the properties of the
+#       database itself (owner, ALTER DATABASE … SET, its grants) do not
+#   restore-postgres CREDENTIALS_FILE --globals
+#       roles and tablespaces alone
+#
+# -j N: parallel jobs of pg_restore, default 4 (one for a server before 17,
+# see below).
+#
+# A database that is replaced is dropped WITH (FORCE): its sessions are ended.
+# Every error fails with rc >= 2.
+set -Eeo pipefail
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: postgres restore failed (rc=$ec)" >&2; exit "$ec"' ERR
 
-set -e
+usage() {
+  cat >&2 <<'EOF'
+Usage: restore-postgres CREDENTIALS_FILE --all [-j N]
+       restore-postgres CREDENTIALS_FILE DATABASE [--as NAME] [-j N]
+       restore-postgres CREDENTIALS_FILE --globals
+EOF
+}
 
-credentials_file=$1
-database_name=$2
+die() {
+  echo "Error: $*" >&2
+  exit 2
+}
 
-if [ -z "$credentials_file" ]; then
-  echo "Error: No psql credentials file specified!"
-  exit 1
-fi
+credentials_file=${1:-}
+[ -n "$credentials_file" ] || { usage; die "No psql credentials file specified!"; }
+[ -f "$credentials_file" ] || die "credentials file $credentials_file not found"
+shift
 
-if [ -z "$database_name" ]; then
-  echo "Error: No database name specified!"
-  exit 1
-fi
+mode="" database_name="" target_name="" jobs=4
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all|--globals)
+      [ -z "$mode" ] || { usage; die "only one of --all, --globals or a database name"; }
+      mode=${1#--}
+      ;;
+    --as)
+      [ -n "${2:-}" ] || { usage; die "--as needs a database name"; }
+      target_name=$2
+      shift
+      ;;
+    -j)
+      [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || { usage; die "-j needs a number of jobs"; }
+      jobs=$2
+      shift
+      ;;
+    -*)
+      usage
+      die "unknown option $1"
+      ;;
+    *)
+      [ -z "$mode" ] || { usage; die "only one of --all, --globals or a database name"; }
+      mode=database
+      database_name=$1
+      ;;
+  esac
+  shift
+done
 
-if [ -z "$DB_BACKUP_LOCATION" ]; then
-  echo "Error: environment variable DB_BACKUP_LOCATION not set!"
-  exit 1
-fi
+[ -n "$mode" ] || { usage; die "No database name specified (or --all / --globals)!"; }
+[ -z "$target_name" ] || [ "$mode" = database ] || { usage; die "--as goes with a database name"; }
+[ -n "$target_name" ] || target_name=$database_name
+
+[ -n "$DB_BACKUP_LOCATION" ] || die "environment variable DB_BACKUP_LOCATION not set!"
 
 xbase=${credentials_file##*/}
 instance_name=${xbase%.*}
-
 DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
-DB_BACKUP_FILE=${DB_BACKUP_DIR}/${database_name}.dump.gz
 
-if [ ! -f "$DB_BACKUP_FILE" ]; then
-  echo "Error: Backup $DB_BACKUP_FILE not found!"
-  exit 1
+# The first line of the credentials file names the server. DB/PASS are
+# positional placeholders, not used here.
+# shellcheck disable=SC2034
+IFS=':' read -r HOST PORT DB USER PASS <"$credentials_file"
+export PGPASSFILE="$credentials_file"
+pg=(-h "$HOST" -p "$PORT" -U "$USER")
+
+# sql DATABASE — run the SQL on stdin in DATABASE, stopping at the first error.
+# Names are passed as psql variables (-v name=…) and quoted by psql (:"name").
+sql() {
+  local db=$1
+  shift
+  psql "${pg[@]}" -X -q -v ON_ERROR_STOP=1 -d "$db" "$@"
+}
+
+# The database to connect to while DATABASE is dropped and created again.
+maintenance_db() {
+  if [ "$1" = postgres ]; then echo template1; else echo postgres; fi
+}
+
+dump_file() {
+  local file="${DB_BACKUP_DIR}/$1.dump"
+  if [ ! -f "$file" ]; then
+    [ ! -f "${file}.gz" ] || die "only ${file}.gz is there, a compressed dump of an older release: gunzip -k it first"
+    die "Backup $file not found!"
+  fi
+  echo "$file"
+}
+
+# drop_database NAME — a template database (template1) can only be dropped
+# once it is no template any more; the dump makes it one again.
+drop_database() {
+  echo "Dropping database: $1 ..."
+  sql "$(maintenance_db "$1")" -v name="$1" <<'EOF'
+SELECT format('ALTER DATABASE %I IS_TEMPLATE false', datname)
+  FROM pg_database WHERE datname = :'name' AND datistemplate
+\gexec
+DROP DATABASE IF EXISTS :"name" WITH (FORCE);
+EOF
+}
+
+# The image's pg_restore is the newest PostgreSQL's. PostgreSQL does not
+# promise that its output loads into an older server, and two statements do
+# not:
+#   - SET transaction_timeout = 0 (server < 17), sent on every connection:
+#     the server rejects the setting, nothing else is affected;
+#   - CREATE DATABASE … LOCALE_PROVIDER = … (server < 15): the database is
+#     not created. restore_database creates it first with the same
+#     statement without LOCALE_PROVIDER, and pg_restore's own CREATE DATABASE
+#     then fails on the existing database.
+# pg_restore reports such an error, goes on and ends with rc 1. run_pg_restore
+# accepts exactly these errors, recognised by the command pg_restore names
+# (its "Command was:" line), not by the server's message, which the server
+# may translate. Every other error fails. The errors are read from
+# pg_restore's output, which parallel jobs write into each other: against
+# such a server pg_restore runs with one job.
+server_major=$(psql "${pg[@]}" -X -A -q -t -d postgres -c 'SHOW server_version_num' 2>/dev/null \
+  || psql "${pg[@]}" -X -A -q -t -d template1 -c 'SHOW server_version_num')
+server_major=$((server_major / 10000))
+if [ "$server_major" -lt 17 ] && [ "$jobs" -gt 1 ]; then
+  echo "PostgreSQL $server_major: pg_restore runs with one job instead of $jobs"
+  jobs=1
 fi
 
-export PGPASSFILE="$credentials_file"
+# run_pg_restore TOLERATED_COMMAND_RE PG_RESTORE_ARGS… — pg_restore, whose
+# failed commands matching the extended regular expression are accepted.
+run_pg_restore() {
+  local tolerated=$1 log restore_rc=0 untolerated
+  shift
+  log=$(mktemp)
+  pg_restore "${pg[@]}" "$@" 2>"$log" || restore_rc=$?
+  untolerated=$(TOLERATED="$tolerated" awk '
+    /^pg_restore: error: could not execute query:/ { pending = $0; next }
+    pending != "" && /^Command was: / {
+      if (ENVIRON["TOLERATED"] == "" || substr($0, 14) !~ ENVIRON["TOLERATED"]) print pending
+      pending = ""
+      next
+    }
+    pending != "" { next }
+    /^pg_restore: error:/ { print }
+    END { if (pending != "") print pending }
+  ' "$log")
+  if [ "$restore_rc" -ne 0 ] || [ -n "$untolerated" ]; then
+    if [ -z "$untolerated" ] && grep -q '^pg_restore: error: could not execute query:' "$log"; then
+      echo "pg_restore's errors are the expected ones for a PostgreSQL $server_major server (see restore-postgres)"
+    else
+      cat "$log" >&2
+      rm -f "$log"
+      die "pg_restore failed (rc $restore_rc)"
+    fi
+  else
+    cat "$log" >&2
+  fi
+  rm -f "$log"
+}
 
-# DB/PASS are positional placeholders in the credentials line, not used here.
-# shellcheck disable=SC2034
-while IFS=':' read -r HOST PORT DB USER PASS; do
-  echo "Dropping database: ${database_name} ..."
-  psql -h "$HOST" -p "$PORT" -U "$USER" -A -q -t -c "DROP DATABASE IF EXISTS ${database_name} WITH (FORCE)"
-  echo "Creating database: ${database_name} ..."
-  psql -h "$HOST" -p "$PORT" -U "$USER" -A -q -t -c "CREATE DATABASE ${database_name} WITH TEMPLATE=template0"
-  echo "Restoring database: ${database_name} from dump ..."
-  gunzip -c "$DB_BACKUP_FILE" | pg_restore -d "${database_name}" -h "$HOST" -p "$PORT" -U "$USER"
-done < "$credentials_file"
+# create_database_like DATABASE FILE — for a server < 15: create DATABASE
+# with the dump's own CREATE DATABASE statement, LOCALE_PROVIDER removed.
+create_database_like() {
+  local create
+  create=$(pg_restore -C -s -f - "$2" | sed -nE '/^CREATE DATABASE /{s/ LOCALE_PROVIDER = [a-z]+//;p;}')
+  [ -n "$create" ] || die "no CREATE DATABASE statement in $2"
+  echo "Creating database: $1 (PostgreSQL $server_major: without LOCALE_PROVIDER) ..."
+  sql "$(maintenance_db "$1")" <<<"$create"
+}
+
+# restore_database DATABASE NAME — the dump of DATABASE into NAME.
+restore_database() {
+  local file tolerated=""
+  file=$(dump_file "$1")
+  [ "$server_major" -ge 17 ] || tolerated='^SET transaction_timeout = 0;$'
+  drop_database "$2"
+  if [ "$1" = "$2" ]; then
+    if [ "$server_major" -lt 15 ]; then
+      create_database_like "$2" "$file"
+      tolerated="$tolerated|^CREATE DATABASE "
+    fi
+    echo "Restoring database: $1 from $file ..."
+    run_pg_restore "$tolerated" -C -j "$jobs" -d "$(maintenance_db "$2")" "$file"
+  else
+    echo "Creating database: $2 ..."
+    sql "$(maintenance_db "$2")" -v name="$2" <<<'CREATE DATABASE :"name" WITH TEMPLATE = template0;'
+    echo "Restoring database: $1 as $2 from $file ..."
+    run_pg_restore "$tolerated" -j "$jobs" -d "$2" "$file"
+  fi
+}
+
+# restore_globals — globals.sql creates every role, the restoring one and the
+# server's bootstrap superuser included, so "role … already exists" is
+# expected: the ALTER ROLE after each CREATE ROLE sets the dumped attributes
+# anyway. Every other error fails. The messages are matched in English
+# (lc_messages=C, which takes a superuser, as restoring roles does anyway).
+restore_globals() {
+  local file="${DB_BACKUP_DIR}/globals.sql" log psql_rc=0 errors existing
+  [ -f "$file" ] || die "Backup $file not found!"
+  echo "Restoring roles and tablespaces from $file ..."
+  log=$(mktemp)
+  PGOPTIONS="-c lc_messages=C" psql "${pg[@]}" -X -q -d postgres -f "$file" 2>"$log" >/dev/null || psql_rc=$?
+  existing=$(grep -c 'ERROR:  role ".*" already exists' "$log" || true)
+  errors=$(grep -v 'ERROR:  role ".*" already exists' "$log" || true)
+  rm -f "$log"
+  [ -z "$errors" ] || printf '%s\n' "$errors" >&2
+  [ "$existing" -eq 0 ] || echo "$existing role(s) existed already; their attributes were set from the dump"
+  [ "$psql_rc" -eq 0 ] || die "psql ended with rc $psql_rc"
+  if grep -q 'ERROR:' <<<"$errors"; then
+    die "the globals were not restored completely"
+  fi
+}
+
+case "$mode" in
+  globals)
+    restore_globals
+    ;;
+  database)
+    restore_database "$database_name" "$target_name"
+    ;;
+  all)
+    restore_globals
+    # postgres first: every other database is dropped and created from it.
+    dumps=()
+    [ ! -f "${DB_BACKUP_DIR}/postgres.dump" ] || dumps+=(postgres)
+    for file in "${DB_BACKUP_DIR}"/*.dump; do
+      [ -f "$file" ] || continue
+      db=${file##*/}
+      db=${db%.dump}
+      [ "$db" = postgres ] || dumps+=("$db")
+    done
+    [ "${#dumps[@]}" -gt 0 ] || die "no database dumps (*.dump) in ${DB_BACKUP_DIR}"
+    for db in "${dumps[@]}"; do
+      restore_database "$db" "$db"
+    done
+    ;;
+esac
+
+echo "Restore finished."
 
 # end

@@ -1,12 +1,31 @@
 #!/usr/bin/env bash
-
+#
+# backup-mariadb DEFAULTS_FILE — dump one MariaDB instance into
+# $DB_BACKUP_LOCATION/<instance>/, <instance> being the file name without its
+# extension:
+#
+#   <db>.sql                    one per database, for a selective restore
+#   <instance>-full-dump.sql    every database (-A), the mysql schema with the
+#                               users and grants included, for a complete one
+#
+# Both with routines, events and triggers. restore-mariadb reads these files.
+#
+# The dumps are uncompressed on purpose: a compressed stream differs from the
+# first changed byte on, which defeats Borg's deduplication, and Borg
+# compresses on its own.
+#
 # Any failure must FAIL the backup (rc>=2), never warn — a truncated or missing
-# dump would otherwise be archived silently. pipefail catches a failed dump in
-# "dump | gzip"; the ERR trap maps every failure to rc>=2 (in the borg-ui agent
-# script contract rc 1 is only a non-fatal warning, which a dump failure is not).
-set -eo pipefail
+# dump would otherwise be archived silently. pipefail and -E (the trap also
+# fires inside functions) map every failure to rc>=2 through the ERR trap (in
+# the borg-ui agent script contract rc 1 is only a non-fatal warning, which a
+# dump failure is not).
+set -Eeo pipefail
 # shellcheck disable=SC2154  # ec is assigned inside the trap body
 trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mariadb backup failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+# The dumps hold every row and the password hashes: nobody but the owner
+# reads them, also not while they are being written.
+umask 077
 
 defaults_file=$1
 
@@ -25,21 +44,39 @@ instance_name=${xbase%.*}
 
 DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
 
-mkdir -p ${DB_BACKUP_DIR}
+mkdir -p "${DB_BACKUP_DIR}"
+
+# dump_to FILE COMMAND… — run COMMAND with its output in FILE. It goes to a
+# temporary file first, so a failing run leaves the previous dump intact.
+dump_to() {
+  local file=$1
+  shift
+  "$@" >"${file}.tmp"
+  mv -f "${file}.tmp" "$file"
+  chmod 600 "$file"
+}
 
 echo Dumping MySQL databases ...
 
-databases=`mariadb --defaults-file=$defaults_file -e "SHOW DATABASES;" | tr -d "| " | grep -v Database`
+# -N -B -r: one bare name per line, nothing escaped.
+databases=$(mariadb --defaults-file="$defaults_file" -N -B -r -e "SHOW DATABASES")
 
-for db in $databases; do
-    if [ "$db" != "information_schema" ] && [ "$db" != "performance_schema" ] && [ "$db" != "sys" ]; then
-        echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.sql.gz"
-        mariadb-dump --defaults-file=$defaults_file -R -e --triggers --single-transaction --databases $db | gzip > ${DB_BACKUP_DIR}/$db.sql.gz
-        chmod 600 ${DB_BACKUP_DIR}/$db.sql.gz
-    fi
-done
+while IFS= read -r db; do
+  case "$db" in
+    ""|information_schema|performance_schema|sys) continue ;;
+  esac
+  echo "Dumping database: $db -> ${DB_BACKUP_DIR}/$db.sql"
+  dump_to "${DB_BACKUP_DIR}/$db.sql" \
+    mariadb-dump --defaults-file="$defaults_file" -R -E --triggers --single-transaction --skip-dump-date --databases "$db"
+done <<<"$databases"
 
-echo "Dumping instance: $instance_name -> ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz"
-mariadb-dump --defaults-file=$defaults_file -A -R -E --triggers --single-transaction | gzip > ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
-chmod 600 ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql.gz
+echo "Dumping instance: $instance_name -> ${DB_BACKUP_DIR}/${instance_name}-full-dump.sql"
+dump_to "${DB_BACKUP_DIR}/${instance_name}-full-dump.sql" \
+  mariadb-dump --defaults-file="$defaults_file" -A -R -E --triggers --single-transaction --skip-dump-date
 
+# Compressed dumps of the releases before, which would otherwise be archived
+# with every backup from now on, and what an earlier failed run left half
+# written. Removed only after a successful run.
+rm -f "${DB_BACKUP_DIR}"/*.sql.gz "${DB_BACKUP_DIR}"/*.tmp
+
+# end

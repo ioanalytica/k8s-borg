@@ -90,3 +90,27 @@ jobs:
           cache-to: type=gha,mode=max,scope=k8s-borg-e2e
       - name: Run the suite for Borg 1 and Borg 2
         run: SKIP_BUILD=1 ./tests/e2e/run.sh
+
+  # The database dumps and restores against real servers, every version of
+  # the matrix (tests/e2e/db/run.sh). A job of its own, so that it runs next to
+  # the Borg suite; the agent image comes from the same build cache.
+  e2e-db:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive   # the agent Dockerfile builds from borg-ui/
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4.2.0
+      - name: Build the agent image
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          tags: k8s-borg:test
+          load: true
+          cache-from: type=gha,scope=k8s-borg-e2e
+      - name: Build the test layer
+        run: docker build -f tests/e2e/Dockerfile --build-arg BASE=k8s-borg:test -t k8s-borg:e2e .
+      - name: Run the database suite, PostgreSQL 13–18 and MariaDB 10.11/11.4/11.8
+        run: ./tests/e2e/db/run.sh

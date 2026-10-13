@@ -135,7 +135,10 @@ borg:
   ## To include the node name, use the k8s env-ref form `$(NODE_NAME)` (NOT `${NODE_NAME}`) —
   ## e.g. "$(NODE_NAME)-{now:%s}" restores the old timestamp-only naming.
   archiveNameTemplate: ""
-  ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving
+  ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving, one
+  ## directory per instance. The dumps are uncompressed (Borg deduplicates and compresses
+  ## them): this needs room for several times the size of gzipped dumps. See chart/README.md
+  ## "Database dumps" for the files, restore-postgres / restore-mariadb and the privileges.
   dbBackupLocation: "/mnt/nfs/data/db-backup"
   ## @param borg.retention Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)
   retention:
@@ -250,6 +253,9 @@ databases:
     ## @param databases.mariadb.existingSecret Use an existing Secret (one *.conf per instance)
     existingSecret: ""
     ## @param databases.mariadb.instances MariaDB instances (static config or secretRef)
+    ## The image's client asks for TLS by default and refuses a server without it (a
+    ## MariaDB before 11.4 without a certificate): `tls: false` on a secretRef instance,
+    ## or a `skip-ssl` line in a static config, turns it off.
     instances: []
     #  - name: mariadb-example
     #    config: |
@@ -257,10 +263,12 @@ databases:
     #      host = mariadb.databases.svc
     #      user = backup
     #      password = CHANGE_ME
+    #      # skip-ssl             # a server without TLS
     #  - name: mariadb-operator-example
     #    host: mariadb.databases.svc
     #    port: 3306              # default 3306
     #    user: root              # literal user; omit when usernameKey is set
+    #    # tls: false            # a server without TLS: skip-ssl in the credentials file
     #    secretRef:
     #      namespace: databases
     #      name: mariadb
@@ -272,6 +280,9 @@ databases:
     ## @param databases.postgres.existingSecret Use an existing Secret (one *.conf per instance)
     existingSecret: ""
     ## @param databases.postgres.instances PostgreSQL instances (static config or secretRef)
+    ## A superuser dumps the roles with their passwords; any other user gets them without
+    ## (the dump then ends with a warning) and needs pg_read_all_data, CONNECT on every
+    ## database and SELECT on every large object.
     instances: []
     #  - name: postgres-example
     #    config: |

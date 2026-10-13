@@ -12,7 +12,8 @@ usage() {
   cat <<'EOF'
 Usage: ./run-tests.sh [--quick]
 
-  (no argument)   lint + unit tests + end-to-end   (needs docker, ~2-4 min)
+  (no argument)   lint + unit tests + end-to-end + database end-to-end
+                  (needs docker, ~3-6 min)
   --quick, -q     lint + unit tests only           (~3 s)
 
 Environment passed through to the end-to-end layer:
@@ -67,6 +68,8 @@ if [ "$quick" = "1" ]; then
   results+=("– end-to-end (skipped: --quick)")
 elif docker info >/dev/null 2>&1; then
   run_layer "end-to-end (borg1 + borg2)" ./tests/e2e/run.sh
+  # Runs in the k8s-borg:e2e image the layer above builds.
+  run_layer "end-to-end (databases)" ./tests/e2e/db/run.sh
 else
   # Deliberately a failure, not a quiet skip: the run was asked for everything
   # and cannot deliver it. --quick is how you ask for less.
