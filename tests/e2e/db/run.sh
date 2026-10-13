@@ -220,11 +220,21 @@ trap 'rm -rf "$logs"' EXIT
 echo "▶ database e2e: ${servers[*]} (image $E2E_IMAGE, $JOBS at a time)"
 # Each server version logs to a file of its own and its result is printed in
 # one piece when it is done, so that parallel runs do not interleave.
-printf '%s\n' "${servers[@]}" | xargs -P "$JOBS" -I{} sh -c '
+# The workers run as a process group of their own (set -m): an interrupted
+# run hands the signal on to all of them and waits until each has removed
+# its containers, volumes and network (their EXIT trap).
+printf '%s\n' "${servers[@]}" >"$logs/servers"
+set -m
+xargs -P "$JOBS" -I{} sh -c '
   spec=$1 log="$2/$(echo "$1" | tr ":" "-").log"
   if "$0" --one "$spec" "$log"; then echo "✓ $spec" >>"$2/results"; else echo "✗ $spec" >>"$2/results"; fi
   cat "$log"
-' "$self" {} "$logs" || true
+' "$self" {} "$logs" <"$logs/servers" &
+workers=$!
+set +m
+trap 'trap - INT TERM HUP; kill -TERM -- "-$workers" 2>/dev/null; wait "$workers" || true; exit 130' INT TERM HUP
+wait "$workers" || true
+trap - INT TERM HUP
 
 echo
 echo "── database e2e summary ──"
