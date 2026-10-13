@@ -1,14 +1,15 @@
 # tests
 
-Tests for the shell scripts that ship in the images, in two layers: fast unit
-tests on the host, and end-to-end tests against real Borg repositories inside
-the agent image. Both run in `.github/workflows/lint-test.yml` on every push and
-pull request.
+Tests for the shell scripts that ship in the images, in three layers: fast unit
+tests on the host, end-to-end tests against real Borg repositories inside the
+agent image, and end-to-end tests of the database dumps against real database
+servers. All run in `.github/workflows/lint-test.yml` on every push and pull
+request.
 
 ```sh
 brew install shellcheck bats-core helm   # or: apt-get install shellcheck bats, plus helm
 
-./run-tests.sh                        # all three layers, with a summary
+./run-tests.sh                        # all layers, with a summary
 ./run-tests.sh --quick                # lint + unit tests only, ~3s
 ```
 
@@ -23,6 +24,8 @@ bats tests/                           # unit tests (no docker, ~1s)
 bats tests/borg-rc.bats               # a single file
 ./tests/e2e/run.sh                    # end-to-end, both Borg majors (needs docker)
 ./tests/e2e/run.sh 2                  # only Borg 2
+./tests/e2e/db/run.sh                 # database dumps, every server version (needs docker)
+./tests/e2e/db/run.sh postgres:17     # a single server version
 ```
 
 ## Unit tests — what is covered
@@ -53,6 +56,9 @@ bats tests/borg-rc.bats               # a single file
 | `reconcile-failure-reason.bats` | `reconcile-borgui` against a fake server: every request bounded in time (the health check more tightly), a failed run naming curl's message or the HTTP status with what the server said (no rejected input, known secrets masked, one short line), a refused k8s write or login named, the `FATAL` line kept with its revision as `lastError` in the status ConfigMap and dropped by the next successful run, notification warnings with the server's reason and without the URL |
 | `chart-reconcile.bats` | the reconcile Job's TTL (a day by default, a value), `terminationMessagePolicy: FallbackToLogsOnError`, and the rendered `wait-for-reconcile` script run against a fake k8s API: it shows the `lastError` of its own revision once, ignores an earlier revision's, proceeds once reconciled, bounds its requests |
 | `borgstore-pin.bats` | the agent image installs exactly the borgstore the submodule states, with the `blake3` extra; the submodule's two statements of the Borg 2 version agree; `borg-versions.py` stops on a pin that belongs to another Borg 2 |
+| `backup-cluster-databases.bats` | `backup-cluster-databases`: only the engines in `BORG_DB_ENGINES` run, in their order, none when it is empty, every wrapper of the image (itself aside) when it is unset; an engine's warning (rc 1) is passed on after the others ran, a failure stops the run with its rc, an engine without a wrapper fails with rc 2 |
+| `chart-db-engines.bats` | only the engines a release configures (`enabled` and an instance or `existingSecret`) are dumped, for every engine of the chart's `k8s-borg.databases.supported`: in plan mode only they are published to the cluster agent and attached as pre-backup hooks, in CronJob mode only they are in `BORG_DB_ENGINES` and mounted; none configured renders none and an empty `BORG_DB_ENGINES`; an enabled engine without instances or `existingSecret` fails the render in both modes, naming the engine |
+| `chart-db-credentials.bats` | the credentials resolver of secretRef database instances, its script taken from the rendered chart and run with a stub `kubectl`: the MariaDB defaults file and the pgpass line with their passwords escaped, mode 600, `skip-ssl` for a MariaDB instance with `tls: false` |
 | `chart-versions.bats` | the image versions stated in `chart/values.yaml`, `chart/Chart.yaml` (including the `annotations.images` block) and `.github/workflows/build.yml` agree, the UI image tag is `git describe` of the borg-ui pin, and the chart version follows `appVersion[-N]` |
 
 `chart-versions.bats` describes the borg-ui pin (`docker/ui-app-version.sh`),
@@ -114,9 +120,48 @@ Two traps worth knowing when adding tests:
 `SKIP_BUILD=1` reuses the existing `k8s-borg:test` image. It skips the **agent**
 image, so a change under `docker/rootfs/` will not be picked up — rebuild.
 
+## Database end-to-end tests (`tests/e2e/db/`)
+
+`run.sh` starts, for each server version, three database servers from Docker
+Hub (`postgres:<version>-alpine`, `mariadb:<version>`) on a Docker network of
+their own — `src`, seeded and dumped, and the empty `dst` and `dst2` — and runs
+the engine's bats file next to them in the e2e image (`k8s-borg:e2e`, built by
+`tests/e2e/run.sh`). Server versions run in parallel (`E2E_DB_JOBS`, default
+3); the default matrix is PostgreSQL 13–18 and MariaDB 10.11, 11.4 and 11.8.
+
+Each run seeds `src` with what a restore must bring back — roles or users with
+passwords, memberships and grants down to columns, databases with their own
+owner, settings and character sets, non-ASCII text and names, binary data,
+large objects, views, functions, procedures, triggers and events, content in
+`postgres` and `template1` — and takes a fingerprint of it. It dumps `src`
+with `backup-cluster-<engine>` and a credentials file in the chart's format
+(a password with the characters the resolver escapes), archives and extracts
+the dumps with Borg, restores them, and compares the restored server or
+database with the fingerprint.
+
+| File | Subject |
+| --- | --- |
+| `postgres.bats` | `backup-postgres`: `globals.sql` and one uncompressed custom-format dump per database (template0 aside), mode 600, unchanged through Borg; `restore-postgres --all` into an empty server equal to the source (roles, password hashes, memberships, role settings, databases with owner, settings, grants and comment, every database's objects, privileges, content and large objects), and `template1` handing its content to a new database again; one database in place with `-j` while a session is open, `--as` over an existing database without touching the original, `postgres` and `template1`, `--globals` alone; the PostgreSQL 13–16 rejections of PostgreSQL 18's `pg_restore`; a user without superuser rights (PostgreSQL 14+): roles without passwords, rc 1, also through `backup-cluster-postgres`; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps (no privileges, wrong password, no server) with rc ≥ 2 and the previous dump left alone; failing restores and refused arguments; removal of the old `*.gz` dumps; deduplication of a second and a slightly changed archive |
+| `mariadb.bats` | `backup-mariadb`: one uncompressed dump per database with routines, triggers and events, the full dump, mode 600, unchanged through Borg; `restore-mariadb --all` into an empty server equal to the source (users with password hashes, roles, database, table and column grants, every database's tables, views, routines, triggers, events, counters and content) and the restored users able to log in; one database in place, `--as` over an existing database, with its view and trigger on its own tables, without touching the original; the `mysql` schema refused without `--all`; a backup user with global read privileges only; `backup-cluster-databases` dumping only the engines in `BORG_DB_ENGINES`; failing dumps and restores with rc ≥ 2; removal of the old `*.gz` dumps; deduplication |
+
+The test container does not get the docker socket, so it cannot start a
+fresh server of its own: the restore of the whole instance gets `dst`, the
+restore of the globals `dst2` (the failing restores use `dst2` after it); the
+restores of single databases go into `src` itself.
+
+`E2E_DB_SCRIPTS_FROM_CHECKOUT=1` bind-mounts the checkout's `backup-*` and
+`restore-*` scripts and `tests/e2e` over a published image's, so a change to
+the dump scripts can be tested without building an image:
+
+```sh
+E2E_IMAGE=ghcr.io/ioanalytica/k8s-borg:<tag> E2E_DB_SCRIPTS_FROM_CHECKOUT=1 ./tests/e2e/db/run.sh
+```
+
 ## Deliberately not covered here
 
 Remote repositories other than the image's own repository server (sftp://,
 s3://, a foreign ssh:// server), the mounted-S3 files-cache case, and the borg
-version pins. Python and frontend tests live in the `borg-ui`
+version pins. A database dump restored into another server major than the
+one it was taken from, and engines without dump scripts (MySQL, MongoDB,
+Valkey). Python and frontend tests live in the `borg-ui`
 submodule and run in its own CI.

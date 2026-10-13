@@ -1,5 +1,63 @@
 # Changelog
 
+## Unreleased
+
+* **Database dumps: the whole PostgreSQL instance, uncompressed dumps,
+  `restore-mariadb`, only the configured engines, end-to-end tests** (issues
+  #45, #46, #47, #55).
+  * Only the engines a release configures are dumped: those with
+    `databases.<engine>.enabled` and at least one instance or an
+    `existingSecret`. One chart helper decides it; only these engines get
+    their credentials volume, are published to the cluster agent and
+    attached as pre-backup hooks (plan mode), and run in the cluster CronJob,
+    which gets them as `BORG_DB_ENGINES` and runs the new
+    `backup-cluster-databases` instead of every engine's wrapper.
+  * `backup-postgres` dumps the instance as `pg_dumpall` covers it:
+    `globals.sql` (roles, password hashes, memberships, role settings,
+    tablespaces) and one `<db>.dump` (`pg_dump -Fc -Z0`) per database,
+    `postgres` and `template1` included. The plain `<db>.sql.gz` is gone:
+    `pg_restore -f` writes the SQL of a dump, `-l`/`-L` restores selected
+    objects. A user without superuser rights gets the roles without their
+    passwords, and the dump ends with rc 1, a warning in Borg UI.
+  * Dumps of both engines are no longer compressed, so that Borg
+    deduplicates them: a second archive of an unchanged instance adds next to
+    nothing. Every dump file is mode 600, and a failing dump leaves the
+    previous one in place. The MariaDB dumps leave out the dump date.
+  * The per-database MariaDB dumps carry the events again (`-E`; the flag
+    was `-e`, extended inserts).
+  * `restore-postgres` restores the whole instance (`--all`), one database
+    (with `-j`, its properties included), one database under another name
+    (`--as`), or the roles alone (`--globals`), also into a PostgreSQL server
+    before 17, whose rejections of the newer `pg_restore` it accepts.
+  * New `restore-mariadb`: the whole instance from the full dump (`--all`),
+    one database, or one under another name (`--as`).
+  * `databases.mariadb.instances[].tls: false`: the credentials resolver
+    writes `skip-ssl`, for a server without TLS, which the image's MariaDB
+    client refuses by default (a MariaDB before 11.4 without a certificate).
+  * The dumps and restores are tested end to end against PostgreSQL 13–18
+    and MariaDB 10.11, 11.4 and 11.8 (`tests/e2e/db/`), in CI on every push.
+  * Usage, files and privileges: `chart/README.md`, "Database dumps".
+
+### Upgrade notes
+
+* `databases.<engine>.enabled: true` without instances and without an
+  `existingSecret` now fails every render, with a message naming the engine.
+  Before, it failed only where the cluster workloads were rendered (not with
+  `cluster.enabled: false`). Configure the engine or set `enabled: false`.
+* The dump files change their names: `<db>.sql.gz` and `<db>.dump.gz`
+  (PostgreSQL) become `globals.sql` and `<db>.dump`; `<db>.sql.gz` and
+  `<instance>-full-dump.sql.gz` (MariaDB) become `<db>.sql` and
+  `<instance>-full-dump.sql`. The first successful dump removes the old
+  `*.gz` files of its instance directory. To restore from an archive made
+  before, `gunzip -k` the file first.
+* `borg.dbBackupLocation` needs room for the uncompressed dumps, several
+  times the size of the gzipped ones.
+* A PostgreSQL backup user without superuser rights turns every cluster
+  backup into a warning (roles without passwords). See "Privileges of the
+  backup user" in `chart/README.md`.
+* A MariaDB server without TLS needs `tls: false` (secretRef instances) or
+  `skip-ssl` in its static config.
+
 ## 1.1.9-beta.12
 
 * **Integration test beta: Borg UI 2.3.10-52-g2e4031646, agent 0.1.21.**

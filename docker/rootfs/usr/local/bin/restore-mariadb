@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#
+# Restore what backup-mariadb dumped to $DB_BACKUP_LOCATION/<instance>/,
+# <instance> being the defaults file's name without its extension:
+#
+#   restore-mariadb DEFAULTS_FILE --all
+#       the whole instance from <instance>-full-dump.sql: every database and
+#       the mysql schema with its users and grants. Meant for an empty
+#       server: the dumped users replace the server's, the one in
+#       DEFAULTS_FILE included, so it needs the source server's password
+#       afterwards. Databases the dump does not hold are left alone.
+#   restore-mariadb DEFAULTS_FILE DATABASE
+#       one database from <db>.sql, dropped and created again
+#   restore-mariadb DEFAULTS_FILE DATABASE --as NAME
+#       the dump of DATABASE into the database NAME, which is dropped and
+#       created again first; DATABASE itself is not touched
+#
+# The mysql schema alone is only restored with --all (or --as, to look at it).
+# Every error fails with rc >= 2.
+set -Eeo pipefail
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: mariadb restore failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: restore-mariadb DEFAULTS_FILE --all
+       restore-mariadb DEFAULTS_FILE DATABASE [--as NAME]
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 2
+}
+
+defaults_file=${1:-}
+[ -n "$defaults_file" ] || { usage; die "No mariadb config file specified!"; }
+[ -f "$defaults_file" ] || die "config file $defaults_file not found"
+shift
+
+mode="" database_name="" target_name=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all)
+      [ -z "$mode" ] || { usage; die "either --all or a database name"; }
+      mode=all
+      ;;
+    --as)
+      [ -n "${2:-}" ] || { usage; die "--as needs a database name"; }
+      target_name=$2
+      shift
+      ;;
+    -*)
+      usage
+      die "unknown option $1"
+      ;;
+    *)
+      [ -z "$mode" ] || { usage; die "either --all or a database name"; }
+      mode=database
+      database_name=$1
+      ;;
+  esac
+  shift
+done
+
+[ -n "$mode" ] || { usage; die "No database name specified (or --all)!"; }
+[ -z "$target_name" ] || [ "$mode" = database ] || { usage; die "--as goes with a database name"; }
+[ -n "$target_name" ] || target_name=$database_name
+
+[ -n "$DB_BACKUP_LOCATION" ] || die "environment variable DB_BACKUP_LOCATION not set!"
+
+xbase=${defaults_file##*/}
+instance_name=${xbase%.*}
+DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+
+# backup_file NAME — the dump NAME in the instance's directory.
+backup_file() {
+  local file="${DB_BACKUP_DIR}/$1"
+  if [ ! -f "$file" ]; then
+    [ ! -f "${file}.gz" ] || die "only ${file}.gz is there, a compressed dump of an older release: gunzip -k it first"
+    die "Backup $file not found!"
+  fi
+  echo "$file"
+}
+
+mariadb_() {
+  mariadb --defaults-file="$defaults_file" "$@"
+}
+
+# An identifier in backquotes, a backquote in it doubled.
+quote() {
+  local q='`'
+  printf '`%s`' "${1//$q/$q$q}"
+}
+
+case "$mode" in
+  all)
+    file=$(backup_file "${instance_name}-full-dump.sql")
+    echo "Restoring instance: $instance_name from $file ..."
+    mariadb_ <"$file"
+    # The mysql schema came in as table data: make the server read it.
+    mariadb_ -e "FLUSH PRIVILEGES"
+    ;;
+  database)
+    [ "$database_name" != mysql ] || [ "$target_name" != mysql ] \
+      || die "the mysql schema is restored with --all (or --as NAME, to look at it)"
+    file=$(backup_file "${database_name}.sql")
+    echo "Dropping database: $target_name ..."
+    mariadb_ -e "DROP DATABASE IF EXISTS $(quote "$target_name")"
+    if [ "$database_name" = "$target_name" ]; then
+      echo "Restoring database: $database_name from $file ..."
+      mariadb_ <"$file"
+    else
+      # A dump made with --databases creates and selects its database by
+      # name, in lines of their own: those go to NAME instead.
+      echo "Restoring database: $database_name as $target_name from $file ..."
+      FROM=$(quote "$database_name") TO=$(quote "$target_name") awk '
+        BEGIN {
+          create = "CREATE DATABASE /*!32312 IF NOT EXISTS*/ "
+          from_create = create ENVIRON["FROM"]; to_create = create ENVIRON["TO"]
+          from_use = "USE " ENVIRON["FROM"] ";"; to_use = "USE " ENVIRON["TO"] ";"
+        }
+        index($0, from_create) == 1 { $0 = to_create substr($0, length(from_create) + 1) }
+        $0 == from_use { $0 = to_use }
+        { print }
+      ' "$file" | mariadb_
+    fi
+    ;;
+esac
+
+echo "Restore finished."
+
+# end

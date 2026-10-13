@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 
-# Fail (rc>=2) as soon as any instance dump fails — without set -e the loop would
-# hide a mid-run failure behind the last config's exit code.
+# Dump every configured instance. rc 1 of an instance is a warning (see
+# backup-mariadb): it is passed on once all instances are dumped. Anything
+# above fails (rc>=2) at once — without set -e the loop would hide a mid-run
+# failure behind the last config's exit code.
 set -e
 # shellcheck disable=SC2154  # ec is assigned inside the trap body
 trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; exit "$ec"' ERR
 
+rc=0
 shopt -s nullglob
 for defaults_file in /root/.mariadb/*.conf; do
   echo "Running backup-mariadb using ${defaults_file} …"
-  backup-mariadb "${defaults_file}"
+  instance_rc=0
+  backup-mariadb "${defaults_file}" || instance_rc=$?
+  [ "$instance_rc" -le 1 ] || exit "$instance_rc"
+  [ "$instance_rc" -eq 0 ] || rc=1
 done
 
+exit "$rc"
 
 # end

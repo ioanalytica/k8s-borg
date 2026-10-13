@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# backup-cluster-databases — the database dumps of a cluster CronJob run:
+# backup-cluster-<engine> for every engine in BORG_DB_ENGINES, in order.
+#
+# The chart sets BORG_DB_ENGINES to the engines the release configures
+# (databases.<engine>.enabled with instances or an existingSecret), empty when
+# none is: nothing else runs. A pod not made by the chart, without the
+# variable, gets every engine whose wrapper the image has.
+#
+# Exit codes (the borg-ui agent script contract): 0, 1 when an engine warned
+# (e.g. PostgreSQL roles dumped without passwords; the others still run), or
+# the rc >= 2 of the first engine that failed.
+set -e
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; exit "$ec"' ERR
+
+if [ -z "${BORG_DB_ENGINES+set}" ]; then
+  BORG_DB_ENGINES=""
+  for wrapper in "${BORG_BIN_DIR:-/usr/local/bin}"/backup-cluster-*; do
+    [ -x "$wrapper" ] || continue
+    engine=${wrapper##*/backup-cluster-}
+    [ "$engine" != databases ] || continue
+    BORG_DB_ENGINES+=" $engine"
+  done
+fi
+
+rc=0
+for engine in ${BORG_DB_ENGINES}; do
+  if ! command -v "backup-cluster-${engine}" >/dev/null; then
+    echo "Error: database engine ${engine} has no backup-cluster-${engine} in this image" >&2
+    exit 2
+  fi
+  engine_rc=0
+  "backup-cluster-${engine}" || engine_rc=$?
+  [ "$engine_rc" -le 1 ] || exit "$engine_rc"
+  [ "$engine_rc" -eq 0 ] || rc=1
+done
+
+exit "$rc"
+
+# end

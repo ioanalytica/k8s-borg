@@ -106,8 +106,9 @@ spec:
             {{- $s3Scripts = append $s3Scripts "s3-check-mounts" }}
             {{- end }}
             {{- $preScripts := $s3Scripts }}
-            {{- if .Values.databases.mariadb.enabled }}{{- $preScripts = append $preScripts "backup-cluster-mariadb" }}{{- end }}
-            {{- if .Values.databases.postgres.enabled }}{{- $preScripts = append $preScripts "backup-cluster-postgres" }}{{- end }}
+            {{- range $engine := splitList " " (include "k8s-borg.databases.configured" .) | compact }}
+            {{- $preScripts = append $preScripts (printf "backup-cluster-%s" $engine) }}
+            {{- end }}
             {{- if $preScripts }}
             - name: BORG_PLAN_PRE_AGENT_SCRIPTS
               value: {{ join " " $preScripts | quote }}
