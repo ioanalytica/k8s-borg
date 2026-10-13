@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+#
+# backup-redis CONF — dump one Redis or Valkey instance into
+# $DB_BACKUP_LOCATION/<instance>/, <instance> being the file name without its
+# extension:
+#
+#   <instance>.rdb                  a standalone server (a primary or a replica)
+#   <instance>-slots-<range>.rdb    cluster mode: one per primary, named after
+#                                   its first slot range (e.g. slots-0-5460)
+#   <instance>-cluster-nodes.txt    cluster mode: CLUSTER NODES at dump time,
+#                                   which primary held which slots
+#
+# Each RDB file is the server's own consistent snapshot, streamed over the
+# replication protocol by redis-rdb-sync (what valkey-cli --rdb does, and
+# Valkey 9's own format, see there). The server forks for it, as for BGSAVE.
+# An RDB file is restored by placing it as the server's dump.rdb and starting
+# the server (see chart/README.md). redis-rdb-sync makes every connection,
+# INFO and CLUSTER NODES included.
+#
+# CONF holds one key=value per line; the value is taken verbatim after the
+# first '=', blank lines and lines starting with '#' are skipped:
+#
+#   host=redis.cache.svc     required
+#   port=6379                default 6379
+#   user=backup              ACL user; without it the default user
+#   password=…               without it no AUTH
+#   tls=true                 default false
+#   cacert=/path/ca.crt      CA bundle to verify the server with (implies tls)
+#   insecure=true            TLS without verifying the server (implies tls)
+#
+# With TLS the certificate must name the host: host as configured, and a
+# cluster's nodes by the hostname they announce (cluster-announce-hostname),
+# or else by their IP address.
+#
+# An ACL user needs `+info +sync +replconf +cluster|nodes`: INFO tells a cluster
+# from a standalone server and Valkey from Redis, SYNC/REPLCONF carry the
+# snapshot, CLUSTER NODES lists the primaries of a cluster.
+#
+# The dumps are not compressed any further: the server compresses the values
+# in an RDB file itself (rdbcompression), and Borg compresses on its own.
+#
+# Any failure must FAIL the backup (rc>=2), never warn — a truncated or missing
+# dump would otherwise be archived silently. -E (the trap also fires inside
+# functions) maps every failure to rc>=2 through the ERR trap (in the borg-ui
+# agent script contract rc 1 is only a non-fatal warning, which a dump failure
+# is not). The trap fires in command substitutions as well; the message comes
+# once, from the script itself.
+set -Eeo pipefail
+# shellcheck disable=SC2154  # ec is assigned inside the trap body
+trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; [ "$BASH_SUBSHELL" -gt 0 ] || echo "Error: redis backup failed (rc=$ec)" >&2; exit "$ec"' ERR
+
+# The dumps hold every key: nobody but the owner reads them, also not while
+# they are being written.
+umask 077
+
+die() { echo "Error: $*" >&2; exit 2; }
+
+conf=$1
+
+[ -n "$conf" ] || die "No redis config file specified!"
+[ -n "$DB_BACKUP_LOCATION" ] || die "environment variable DB_BACKUP_LOCATION not set!"
+[ -r "$conf" ] || die "cannot read $conf"
+
+xbase=${conf##*/}
+instance_name=${xbase%.*}
+
+DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
+
+# --- the config file, read line by line (never sourced) ---------------------
+host="" port=6379 user="" password="" tls=false cacert="" insecure=false
+bool() { # KEY VALUE — true or false, anything else is an error
+  case "$(printf %s "$2" | tr '[:upper:]' '[:lower:]')" in
+    true) echo true ;;
+    false) echo false ;;
+    *) die "$conf: $1 must be true or false, not '$2'" ;;
+  esac
+}
+while IFS= read -r line || [ -n "$line" ]; do
+  line=${line%$'\r'}
+  case "$line" in ""|"#"*) continue ;; esac
+  [[ $line == *=* ]] || die "$conf: not a key=value line: ${line%%[[:space:]]*}…"
+  key=${line%%=*} value=${line#*=}
+  key=${key//[[:space:]]/}
+  case "$key" in
+    host) host=$value ;;
+    port) port=$value ;;
+    user) user=$value ;;
+    password) password=$value ;;
+    tls) tls=$(bool tls "$value") ;;
+    cacert) cacert=$value; tls=true ;;
+    insecure) insecure=$(bool insecure "$value"); [ "$insecure" = false ] || tls=true ;;
+    *) die "$conf: unknown key '$key'" ;;
+  esac
+done <"$conf"
+
+[ -n "$host" ] || die "$conf: host is not set"
+[[ $port =~ ^[0-9]+$ ]] || die "$conf: port must be a number, not '$port'"
+
+# Options for every connection, the host and port aside. redis-rdb-sync reads
+# the password from the environment, so it never shows in the process list.
+opts=()
+[ -z "$user" ] || opts+=(--user "$user")
+if [ "$tls" = true ]; then
+  opts+=(--tls)
+  [ -z "$cacert" ] || opts+=(--cacert "$cacert")
+  [ "$insecure" = false ] || opts+=(--insecure)
+fi
+if [ -n "$password" ]; then export REDISCLI_AUTH=$password; else unset REDISCLI_AUTH; fi
+
+# query HOST PORT ARG… — the answer of HOST:PORT to the command ARG…; an
+# error answer (NOPERM, NOAUTH) fails.
+query() {
+  local h=$1 p=$2
+  shift 2
+  redis-rdb-sync "${opts[@]}" --query "$h" "$p" "$@" </dev/null
+}
+
+# Every file is written as FILE.tmp first and renamed only once all of them
+# are complete: a failing dump leaves the previous one intact, also the RDB
+# files of the primaries that did answer. The renames come one after another;
+# only a failing rename could leave a mixed set.
+written=()
+
+# dump_rdb HOST PORT FILE — stream the RDB snapshot of HOST:PORT into
+# FILE.tmp (redis-rdb-sync checks that it is a complete RDB file).
+dump_rdb() {
+  local h=$1 p=$2 file=$3
+  echo "Dumping ${h}:${p} -> ${DB_BACKUP_DIR}/${file}"
+  redis-rdb-sync "${opts[@]}" "$h" "$p" "${DB_BACKUP_DIR}/${file}.tmp" </dev/null
+  written+=("$file")
+}
+
+mkdir -p "${DB_BACKUP_DIR}"
+# Half-written files go, whatever the run's outcome.
+trap 'rm -f "${DB_BACKUP_DIR}"/*.tmp' EXIT
+
+info=$(query "$host" "$port" INFO cluster) \
+  || die "INFO cluster on ${host}:${port} failed (the user needs +info)"
+case "$info" in
+  *cluster_enabled:0*) cluster=false ;;
+  *cluster_enabled:1*) cluster=true ;;
+  *) die "INFO cluster on ${host}:${port} has no cluster_enabled: ${info:-no answer}" ;;
+esac
+
+if [ "$cluster" = false ]; then
+  echo "Dumping Redis instance: $instance_name"
+  dump_rdb "$host" "$port" "${instance_name}.rdb"
+else
+  # The primaries are dumped one after another: each RDB file is consistent
+  # in itself, the cluster as a whole is not frozen at one instant.
+  echo "Dumping Redis cluster: $instance_name (one RDB file per primary)"
+  nodes=$(query "$host" "$port" CLUSTER NODES) \
+    || die "CLUSTER NODES on ${host}:${port} failed (the user needs +cluster|nodes)"
+  # A node line: <id> <ip:port@cport[,hostname]> <flags> <primary> <ping-sent>
+  # <pong-recv> <epoch> <link-state> <slot>…, the slots as N, N-M, or
+  # [N->-id]/[N-<-id] while one migrates (skipped: it still belongs here).
+  primaries=$(awk '$3 ~ /(^|,)master(,|$)/ {
+    first = ""
+    for (i = 9; i <= NF; i++) if ($i !~ /^\[/) { first = $i; break }
+    if (first != "") print $2, first
+  }' <<<"$nodes")
+  [ -n "$primaries" ] || die "CLUSTER NODES on ${host}:${port} lists no primary with slots: ${nodes:-no answer}"
+
+  while read -r addr first; do
+    endpoint=${addr%%,*}         # ip:port@cport
+    endpoint=${endpoint%%@*}
+    node_host=${endpoint%:*} node_port=${endpoint##*:}
+    hostname=""
+    case "$addr" in *,*) hostname=${addr#*,}; hostname=${hostname%%,*} ;; esac
+    case "$hostname" in *=*) hostname="" ;; esac   # an auxiliary field
+    # With TLS the certificate names the node: by its announced hostname.
+    if [ "$tls" = true ] && [ -n "$hostname" ]; then node_host=$hostname; fi
+    # A node that has not learnt its own address reports it empty.
+    [ -n "$node_host" ] || node_host=$host
+    dump_rdb "$node_host" "$node_port" "${instance_name}-slots-${first}.rdb"
+  done <<<"$primaries"
+
+  printf '%s\n' "$nodes" >"${DB_BACKUP_DIR}/${instance_name}-cluster-nodes.txt.tmp"
+  written+=("${instance_name}-cluster-nodes.txt")
+fi
+
+# Everything that can fail happens to the .tmp files; publishing them is
+# renames within the directory they were just written to.
+for file in "${written[@]}"; do
+  chmod 600 "${DB_BACKUP_DIR}/${file}.tmp"
+done
+for file in "${written[@]}"; do
+  mv -f "${DB_BACKUP_DIR}/${file}.tmp" "${DB_BACKUP_DIR}/${file}"
+done
+
+# Files this run did not write — a primary that no longer holds the same
+# slots, a cluster that became a standalone server or the other way round.
+# Removed only after a successful run.
+for file in "${DB_BACKUP_DIR}"/*.rdb "${DB_BACKUP_DIR}"/*-cluster-nodes.txt; do
+  [ -e "$file" ] || continue
+  keep=false
+  for w in "${written[@]}"; do [ "${file##*/}" = "$w" ] && keep=true; done
+  [ "$keep" = true ] || rm -f "$file"
+done
+
+# end

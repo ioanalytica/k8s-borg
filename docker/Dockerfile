@@ -188,7 +188,9 @@ FROM python:${PYTHON_VERSION}-alpine
 # s3-verify-listing lists the mounted buckets with it as well. openssh-server is
 # only started by the repository server. mongodb-tools brings mongodump and
 # mongorestore for the MongoDB dumps; the package's six other tools, ~13 MB
-# each and unused here, are removed in the same layer.
+# each and unused here, are removed in the same layer. valkey-cli (the client
+# alone, without a server) is for working with Redis and Valkey from the
+# console pod; backup-redis talks to the servers through redis-rdb-sync.
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
         bash \
@@ -203,6 +205,7 @@ RUN apk add --no-cache \
         mariadb-client \
         mongodb-tools \
         mariadb-connector-c \
+        valkey-cli \
         libcurl \
         libxml2 \
         libstdc++ \
@@ -300,8 +303,8 @@ ENV BORG_STORE_CACHE=1
 ENV BORG_PACK_CACHE_SIZE=2147483648
 
 # Build-time self-test: both Borg majors (via the wrappers), s3fs, the etcd
-# client, both MySQL clients, the MongoDB tools and the agent CLI must work, or
-# the build fails.
+# client, both MySQL clients, the MongoDB tools, valkey-cli and the agent CLI
+# must work, or the build fails.
 RUN borg --version \
     && borg2 --version \
     && s3fs --version \
@@ -313,6 +316,7 @@ RUN borg --version \
     && mongodump --version \
     && mongorestore --version \
     && mongodb-admin --help >/dev/null \
+    && valkey-cli --version \
     && borg-ui-agent --help >/dev/null
 
 # The repository server's sshd_config must parse with the OpenSSH this image

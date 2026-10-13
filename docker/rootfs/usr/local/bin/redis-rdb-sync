@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""redis-rdb-sync — stream the RDB snapshot of a Redis or Valkey server to a file.
+
+    redis-rdb-sync [--user U] [--tls] [--cacert F] [--insecure] HOST PORT FILE
+    redis-rdb-sync [--user U] [--tls] [--cacert F] [--insecure] --query HOST PORT ARG…
+
+The password comes from REDISCLI_AUTH, as for valkey-cli, so that it never
+shows in the process list. --query sends one command (backup-redis: INFO
+cluster, CLUSTER NODES) and prints its answer; an error answer is rc 2, where
+valkey-cli would exit 0.
+
+This is what `valkey-cli --rdb` does — REPLCONF capa eof, REPLCONF rdb-only 1,
+SYNC — plus one step it lacks: a Valkey server is told its own version with
+REPLCONF version. Valkey 9 writes its new RDB format (VALKEY080) only to a
+replica that announces a version which can read it; to anything else it sends
+the old format, which cannot hold its new types (hash fields with a TTL), and
+the transfer fails. Redis writes its own format to every replica and is told
+nothing.
+
+With TLS the server's certificate is verified against --cacert (or the
+system's CAs), and so is its name: HOST must be a DNS name or an IP address
+the certificate carries. --insecure verifies neither.
+
+Exit codes: 0 the file holds a complete RDB file (or the query answered), 2
+anything else (in the
+borg-ui agent script contract rc 1 is only a warning, which a failed dump is
+not).
+"""
+
+import argparse
+import ipaddress
+import os
+import socket
+import ssl
+import sys
+
+EOF_MARK_LEN = 40
+CHUNK = 1 << 20
+
+
+class SyncError(Exception):
+    pass
+
+
+def connect(host, port, use_tls, cacert, insecure, timeout):
+    sock = socket.create_connection((host, port), timeout=timeout)
+    if not use_tls:
+        return sock
+    ctx = ssl.create_default_context(cafile=cacert or None)
+    # Chain and name are checked, not RFC 5280's finer points: Python 3.13
+    # turned those on by default, and they refuse a CA without a key usage
+    # extension (openssl req -x509 makes one), which the server and
+    # valkey-cli accept.
+    ctx.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    if insecure:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # No name to check; an IP address is no server name to send either.
+        try:
+            ipaddress.ip_address(host)
+            return ctx.wrap_socket(sock, server_hostname=None)
+        except ValueError:
+            pass
+    # Checked against the certificate's DNS names, or its IP addresses.
+    return ctx.wrap_socket(sock, server_hostname=host)
+
+
+class Conn:
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = b""
+
+    def _fill(self):
+        data = self.sock.recv(CHUNK)
+        if not data:
+            raise SyncError("the server closed the connection")
+        self.buf += data
+
+    def readline(self):
+        while b"\n" not in self.buf:
+            self._fill()
+        line, _, self.buf = self.buf.partition(b"\n")
+        return line.rstrip(b"\r")
+
+    def read_some(self):
+        if not self.buf:
+            self._fill()
+        data, self.buf = self.buf, b""
+        return data
+
+    def send(self, *args):
+        parts = [b"*%d\r\n" % len(args)]
+        for arg in args:
+            arg = arg.encode() if isinstance(arg, str) else arg
+            parts.append(b"$%d\r\n%s\r\n" % (len(arg), arg))
+        self.sock.sendall(b"".join(parts))
+
+    def reply(self):
+        """One reply: a status/error line, or a bulk string (INFO)."""
+        line = self.readline()
+        if line.startswith(b"$"):
+            n = int(line[1:])
+            if n < 0:
+                return b""
+            while len(self.buf) < n + 2:
+                self._fill()
+            data, self.buf = self.buf[:n], self.buf[n + 2:]
+            return data
+        if line.startswith(b"-"):
+            raise SyncError(line[1:].decode(errors="replace"))
+        return line[1:]
+
+    def call(self, *args):
+        self.send(*args)
+        return self.reply()
+
+
+def valkey_version(info):
+    for line in info.decode(errors="replace").splitlines():
+        if line.startswith("valkey_version:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def receive_rdb(conn, out):
+    """Read the SYNC answer into OUT; returns the number of bytes written."""
+    conn.sock.sendall(b"SYNC\r\n")
+    # While the server prepares the snapshot it sends a bare newline now and
+    # then to keep the connection alive.
+    line = b""
+    while not line:
+        line = conn.readline()
+    if line.startswith(b"-"):
+        raise SyncError("SYNC failed: " + line[1:].decode(errors="replace"))
+    if not line.startswith(b"$"):
+        raise SyncError("unexpected answer to SYNC: %r" % line[:80])
+
+    written = 0
+    if line.startswith(b"$EOF:"):
+        # Diskless: the payload ends with the 40 bytes announced here.
+        mark = line[5:]
+        if len(mark) != EOF_MARK_LEN:
+            raise SyncError("malformed EOF marker: %r" % line[:80])
+        held = b""
+        while True:
+            data = held + conn.read_some()
+            if data.endswith(mark):
+                out.write(data[:-EOF_MARK_LEN])
+                return written + len(data) - EOF_MARK_LEN
+            keep = min(len(data), EOF_MARK_LEN)
+            out.write(data[:-keep] if keep else data)
+            written += len(data) - keep
+            held = data[len(data) - keep:]
+
+    size = int(line[1:])
+    while written < size:
+        data = conn.read_some()
+        rest = size - written
+        if len(data) > rest:
+            data = data[:rest]
+        out.write(data)
+        written += len(data)
+    return written
+
+
+def check_rdb(path):
+    with open(path, "rb") as f:
+        head = f.read(9)
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        if size >= 9:
+            f.seek(-9, os.SEEK_END)
+            tail = f.read(1)
+        else:
+            tail = b""
+    if not (head.startswith(b"REDIS") or head.startswith(b"VALKEY")):
+        raise SyncError("the server sent no RDB file (it starts with %r)" % head)
+    # The last record is the EOF opcode, followed by the 8-byte checksum.
+    if tail != b"\xff":
+        raise SyncError("the RDB file is truncated (%d bytes, no EOF record)" % size)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--user")
+    p.add_argument("--tls", action="store_true")
+    p.add_argument("--cacert")
+    p.add_argument("--insecure", action="store_true")
+    p.add_argument("--timeout", type=float, default=300.0,
+                   help="seconds without any data before giving up (default 300)")
+    p.add_argument("--query", action="store_true",
+                   help="send the command ARG… and print its answer instead")
+    p.add_argument("host")
+    p.add_argument("port", type=int)
+    p.add_argument("rest", nargs="+", metavar="FILE | ARG")
+    a = p.parse_args()
+    if not a.query and len(a.rest) != 1:
+        p.error("one FILE, or --query with a command")
+    where = "%s:%d" % (a.host, a.port)
+    try:
+        conn = Conn(connect(a.host, a.port, a.tls or a.cacert or a.insecure,
+                            a.cacert, a.insecure, a.timeout))
+        password = os.environ.get("REDISCLI_AUTH")
+        if password:
+            conn.call("AUTH", *([a.user] if a.user else []), password)
+        if a.query:
+            try:
+                answer = conn.call(*a.rest)
+            except SyncError as e:
+                raise SyncError("%s: %s" % (" ".join(a.rest), e))
+            sys.stdout.write(answer.decode(errors="replace").replace("\r\n", "\n"))
+            return 0
+        file = a.rest[0]
+        version = valkey_version(conn.call("INFO", "server"))
+        # Older servers may not know an option; SYNC then still works, or
+        # fails with the reason (valkey-cli goes on in the same way).
+        for args in (("capa", "eof"), ("rdb-only", "1")) + ((("version", version),) if version else ()):
+            try:
+                conn.call("REPLCONF", *args)
+            except SyncError as e:
+                print("%s: REPLCONF %s: %s" % (where, args[0], e), file=sys.stderr)
+        with open(file, "wb") as out:
+            size = receive_rdb(conn, out)
+            out.flush()
+            os.fsync(out.fileno())
+        check_rdb(file)
+    except (SyncError, OSError, ValueError) as e:
+        print("Error: %s: %s" % (where, e), file=sys.stderr)
+        return 2
+    print("%s: %d bytes%s" % (where, size, " (Valkey %s)" % version if version else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

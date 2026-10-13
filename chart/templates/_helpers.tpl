@@ -857,12 +857,13 @@ credentials are resolved from the database's namespace at pod start.
 The database engines the chart can dump. Adding one takes its name here, its
 section databases.<engine> in values.yaml, its Secret template, its line
 format in the credentials resolver, and backup-<engine> /
-backup-cluster-<engine> / restore-<engine> in the image. Everything that
+backup-cluster-<engine> (and restore-<engine> where a restore is scripted)
+in the image. Everything that
 decides whether an engine's dump runs, is published or is attached goes by
 k8s-borg.databases.configured below.
 */}}
 {{- define "k8s-borg.databases.supported" -}}
-mariadb mysql postgres mongodb
+mariadb mysql postgres mongodb redis
 {{- end -}}
 
 {{/*
@@ -916,7 +917,10 @@ engines, a host with a password key and a user. */}}
 {{- if and $instance.options (regexMatch "^[?&]|[#[:space:]]" (toString $instance.options)) -}}{{- fail (printf "%s.options is the URI's query (name=value&…, special characters in a value percent-encoded): no leading '?' or '&', no '#' or whitespace" $path) -}}{{- end -}}
 {{- end -}}
 {{- if not $instance.secretRef.passwordKey -}}{{- fail (printf "%s.secretRef.passwordKey is required" $path) -}}{{- end -}}
-{{- if eq (empty $instance.user) (empty $instance.secretRef.usernameKey) -}}{{- fail (printf "%s must define exactly one of user or secretRef.usernameKey" $path) -}}{{- end -}}
+{{- if eq $engine "redis" -}}
+{{- /* Redis: without either, the default user (requirepass). */ -}}
+{{- if and $instance.user $instance.secretRef.usernameKey -}}{{- fail (printf "%s must define at most one of user or secretRef.usernameKey" $path) -}}{{- end -}}
+{{- else if eq (empty $instance.user) (empty $instance.secretRef.usernameKey) -}}{{- fail (printf "%s must define exactly one of user or secretRef.usernameKey" $path) -}}{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -966,7 +970,7 @@ mounted (staged for the resolver in secretRef mode).
 
 {{/*
 Init container that builds the /root/.<engine> *.conf files (mariadb, mysql,
-postgres, mongodb): copies static confs from the chart/existing Secret (if any)
+postgres, mongodb, redis): copies static confs from the chart/existing Secret (if any)
 and resolves secretRef instances by reading the referenced Secret from its
 namespace via the API (needs the get-only ClusterRole from
 db-credentials-rbac.yaml). Passwords are escaped for the target format
@@ -980,6 +984,8 @@ for MariaDB, whose client asks for TLS by default, which a server without a
 certificate refuses; `ssl-mode=DISABLED` for MySQL, together with
 `get-server-public-key`, without which a caching_sha2_password user cannot log
 in over a connection without TLS.
+A Redis instance gets the key=value lines backup-redis reads, each value
+verbatim to the end of its line.
 */}}
 {{/*
 A value as one single-quoted Bash word, a ' in it written as '\''. Nothing in
@@ -1080,7 +1086,24 @@ it expands or runs.
         fi
         chmod 600 "$f"
       }
-      for d in /static/mariadb /static/mysql /static/postgres /static/mongodb; do
+      rd() { # ns secret userKey passKey host port user name tls cacert insecure
+        local u p f="/out/redis/$8.conf"
+        if [ -n "$3" ]; then u=$(key "$1" "$2" "$3"); u=${u%x}; else u=$7; fi
+        p=$(key "$1" "$2" "$4"); p=${p%x}
+        # backup-redis takes each value verbatim to the end of its line.
+        one_line "redis instance $8: user" "$u"; one_line "redis instance $8: password" "$p"
+        one_line "redis instance $8: host" "$5"; one_line "redis instance $8: cacert" "${10}"
+        {
+          printf 'host=%s\nport=%s\n' "$5" "$6"
+          if [ -n "$u" ]; then printf 'user=%s\n' "$u"; fi
+          printf 'password=%s\n' "$p"
+          if [ -n "$9" ]; then printf 'tls=%s\n' "$9"; fi
+          if [ -n "${10}" ]; then printf 'cacert=%s\n' "${10}"; fi
+          if [ -n "${11}" ]; then printf 'insecure=%s\n' "${11}"; fi
+        } > "$f"
+        chmod 600 "$f"
+      }
+      for d in /static/mariadb /static/mysql /static/postgres /static/mongodb /static/redis; do
         [ -d "$d" ] || continue
         for f in "$d"/*.conf; do
           [ -e "$f" ] || continue
@@ -1108,6 +1131,13 @@ it expands or runs.
       {{- range .Values.databases.mongodb.instances }}
       {{- if .secretRef }}
       mo {{ include "k8s-borg.shellWords" (list .secretRef.namespace .secretRef.name (.secretRef.uriKey | default "") (.secretRef.usernameKey | default "") (.secretRef.passwordKey | default "") (.host | default "") (.port | default 27017) (.user | default "") (.options | default "authSource=admin") .name) }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- if has "redis" $engines }}
+      {{- range .Values.databases.redis.instances }}
+      {{- if .secretRef }}
+      rd {{ include "k8s-borg.shellWords" (list .secretRef.namespace .secretRef.name (.secretRef.usernameKey | default "") .secretRef.passwordKey .host (.port | default 6379) (.user | default "") .name (ternary (toString .tls) "" (hasKey . "tls")) (.cacert | default "") (ternary "true" "" (and (hasKey . "insecure") (eq (toString .insecure) "true")))) }}
       {{- end }}
       {{- end }}
       {{- end }}

@@ -95,7 +95,12 @@ jobs:
   # the matrix (tests/e2e/db/run.sh). A job of its own, so that it runs next to
   # the Borg suite; the agent image comes from the same build cache.
   e2e-db:
-    runs-on: ubuntu-26.04
+    # Ubuntu 24.04's kernel 6.8: MongoDB 8.0.21+, 8.3 and 9.0 refuse to start on
+    # a Linux kernel 6.19 or newer (SERVER-121912), and 26.04 reports its patched
+    # kernel as 7.0.0, which their exemption for 7.0.14+ does not match
+    # (SERVER-136848). Back to the current runner once MongoDB starts there:
+    # see #68.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -112,5 +117,5 @@ jobs:
           cache-from: type=gha,scope=k8s-borg-e2e
       - name: Build the test layer
         run: docker build -f tests/e2e/Dockerfile --build-arg BASE=k8s-borg:test -t k8s-borg:e2e .
-      - name: Run the database suite, PostgreSQL 13–18, MariaDB 10.11/11.4/11.8, MySQL 8.4, Percona Server 8.4 and MongoDB 7/8
+      - name: Run the database suite, PostgreSQL 13–18, MariaDB 10.11/11.4/11.8, MySQL 8.4, Percona Server 8.4, MongoDB 7/8, Redis 7/8, Valkey 8/9
         run: ./tests/e2e/db/run.sh
