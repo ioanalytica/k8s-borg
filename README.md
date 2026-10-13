@@ -1,27 +1,39 @@
 # k8s-borg
 
 Backup for Kubernetes clusters with [BorgBackup](https://www.borgbackup.org/),
-packaged as one container image and one Helm chart. k8s-borg grew out of an
-internal project (`k3s-borg`) and runs in production on Borg 1.
+packaged as one container image and one Helm chart. k8s-borg runs in production
+on Borg 1.
 
 It backs up the nodes, the cluster's shared data, S3 buckets and databases, each
 into its own Borg repository. A repository server for Borg 1 and Borg 2 can run
-in the same release. Optionally, a [Borg UI](https://github.com/karanhudia/borg-ui)
-server deployed by the chart drives the backups as managed agents, and the same
-server takes agents on hosts outside the cluster, so one place shows the backups
-of clusters and machines alike.
+in the same release and keep an external copy of its repositories. Optionally, a
+[Borg UI](https://github.com/karanhudia/borg-ui) server deployed by the chart
+drives the backups as managed agents, and the same server takes agents on hosts
+outside the cluster, so one place shows the backups of clusters and machines
+alike.
 
 ## Features
 
 - **Node backups**: a DaemonSet backs up every node's local file systems, one
-  repository per node.
+  repository per node. Before the file backup, optionally:
+  - a snapshot of the cluster datastore on control-plane nodes — the etcd of
+    k3s or kubeadm, or k3s's SQLite — with the k3s server token or kubeadm's
+    PKI, held in memory only and removed after the run;
+  - consistent copies of SQLite databases on application volumes, made with
+    SQLite's online backup while the application keeps writing.
 - **Cluster data backups**: a CronJob (or a Borg UI backup plan) backs up shared
-  file systems and user homes, S3 buckets, and logical dumps of in-cluster
-  MariaDB and PostgreSQL databases.
+  file systems and user homes, S3 buckets, and dumps of databases.
   - S3 buckets are mounted fresh before each run, and their content is checked
     against the bucket listing. A bucket whose mount misses objects is mounted
     again; if objects are still missing, a CronJob run fails (the rest is
     archived anyway), and a Borg UI backup plan ends with a warning.
+  - Database dumps of MariaDB, MySQL and Percona Server 8.4, PostgreSQL (the
+    whole instance, roles included), MongoDB, and Redis and Valkey (RDB
+    snapshots, standalone and cluster). Credentials come from a static
+    config, an existing Secret, or the Secret a database operator created in
+    the database's namespace. The dumps are not compressed, so Borg
+    deduplicates them. `restore-*` scripts restore a whole instance or a
+    single database; Redis and Valkey have a documented restore procedure.
 - **Console pod**: a StatefulSet with the Borg tools, the database dumps and the
   backup sources at hand, for inspection and restores with `kubectl exec`.
 - **Repository server for Borg 1 and Borg 2** (Borg 2 for testing only):
@@ -32,6 +44,10 @@ of clusters and machines alike.
   - Permissions per client, enforced by the server: `all`, `no-delete`,
     `write-only` or `read-only` (Borg 1: `all` or append-only).
   - Adding a client is adding a line to `authorized_keys`.
+  - An external copy of the repositories, for the case that the server's
+    storage fails: a CronJob mirrors them to S3, an SFTP target such as a
+    Hetzner Storage Box, or any other rclone remote — read-only, without a
+    lock and without a passphrase.
 - **Both Borg majors in one image**: `borg` (1.x) for production, and `borg2`
   (2.x beta, with `borgstore`) for testing only (see below), chosen per
   repository. Borg 2 also reaches plain SFTP targets with no Borg on the server.
@@ -47,9 +63,15 @@ of clusters and machines alike.
   repositories, check schedules and backup plans. Pre/post-backup scripts are
   published to each agent as an allow-list, so the server can only pick a
   script by name.
-- **Tested**: shellcheck, bats unit tests for the wrappers and the chart, and an
-  end-to-end suite that runs the whole repository lifecycle against real Borg 1
-  and Borg 2 repositories. All three run in CI on every push and pull request.
+- **Tested**: shellcheck, bats unit tests for the wrappers and the chart, and
+  end-to-end suites against the real thing:
+  - the whole repository lifecycle, the repository server and its external
+    copy (to S3 and SFTP), with Borg 1 and Borg 2;
+  - every database dump and restore against real servers: PostgreSQL 13–18,
+    MariaDB 10.11/11.4/11.8, MySQL and Percona Server 8.4, MongoDB 7/8,
+    Redis 7/8 and Valkey 8/9, and SQLite under write load.
+
+  All of it runs in CI on every push and pull request.
 
 > ⚠️ **Do not use Borg 2 for real backups.** Borg 2 is a beta, and its
 > repository format has changed more than once without a conversion path: a
@@ -91,8 +113,9 @@ Borg UI options and every parameter are documented in
 
 If `BORG_UI_AGENT` is unset or not `true`, k8s-borg runs **without** Borg UI.
 The container entrypoint (`/run.sh run`) validates the environment, mounts the
-sources (S3 via `s3fs` for cluster/app jobs), takes logical DB dumps
-(MariaDB/PostgreSQL), then runs `borg-backup` against the pod's assigned
+sources (S3 via `s3fs` for cluster/app jobs), takes the dumps of the configured
+database engines (cluster jobs) or the datastore snapshot and the SQLite copies
+(node pods, when enabled), then runs `borg-backup` against the pod's assigned
 repository. Scheduling is Kubernetes' own: the DaemonSet's interval loop and the
 CronJob.
 
@@ -145,15 +168,16 @@ your config) chooses per repo:
 
 | Command (PATH) | Version | Real binary run by the wrapper |
 | --- | --- | --- |
-| `borg`  | 1.x (Alpine package)     | `/usr/bin/borg` |
-| `borg2` | 2.x beta (compiled venv) | `/opt/borg-ui-agent/borg2-venv/bin/borg` |
+| `borg`  | 1.x (compiled venv)      | `/opt/borg-ui-agent/borg1/current/borg` |
+| `borg2` | 2.x beta (compiled venv) | `/opt/borg-ui-agent/borg2/current/borg` |
 
-`borg2` is built with the `borgstore[sftp]` extra (paramiko + cryptography), so
-it can use plain **SFTP** repositories with **no server-side Borg** — e.g. a
-Hetzner Storage Box, which only ships server-side Borg 1.x. Borg 2's repo format
-is incompatible with Borg 1 (migrate with `borg transfer`), and Borg 2 is beta —
-its on-disk format can change between betas, so use the same `borg2` build
-everywhere, and do not use it for real backups yet.
+`borg2`'s borgstore carries every repository backend — sftp, s3, rclone and
+rest. It can use plain **SFTP** repositories with **no server-side Borg**, e.g.
+a Hetzner Storage Box, which only ships server-side Borg 1.x, as well as S3
+buckets and rclone remotes. Borg 2's repo format is incompatible with Borg 1
+(migrate with `borg transfer`), and Borg 2 is beta — its on-disk format can
+change between betas, so use the same `borg2` build everywhere, and do not use
+it for real backups yet.
 
 Borg 2 and borgstore are installed as a pair: Borg 2 at the version of the
 `borg-ui` manifest, borgstore at exactly the version
@@ -190,11 +214,11 @@ pass. See "Upgrading to Borg 2.0.0b25" in [`chart/README.md`](chart/README.md).
 | `chart/` | The Helm chart; [`chart/README.md`](chart/README.md) documents it |
 | `borg-ui/` | Submodule → `karanhudia/borg-ui` (agent and server source, pinned commit) |
 | `docker/Dockerfile` | Backup/agent/repository server image (build context = repo root) |
-| `docker/rootfs/` | Files copied into the image: `run.sh` (mode dispatch), `run-agent.sh` (enroll + agent), `prepare-repo-server.sh`, and the `borg-*` / `backup-*` / `restore-*` / `s3-*` tools |
+| `docker/rootfs/` | Files copied into the image: `run.sh` (mode dispatch), `run-agent.sh` (enroll + agent), `prepare-repo-server.sh`, the `borg-*` / `backup-*` / `restore-*` / `s3-*` tools, `datastore-snapshot`, `sqlite-copy` and `borg-offsite-copy` (the repository server's external copy) |
 | `docker/docker-build.sh`, `docker-build-runtime-base.sh`, `docker-build-server.sh` | Build helpers (`--push` / multi-arch to GHCR). The runtime-base and **server** images build directly from the submodule's `borg-ui/Dockerfile.runtime-base` and `borg-ui/Dockerfile`, with no copy of the recipe, under our own tag/registry via `--build-arg` / `-t` / `--label` |
 | `examples/` | Plain manifests, a Kustomization, Helm values and Secret templates |
 | `local/` | A Docker Compose test stack: Borg UI, PostgreSQL, Redis, repository server and an agent from any borg-ui source tree |
-| `tests/` | shellcheck, bats unit tests and the end-to-end suite |
+| `tests/` | shellcheck, bats unit tests, the end-to-end suite and the database suite (`tests/e2e/db/`) |
 | `.github/workflows/` | Lint and tests on every push; tag-triggered multi-arch image build and chart push to GHCR; daily Trivy scan |
 
 ## Build
@@ -219,9 +243,11 @@ The server and its runtime base build the same way via
 ```
 
 Three layers: `shellcheck` over every shell script, bats unit tests for the
-wrapper and chart logic, and an end-to-end suite that runs the full repository
-lifecycle against real Borg repositories inside the agent image, once for Borg 1
-and once for Borg 2. The same three run in CI on every push and pull request.
+wrapper and chart logic, and end-to-end suites inside the agent image. One runs
+the full repository lifecycle, the repository server and its external copy
+against real Borg repositories, once for Borg 1 and once for Borg 2; the
+database suite dumps and restores every engine against real servers of each
+supported version. The same three run in CI on every push and pull request.
 See [`tests/README.md`](tests/README.md) for what each layer covers.
 
 ## Submodule
@@ -250,5 +276,10 @@ others:
 | [Borg UI](https://github.com/karanhudia/borg-ui) (server and agent) | AGPL-3.0 |
 | [BorgBackup](https://github.com/borgbackup/borg) and [borgstore](https://github.com/borgbackup/borgstore) | BSD-3-Clause |
 | [s3fs-fuse](https://github.com/s3fs-fuse/s3fs-fuse) | GPL-2.0 |
+| [rclone](https://rclone.org/) | MIT |
+| [etcd](https://github.com/etcd-io/etcd) (`etcdctl`, `etcdutl`) | Apache-2.0 |
+| [MongoDB Database Tools](https://github.com/mongodb/mongo-tools) (`mongodump`, `mongorestore`) | Apache-2.0 |
+| [Valkey](https://github.com/valkey-io/valkey) (`valkey-cli`) | BSD-3-Clause |
+| [MariaDB Connector/C](https://github.com/mariadb-corporation/mariadb-connector-c) (the MariaDB client's authentication plugins) | LGPL-2.1+ |
 | [MySQL](https://www.mysql.com/) client 8.4 (`mysql`, `mysqldump`; Oracle's build, in `/opt/mysql`) | GPL-2.0 with Oracle's Universal FOSS Exception |
 | GNU C Library, OpenSSL, libstdc++, ncurses and zlib, as the MySQL client's runtime in `/opt/mysql` | LGPL-2.1+, Apache-2.0, GPL-3.0+ with the GCC Runtime Library Exception, MIT, Zlib |

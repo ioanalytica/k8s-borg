@@ -1,0 +1,142 @@
+{{- /*
+Copyright IO ANALYTICA.
+SPDX-License-Identifier: AGPL-3.0-only
+
+External copy of the repository server (repoServer.offsite.enabled): a CronJob
+that mirrors every repository below the data directory to an rclone remote
+(borg-offsite-copy), for the case that the server's storage fails.
+
+It reads the server's volume read-only, runs as the server's user and asks for
+nothing more than the server does. The pod sits on the server's node: a local
+volume pins it there by itself, and the pod affinity does the same for every
+other volume that can only be mounted on one node at a time.
+
+The rclone config and the files it refers to are mounted in one directory,
+each from the chart's Secret or from an existing one.
+*/}}
+{{- $rs := .Values.repoServer }}
+{{- $o := $rs.offsite }}
+{{- if and $rs.enabled $o.enabled }}
+{{- $dataDir := include "k8s-borg.repoServer.dataDir" . }}
+{{- $configDir := include "k8s-borg.repoServer.offsite.configDir" . }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "k8s-borg.repoServer.offsite.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server-offsite") | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  schedule: {{ $o.schedule | quote }}
+  timeZone: {{ $o.timeZone | default .Values.timezone | quote }}
+  suspend: {{ $o.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # The job repeats a repository that changed during the copy itself; a
+      # failed run stays failed and shows as such.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "repo-server-offsite") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          {{- include "k8s-borg.imagePullSecrets" . | nindent 10 }}
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: {{ int $rs.runAsUser }}
+            runAsGroup: {{ int $rs.runAsGroup }}
+            seccompProfile:
+              type: RuntimeDefault
+          {{- with $rs.nodeSelector }}
+          nodeSelector: {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
+          {{- end }}
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels: {{- include "k8s-borg.matchLabels" (dict "context" $ "component" "repo-server") | nindent 22 }}
+                  topologyKey: kubernetes.io/hostname
+          {{- with $rs.tolerations }}
+          tolerations: {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: offsite
+              image: {{ include "k8s-borg.image" . | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+              command: ["/usr/local/bin/borg-offsite-copy"]
+              args:
+                - --transfers={{ int $o.transfers }}
+                {{- with $o.bwlimit }}
+                - {{ printf "--bwlimit=%v" . | quote }}
+                {{- end }}
+                {{- range $o.extraArgs }}
+                - {{ . | quote }}
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: TZ
+                  value: {{ .Values.timezone | quote }}
+                - name: HOME
+                  value: /tmp
+                - name: BORG_OFFSITE_SOURCE
+                  value: {{ $dataDir | quote }}
+                - name: BORG_OFFSITE_TARGET
+                  value: {{ $o.target | quote }}
+                - name: BORG_OFFSITE_RETRIES
+                  value: {{ $o.retries | quote }}
+                - name: RCLONE_CONFIG
+                  value: {{ printf "%s/rclone.conf" $configDir | quote }}
+              volumeMounts:
+                - name: data
+                  mountPath: {{ $dataDir }}
+                  readOnly: true
+                - name: config
+                  mountPath: {{ $configDir }}
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              {{- with $o.resources }}
+              resources: {{- toYaml . | nindent 16 }}
+              {{- end }}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "k8s-borg.repoServer.claimName" . }}
+                readOnly: true
+            - name: tmp
+              emptyDir: {}
+            - name: config
+              projected:
+                # 0444: the job is not root and could not read anything stricter.
+                # It is the only one to see these files.
+                defaultMode: 292
+                sources:
+                  {{- range (include "k8s-borg.repoServer.offsite.files" . | fromJsonArray) }}
+                  {{- $ref := get $o .name }}
+                  {{- if $ref.existingSecret }}
+                  - secret:
+                      name: {{ $ref.existingSecret | quote }}
+                      items:
+                        - key: {{ $ref.existingSecretKey | default .file | quote }}
+                          path: {{ .file }}
+                  {{- else if $ref.value }}
+                  - secret:
+                      name: {{ include "k8s-borg.repoServer.offsite.fullname" $ }}
+                      items:
+                        - key: {{ .file }}
+                          path: {{ .file }}
+                  {{- end }}
+                  {{- end }}
+{{- end }}

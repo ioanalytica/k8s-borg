@@ -1103,3 +1103,64 @@ repoServer:
   tolerations: []
   ## @param repoServer.podAnnotations Extra pod annotations
   podAnnotations: {}
+  ## External copy: a CronJob mirrors every repository below the data directory to
+  ## an rclone remote — S3-compatible storage, an SFTP target such as a Hetzner
+  ## Storage Box, or any other rclone remote — for the case that the server's
+  ## storage fails. A mirror, not a second backup: what a client deletes or
+  ## compacts disappears from the copy with the next run.
+  ##
+  ## The job reads the data directory read-only, as runAsUser, on the server's
+  ## node. It copies one repository at a time, without a lock and without any
+  ## passphrase: data first, then what refers to it, then the deletions, and
+  ## again if a client wrote to the repository meanwhile. A repository that does
+  ## not exist locally is never touched on the remote. Schedule it outside the
+  ## backup windows. See chart/README.md, "External copy", for examples and the
+  ## restore.
+  ##
+  ## The files below are mounted in /etc/borg-offsite; rclone.conf refers to the
+  ## others by that path (key_file, known_hosts_file). Each: `value`, or an
+  ## existing Secret via existingSecret[+existingSecretKey].
+  offsite:
+    ## @param repoServer.offsite.enabled Deploy the copy job (requires repoServer.enabled)
+    enabled: false
+    ## @param repoServer.offsite.target Where the copy goes: <remote>:<path>, the remote named as in
+    ## rclone.conf. Every repository lands at the same path below it as below the data directory.
+    target: ""
+    ## @param repoServer.offsite.schedule Cron schedule, outside the backup windows
+    schedule: "0 4 * * *"
+    ## @param repoServer.offsite.timeZone Time zone of the schedule (defaults to .timezone)
+    timeZone: ""
+    ## @param repoServer.offsite.suspend Pause the copy, e.g. while the server is restored from it
+    suspend: false
+    ## @param repoServer.offsite.bwlimit rclone --bwlimit, e.g. "20M" or "08:00,2M 20:00,off" (empty = none)
+    bwlimit: ""
+    ## @param repoServer.offsite.transfers Files rclone transfers in parallel
+    transfers: 4
+    ## @param repoServer.offsite.retries Attempts per repository when a client wrote to it during the copy
+    retries: 3
+    ## @param repoServer.offsite.extraArgs More rclone options, passed to every rclone call
+    extraArgs: []
+    rcloneConfig:
+      ## @param repoServer.offsite.rcloneConfig.value rclone.conf with the remote named in target
+      value: ""
+      ## @param repoServer.offsite.rcloneConfig.existingSecret Existing Secret holding rclone.conf
+      existingSecret: ""
+      ## @param repoServer.offsite.rcloneConfig.existingSecretKey Key in existingSecret (default: rclone.conf)
+      existingSecretKey: ""
+    sshKey:
+      ## @param repoServer.offsite.sshKey.value SFTP: private key, mounted as /etc/borg-offsite/ssh_key
+      value: ""
+      ## @param repoServer.offsite.sshKey.existingSecret Existing Secret holding the key
+      existingSecret: ""
+      ## @param repoServer.offsite.sshKey.existingSecretKey Key in existingSecret (default: ssh_key)
+      existingSecretKey: ""
+    knownHosts:
+      ## @param repoServer.offsite.knownHosts.value SFTP: the target's host key, mounted as
+      ## /etc/borg-offsite/known_hosts. Without known_hosts_file rclone accepts any host key.
+      value: ""
+      ## @param repoServer.offsite.knownHosts.existingSecret Existing Secret holding known_hosts
+      existingSecret: ""
+      ## @param repoServer.offsite.knownHosts.existingSecretKey Key in existingSecret (default: known_hosts)
+      existingSecretKey: ""
+    ## @param repoServer.offsite.resources Container resources
+    resources: {}
