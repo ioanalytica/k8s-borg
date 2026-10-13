@@ -8,15 +8,16 @@
 
 fail() { printf '%s\n' "$*" >&2; return 1; }
 
-# wait_for SECONDS COMMAND… — retry COMMAND once a second until it succeeds.
+# wait_for SECONDS COMMAND… — retry COMMAND once a second until it succeeds,
+# for SECONDS of wall time: a try that itself takes seconds (a client's
+# connect timeout) does not stretch the wait.
 wait_for() {
-  local seconds=$1 i
+  local seconds=$1 end=$((SECONDS + $1))
   shift
-  for ((i = 0; i < seconds; i++)); do
-    "$@" >/dev/null 2>&1 && return 0
+  until "$@" >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$end" ] || { fail "not ready after ${seconds}s: $*"; return; }
     sleep 1
   done
-  fail "not ready after ${seconds}s: $*"
 }
 
 # mode_of FILE — the permission bits, e.g. 600.
