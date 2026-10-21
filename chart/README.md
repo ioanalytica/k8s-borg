@@ -1140,6 +1140,13 @@ exactly tag `v2.3.10`, `2.3.10-27-gcdd5712c9` for a commit after it. Every pin
 gets its own image that way; borg-ui's `VERSION` file stays the same across
 many commits, and a tag reused for another pin would overwrite the image an
 older chart version still points at.
+
+The managed agent's own version comes from the pin too. Borg UI raises it only
+at a release, so a pin past a release that changed the agent gets that pin's
+distance appended in both images (`2.3.10-64-g…` → agent `0.1.21.64`,
+`docker/agent-version-stamp.sh`): it sorts above the release and below the
+next one, and enrolled agents are offered the new code. A pin at a release tag,
+or one that left the agent unchanged, keeps the plain version.
 The `annotations.images` block in `Chart.yaml` restates all of this for chart
 scanners, so it has to be updated along with any bump.
 

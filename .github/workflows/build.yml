@@ -38,6 +38,7 @@ jobs:
       borgstore: ${{ steps.pins.outputs.borgstore }}
       python: ${{ steps.pins.outputs.python }}
       app_version: ${{ steps.pins.outputs.app_version }}
+      agent_edge: ${{ steps.pins.outputs.agent_edge }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -58,6 +59,11 @@ jobs:
           # for another pin overwrites the image an older chart still names.
           # The fork the submodule comes from has no tags, hence --fetch-tags.
           app_version="$(./docker/ui-app-version.sh --fetch-tags)"
+          # The managed agent's version stamp, from the same tags: the pin's
+          # describe distance when the agent changed since the last release,
+          # else nothing (docker/agent-version-stamp.sh). Computed once here so
+          # the agent and the server image cannot get different ones.
+          agent_edge="$(./docker/agent-version-stamp.sh)"
           # The gate's bats suite checks this too; here it is the very string
           # the image gets tagged with.
           . tests/helpers/versions.bash
@@ -73,6 +79,7 @@ jobs:
             echo "borgstore=$BORGSTORE_VERSION"
             echo "python=$PYTHON_VERSION"
             echo "app_version=$app_version"
+            echo "agent_edge=$agent_edge"
           } >> "$GITHUB_OUTPUT"
 
   agent:
@@ -86,6 +93,7 @@ jobs:
       image: k8s-borg
       context: .
       file: ./docker/Dockerfile
+      agent-edge: ${{ needs.prep.outputs.agent_edge }}
       tags: |
         type=ref,event=branch
         type=sha,format=short
@@ -124,6 +132,7 @@ jobs:
       image: k8s-borg-ui
       context: borg-ui
       file: ./borg-ui/Dockerfile
+      agent-edge: ${{ needs.prep.outputs.agent_edge }}
       build-args: |
         BASE_IMAGE=ghcr.io/ioanalytica/k8s-borg-ui-runtime-base:${{ needs.prep.outputs.runtime_tag }}
         APP_VERSION=${{ needs.prep.outputs.app_version }}
