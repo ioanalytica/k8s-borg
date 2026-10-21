@@ -142,7 +142,7 @@ their own — `src`, seeded and dumped, and the empty `dst` and `dst2` — and r
 the engine's bats file next to them in the e2e image (`k8s-borg:e2e`, built by
 `tests/e2e/run.sh`). Server versions run in parallel (`E2E_DB_JOBS`, default
 3); the default matrix is PostgreSQL 13–18, MariaDB 10.11, 11.4 and 11.8, MySQL
-8.4, Percona Server 8.4 (`percona:8.4`), MongoDB 7 and 8, Redis 7 and 8, Valkey 8 and 9, and SQLite as
+8.4, Percona Server 8.4 (`percona:8.4`), MongoDB 7 and 8.2 (8.0.21+, 8.3 and 9.0 refuse kernels 6.19+), Redis 7 and 8, Valkey 8 and 9, and SQLite as
 written by the SQLite of Alpine, Debian 12 and Debian 11 (`sqlite:alpine`,
 `sqlite:bookworm`, `sqlite:bullseye`). MySQL and Percona Server run with GTIDs
 on. For MongoDB, `src` and `dst` are single-member replica sets with

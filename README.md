@@ -70,7 +70,7 @@ alike.
   - the whole repository lifecycle, the repository server and its external
     copy (to S3 and SFTP), with Borg 1 and Borg 2;
   - every database dump and restore against real servers: PostgreSQL 13–18,
-    MariaDB 10.11/11.4/11.8, MySQL and Percona Server 8.4, MongoDB 7/8,
+    MariaDB 10.11/11.4/11.8, MySQL and Percona Server 8.4, MongoDB 7.0/8.2,
     Redis 7/8 and Valkey 8/9, and SQLite under write load.
 
   All of it runs in CI on every push and pull request.

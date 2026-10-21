@@ -425,8 +425,8 @@ database comes back as each of its collections was when it was dumped. The
 users and roles, also those defined on a database, and the `admin` database
 are only restored with `--all`. A database the archive does not hold is
 refused before anything is dropped. Every error ends a restore with rc ≥ 2.
-Covered by the database end-to-end tests against MongoDB 7 and 8, replica set
-and standalone (`tests/e2e/db/mongodb.bats`).
+Covered by the database end-to-end tests against MongoDB 7.0 and 8.2, replica
+set and standalone (`tests/e2e/db/mongodb.bats`).
 
 ### Privileges
 

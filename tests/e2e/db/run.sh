@@ -5,7 +5,7 @@
 # on a Docker network of its own, the tests in the e2e image next to them.
 #
 #   ./tests/e2e/db/run.sh                         # every server version
-#   ./tests/e2e/db/run.sh postgres:17 mariadb:11.8 mongodb:8
+#   ./tests/e2e/db/run.sh postgres:17 mariadb:11.8 mongodb:8.2
 #   ./tests/e2e/db/run.sh sqlite:bookworm
 #
 # Environment:
@@ -37,7 +37,9 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 self="$PWD/tests/e2e/db/run.sh"
 
-DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8 redis:7 redis:8 valkey:8 valkey:9 sqlite:alpine sqlite:bookworm sqlite:bullseye"
+# MongoDB 8 as 8.2: 8.0.21+, 8.3 and 9.0 refuse to start on a Linux kernel
+# 6.19 or newer (SERVER-121912, SERVER-136848); 8.2 and 7.0 start there.
+DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 postgres:18 mariadb:10.11 mariadb:11.4 mariadb:11.8 mysql:8.4 percona:8.4 mongodb:7 mongodb:8.2 redis:7 redis:8 valkey:8 valkey:9 sqlite:alpine sqlite:bookworm sqlite:bullseye"
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
