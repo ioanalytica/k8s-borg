@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+* **Agent version between Borg UI releases** (#77). When the `borg-ui` pin
+  lies past a release and changed the agent, both images carry the agent
+  version with the pin's distance from that release appended (Borg UI
+  2.3.10-64-g… → agent 0.1.21.64), so enrolled agents are offered the new
+  code.
+
 ## 1.1.9-rc.1
 
 * **Borg UI 2.3.10-62-ga7219d4d6.** The `borg-ui` submodule moves back to
