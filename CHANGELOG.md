@@ -1,16 +1,20 @@
 # Changelog
 
+## 1.1.9-rc.1
+
+* **Borg UI 2.3.10-62-ga7219d4d6.** The `borg-ui` submodule moves back to
+  upstream main (a7219d4d6). Agent 0.1.21 and the database schema are
+  unchanged.
+
 ## 1.1.9-beta.13
 
+* **Borg UI unchanged:** 2.3.10-52-g2e4031646 (the beta.12 pin), agent
+  0.1.21, database schema unchanged.
 * **Database dumps for every common engine, the cluster datastore, SQLite on
-  application volumes, and an external copy of the repository server.** Borg UI
-  is unchanged: the `borg-ui` submodule stays at the beta.12 pin, our fork's
-  `io/integration` at 2e4031646 (UI image `2.3.10-52-g2e4031646`, agent
-  0.1.21), while the borg-ui pull requests it carries are still open upstream.
-  The runtime base (Borg 1.4.5, Borg 2.0.0b25) is unchanged. The agent image
-  gains `etcdctl`/`etcdutl`, MongoDB's `mongodump`/`mongorestore`, the MySQL
-  8.4 client, `valkey-cli` and the helpers below. Node backups stay on the
-  node's own file systems.
+  application volumes, and an external copy of the repository server.** The
+  agent image gains `etcdctl`/`etcdutl`, MongoDB's `mongodump`/`mongorestore`,
+  the MySQL 8.4 client, `valkey-cli` and the helpers below. Node backups stay
+  on the node's own file systems.
 * **License: AGPL-3.0-only throughout** (#44). The chart's SPDX headers and
   `Chart.yaml` said Apache-2.0 while the repository's `LICENSE` was the
   AGPL-3.0; all of them now say `AGPL-3.0-only`. The README describes what the
@@ -289,105 +293,29 @@
 
 ## 1.1.9-beta.12
 
-* **Integration test beta: Borg UI 2.3.10-52-g2e4031646, agent 0.1.21.**
-  This beta is meant to run for 24 hours to test fixes that are not merged
-  upstream yet. The `borg-ui` submodule leaves upstream main for once and
-  pins our fork's `io/integration` branch at 2e4031646: upstream main
-  b45ce0f58 (the beta.11 pin) plus nine commits, picked linearly in this
-  order, from seven open borg-ui pull requests and two fixes still under
-  review in our fork (stacked on borg-ui PR #1384). None of them is merged
-  upstream. The runtime base (Borg 1.4.5, Borg 2.0.0b25) is unchanged; the
-  database schema moves to Alembic head c4e532c20d7b, which only borg-ui PR
-  #1396 contains.
-  * CI only: pull requests that touch destructive code paths are labelled
-    (borg-ui PR #1370, issue #1367).
-  * Agent 0.1.21 keeps a finished job's outcome until the server has taken
-    it, retrying while the server is away, and lists such a job as running,
-    so a server outage no longer makes the server run the job again. After
-    a crash and restart (launchd's KeepAlive on macOS, or an agent started
-    by hand), the agent ends hook process groups left by its dead process
-    before its first hello. Every log line carries the run it belongs to,
-    and the server drops lines of an earlier attempt. Agent 0.1.21 also
-    carries the agent code of borg-ui #1387 (borg-ui PR #1400, issues #1377
-    and #1383).
-  * A started job the agent no longer runs is recovered at the agent's hello
-    instead of holding its repository until the reaper fails it 15 minutes
-    later, as an agent process restarted mid-job left it (borg-ui PR #1384,
-    issue #1363).
-  * A start report that reaches the server after the job's completion no
-    longer sets the completed agent job, and its operation, back to running
-    (borg-ui issue #1376; fork PR, not yet upstream).
-  * A requeued agent job's stored log lines are dropped before it runs
-    again, so the retry's log is no longer the first run's followed by the
-    retry's tail (borg-ui issue #1378; fork PR, not yet upstream).
-  * The archive of a backup that failed after `borg create`, for example by
-    a failing post-backup hook, is linked to the backup (borg-ui PR #1392,
-    issue #1328).
-  * An agent repository's own pre/post-backup hooks run on the agent, as
-    scripts the agent publishes and that are assigned by name; inline and
-    library scripts, which would run on the server, are refused for an
-    agent repository (borg-ui PR #1396, issue #1386). Adds
-    `repository_scripts.agent_script_name` and makes `script_id` nullable
-    (Alembic c4e532c20d7b on c8e1f4a7b2d9).
-  * The restore canary is no longer staged inside an SSH source mount,
-    where it wrote files on the source host (borg-ui PR #1397, issue
-    #1381).
-  * The scheduler starts after the startup sweeps, and the sweeps keep plan
-    runs this process is executing: catch-up runs after a restart were
-    dispatched first and then failed as interrupted by the restart
-    (borg-ui PR #1399, issue #1398).
+* **Borg UI 2.3.10-52-g2e4031646**, for a 24-hour integration test. The
+  `borg-ui` submodule pins our fork's `io/integration` branch at 2e4031646
+  (upstream main with fixes not yet merged there). Agent 0.1.21 (offered as
+  an upgrade to agents installed outside the chart); the database schema
+  changes (Alembic c4e532c20d7b).
 
 ### Upgrade notes
 
-* Agents must run 0.1.21 for the agent fixes. Agents in this chart get it
-  with the agent image `k8s-borg:1.1.9-beta.12`; the server offers the
-  upgrade to separately installed agents (including macOS agents), which
-  can also be updated by hand.
-* The UI server migrates the database to c4e532c20d7b at its start
-  (reversible).
-* Going back to a plain upstream pin before borg-ui PR #1396 is merged:
-  while still on this image, either run `alembic downgrade -1`, which
-  deletes only the hooks that name an agent script (those created through
-  the new feature), or `alembic stamp c8e1f4a7b2d9`, which keeps the new
-  column and the nullable `script_id` and resets only the bookkeeping;
-  before a stamp, delete hooks that name an agent script, since the older
-  code expects a `script_id` on every hook. Without either, the older image
-  fails at startup with "Can't locate revision".
-* If #1396 is merged with the same revision, nothing needs doing. If its
-  revision changes, reconcile with a merge revision or a verified
-  `alembic stamp`; do not re-parent a revision that a database has
-  already applied.
+* Going back to 1.1.9-beta.11 or earlier: run `alembic downgrade -1` while
+  still on this image, which deletes only the hooks that name an agent
+  script; otherwise the older image fails at startup with "Can't locate
+  revision".
 
 ## 1.1.9-beta.11
 
-* **Borg UI follows upstream main: 2.3.10-43-gb45ce0f58, agent 0.1.20.**
-  The `borg-ui` submodule moves from 5e15222d5 to upstream main b45ce0f58.
-  Nothing under `agent/` changed, so the agent version stays 0.1.20; Borg
-  1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is the
-  database schema (Alembic head c8e1f4a7b2d9). The changes are in the UI
-  server:
-  * Agent compacts and other agent jobs are no longer recorded as failed
-    when the agent's last report races its completion: the operation keeps
-    its verdict (#1382).
-  * An agent hook's exit code is read by the script contract, not Borg's:
-    rc 1 is a warning, and a failing hook (rc 2 or higher) keeps its stdout
-    and stderr in the job (#1390).
-  * An unknown backup percentage stays unknown instead of showing 0 %; agent
-    backups, which have no source total, show the bytes read (#1391).
-  * A changed agent repository path is checked on the agent (#1379).
-  * The staged restore canary is replaced without crossing mounts (#1380).
-  * The agent uninstaller, which the server serves, refuses override paths
-    that do not belong to the agent (#1375).
-  * Tests only: a migration upgrade-path suite over every release's seeded
-    database (#1374).
+* **Borg UI 2.3.10-43-gb45ce0f58.** The `borg-ui` submodule moves to
+  upstream main b45ce0f58. Agent 0.1.20 and the database schema are
+  unchanged.
 
 ## 1.1.9-beta.10
 
-* **Borg UI unchanged: 2.3.10-36-g5e15222d5, agent 0.1.20.** Upstream main
-  has not moved since 1.1.9-beta.9; the `borg-ui` pin, the UI image, the
-  agent version, the database schema (Alembic head c8e1f4a7b2d9) and the
-  runtime base (Borg 1.4.5, Borg 2.0.0b25) stay as they are. This release
-  carries the chart and the agent image for #39.
+* **Borg UI unchanged:** 2.3.10-36-g5e15222d5, agent 0.1.20, database
+  schema unchanged.
 * **Plan-mode cluster backups mount the S3 buckets fresh before each run**
   (#39). The console pod mounts its buckets when it starts and keeps the
   mounts as long as it runs, often for days, and s3fs's caches go wrong on
@@ -430,11 +358,9 @@
 
 ## 1.1.9-beta.9
 
-* **Borg UI follows upstream main: 2.3.10-36-g5e15222d5, agent 0.1.20.**
-  The `borg-ui` submodule moves from 49099c8c0 to upstream main 5e15222d5:
-  a test change (#1369) and an agent fix without a version change (#1387).
-  Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is
-  the database schema (Alembic head c8e1f4a7b2d9).
+* **Borg UI 2.3.10-36-g5e15222d5.** The `borg-ui` submodule moves to
+  upstream main 5e15222d5. Agent 0.1.20 and the database schema are
+  unchanged.
 * **Keyfile modes for `borg.encryption`** (#20). Borg's key files now go to
   the `persistence.uiAgent` volume, next to the agent's `config.toml`: every
   backup workload sets `BORG_KEYS_DIR=/etc/borg-ui-agent/borg-keys`, in every
@@ -516,12 +442,6 @@
 
 ### Upgrade notes
 
-* The UI image tag is `2.3.10-36-g5e15222d5`; the UI itself still shows
-  2.3.10. The agent version stays 0.1.20, so managed agents get no upgrade
-  offer: the pods' agent gets #1387 with the 1.1.9-beta.9 agent image, an
-  agent installed outside the cluster keeps its 0.1.20 without it. Borg UI
-  sends only 1 or 2 as the Borg major (since 1.1.9-beta.8), so such an agent
-  never meets the case #1387 changes.
 * The console pod and the DaemonSet roll once for the new `BORG_KEYS_DIR`;
   the cluster CronJob picks it up with its next run.
 * Cluster archives written through a long-lived s3fs mount by an earlier
@@ -558,72 +478,29 @@
   below the release timeout (HelmRelease `spec.timeout`, `helm --timeout`),
   or raising it only moves the failure from the Job to the release.
 
-### Borg UI changes since the previous pin
-
-* The agent refuses a Borg major that a job names as 0 or an empty string
-  instead of running it as Borg 1; only a missing major still means 1, as on
-  the server (#1387, agent version unchanged).
-* Tests that assert on queued work hold the operations runner (#1369).
-
 ## 1.1.9-beta.8
 
-* **Borg UI follows upstream main: 2.3.10-34-g49099c8c0, agent 0.1.20.**
-  The `borg-ui` submodule moves from cdd5712c9 to upstream main 49099c8c0.
-  Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same runtime base), and so is
-  the database schema (Alembic head c8e1f4a7b2d9).
-* **Usage analytics no longer go to Umami.** Borg UI's usage analytics
-  (page views and feature usage, with hashed instance and user keys) now go
-  to the Borg UI project's own ingest service, described in borg-ui's
-  `docs/trust.md`. They start on for every user: a banner on first login
-  asks whether to keep them, and page views from before the answer are
-  sent. Declining, or switching analytics off in Preferences, stops them;
-  the banner answer and the switch-off are each sent as one event.
+* **Borg UI 2.3.10-34-g49099c8c0.** The `borg-ui` submodule moves to
+  upstream main 49099c8c0. Agent 0.1.20 (offered as an upgrade to agents
+  installed outside the chart); the database schema is unchanged.
 * CI runs on Ubuntu 26.04 with Helm 4.3.0 pinned; the chart and the image
   contents are not affected.
 
 ### Upgrade notes
 
 * No value changes; the rendered manifests differ only in the image tags.
-* The UI image tag is `2.3.10-34-g49099c8c0`; the UI itself still shows
-  2.3.10.
-* Managed agents get an upgrade offer from 0.1.19 to 0.1.20; the pods' agent
-  comes with the 1.1.9-beta.8 agent image. 0.1.20 changes only the macOS
-  installer; agents on Linux get the new version number and nothing else.
-* Repository updates through the API refuse keys Borg UI does not apply
-  (HTTP 422) instead of ignoring them. `register-repo` sends only the path
-  when it moves a record and is not affected.
-* Usage analytics stay as each user set them. A user who never answered the
-  banner, and every new user, has them on until declining.
-* Borg UI accepts only 1 or 2 as a repository's Borg major (an unset one
-  still counts as 1); another value used to run as Borg 1 and is now
-  refused. `register-repo` sends `borg.version` as the major, so a value
-  other than 1 or 2 now fails the registration.
-
-### Borg UI changes since the previous pin
-
-* A repository update reports what it stored: unknown keys are refused, the
-  edit form no longer sends the Borg major and encryption, a changed path is
-  initialized only when the new location holds no repository, a locked or
-  unreachable repository is refused instead of initialized over, and a
-  refused update keeps the old name (#1359).
-* Agent 0.1.20: a macOS install puts the directories where it found `borg`,
-  `borg2` and `rclone` on the launchd jobs' PATH, so a Borg installed outside
-  the fixed directories is found (#1355).
-* Prune preview for Borg 2: no size ranking, no per-candidate re-measure, and
-  "Space freed" reads "not available", since Borg 2 reports no size a
-  deletion would free (#1362).
-* Usage analytics move from Umami to Borg UI's own ingest (#1206, see above).
-* The server refuses a Borg major other than 1 or 2 instead of running it
-  as Borg 1 (#1347).
-* Frontend dependency updates (#1335); visual snapshot CI (#1364).
+* Borg UI's usage analytics are on for every user who has not declined
+  them (banner at first login, or Preferences); they now go to the Borg UI
+  project's own service instead of Umami.
+* A `borg.version` other than 1 or 2 now fails the repository registration:
+  Borg UI accepts only these Borg majors.
 
 ## 1.1.9-beta.7
 
-* **Borg UI follows upstream main: 2.3.10-27-gcdd5712c9, agent 0.1.19.**
-  The `borg-ui` submodule moves from our integration branch (54ee5563, UI
-  2.3.8, agent 0.1.17) to upstream main cdd5712c9, which contains everything
-  that branch carried. Borg 1.4.5 and Borg 2.0.0b25 are unchanged (same
-  runtime base), and so is the database schema (Alembic head c8e1f4a7b2d9).
+* **Borg UI 2.3.10-27-gcdd5712c9.** The `borg-ui` submodule moves from our
+  integration branch (54ee5563) to upstream main cdd5712c9. Agent 0.1.19
+  (offered as an upgrade to agents installed outside the chart); the database
+  schema is unchanged.
 * **The UI image tag names the pinned commit.** `borgUI.image.tag` is
   `git describe` of the pin (`2.3.10-27-gcdd5712c9`); a plain `X.Y.Z` only
   when the pin is exactly the release tag `vX.Y.Z`. borg-ui's `VERSION` file
@@ -683,32 +560,8 @@
 * The UI image tag has the form `2.3.10-27-gcdd5712c9`. The UI itself still
   shows 2.3.10 (it reads borg-ui's `VERSION`); the full string is in the
   image tag and its `org.opencontainers.image.version` label.
-* Managed agents get an upgrade offer from 0.1.17 to 0.1.19; the pods' agent
-  comes with the 1.1.9-beta.7 agent image.
-
-### Borg UI changes since the previous pin
-
-* Repository wizard and archive views for Borg 2.0.0b25 (#1349).
-* Managed agents are a Community feature; the license gate is gone (#1317).
-* Agent 0.1.18: upload limit for Borg 2 repositories behind rclone (#1343);
-  agent 0.1.19: `set-server` moves the upgrade record when it may write it
-  (#1337); the reinstall dialog names this server for a moved endpoint
-  (#1340); manual installs land where the service templates start the
-  agent (#1339); disk usage measured portably on macOS (#1348).
-* Agent repositories and Borgmatic imports record their Borg major (#1350).
-* A backup reuses its live agent job instead of queuing a second (#1341); a
-  refused agent job keeps its parameters in background jobs (#1338).
-* A repository command that times out ends its Borg child (#1342); a local
-  repository directory that cannot be created answers 400 (#1356).
-* `--patterns-from` and `--exclude-from` allowed in custom flags (#1319);
-  the command preview shell-quotes path, sources and excludes (#1358).
-* 422 responses no longer echo the submitted input (#1318).
-* Await-less API handlers run in the threadpool, agent job completion I/O
-  off the event loop (#1321–#1325).
-* App templates for Vaultwarden, Plex, Paperless-ngx, Nginx Proxy Manager
-  and Jellyfin (#1310).
-* apprise 2.0.0 (#1334): notification URLs with the removed email options
-  `use_pgp=`/`pgpkey=` or invalid settings now fail instead of degrading.
+* Notification URLs with the email options `use_pgp=` or `pgpkey=`, which
+  apprise 2.0.0 removed, now fail.
 
 ## 1.1.9-beta.6
 
@@ -723,4 +576,4 @@
   new `s3-mount-bucket` lists every fresh mount within `S3_PROBE_TIMEOUT`
   seconds (default 30); on failure it removes the mount, ends s3fs and stops
   with the bucket, endpoint and region in the message.
-* Borg UI unchanged: 2.3.8, agent 0.1.17.
+* **Borg UI unchanged:** 2.3.8, agent 0.1.17, database schema unchanged.
