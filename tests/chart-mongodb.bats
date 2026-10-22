@@ -81,7 +81,7 @@ resolve() {
     | sed -e "s|/out/|$TMP/out/|g" -e "s|/static/|$TMP/static/|g" >"$TMP/resolve.sh"
   grep -q "$TMP/out/mongodb" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
   mkdir -p "$TMP/out/mongodb"
-  PATH="$TMP/bin:$PATH" bash "$TMP/resolve.sh"
+  PATH="$TMP/bin:$PATH" sh "$TMP/resolve.sh"
 }
 
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }

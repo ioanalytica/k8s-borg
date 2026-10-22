@@ -1,12 +1,22 @@
 # Changelog
 
-## Unreleased
+## 1.1.9
 
+* **Borg UI 2.4.0.** The `borg-ui` submodule moves to the v2.4.0 release.
+  The agent version stays 0.1.21 and the database schema is unchanged.
 * **Agent version between Borg UI releases** (#77). When the `borg-ui` pin
   lies past a release and changed the agent, both images carry the agent
   version with the pin's distance from that release appended (Borg UI
   2.3.10-64-g… → agent 0.1.21.64), so enrolled agents are offered the new
   code.
+* **Credentials resolver image: `alpine/kubectl:1.37.1`.** The init
+  container that resolves `secretRef` database credentials defaulted to
+  `bitnamilegacy/kubectl:latest`, a frozen mirror that no longer gets
+  security fixes and whose `latest` tag cannot be tracked. Its script is now
+  POSIX sh and runs in BusyBox's ash, so the default is the small, maintained
+  and version-pinned `alpine/kubectl`. A `databases.credentialsResolver.image`
+  of your own needs `kubectl`, `sh`, `base64`, `od` and `awk`; Bash is no
+  longer required.
 
 ## 1.1.9-rc.1
 

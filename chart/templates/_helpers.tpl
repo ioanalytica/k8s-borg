@@ -988,14 +988,14 @@ A Redis instance gets the key=value lines backup-redis reads, each value
 verbatim to the end of its line.
 */}}
 {{/*
-A value as one single-quoted Bash word, a ' in it written as '\''. Nothing in
+A value as one single-quoted shell word, a ' in it written as '\''. Nothing in
 it expands or runs.
 */}}
 {{- define "k8s-borg.shellQuote" -}}
 '{{ toString . | replace "'" "'\\''" }}'
 {{- end -}}
 
-{{/* A list of values as single-quoted Bash words (k8s-borg.shellQuote). */}}
+{{/* A list of values as single-quoted shell words (k8s-borg.shellQuote). */}}
 {{- define "k8s-borg.shellWords" -}}
 {{- $words := list -}}
 {{- range . }}{{ $words = append $words (include "k8s-borg.shellQuote" .) }}{{ end -}}
@@ -1016,24 +1016,45 @@ it expands or runs.
     capabilities:
       drop: ["ALL"]
   command:
-    - /bin/bash
+    - /bin/sh
     - -c
     - |
-      set -euo pipefail
-      # A '.' in a key (connectionString.standard) is escaped for jsonpath.
-      get_key() { kubectl get secret -n "$1" "$2" -o "jsonpath={.data.${3//./\\.}}" | base64 -d; }
+      # POSIX sh: the default image's shell is BusyBox ash, no Bash.
+      set -eu
+      nl='
+      '
+      cr=$(printf '\r')
+      # rep VALUE FROM TO — VALUE with every FROM replaced by TO, in $rep_out:
+      # a command substitution would drop the value's trailing line breaks.
+      rep() {
+        rep_out='' rep_v=$1
+        while :; do
+          case "$rep_v" in
+            *"$2"*) rep_out=$rep_out${rep_v%%"$2"*}$3; rep_v=${rep_v#*"$2"} ;;
+            *) break ;;
+          esac
+        done
+        rep_out=$rep_out$rep_v
+      }
+      # A '.' in a key (connectionString.standard) is escaped for jsonpath. No
+      # pipe from kubectl: without pipefail its failure would go unnoticed.
+      get_key() {
+        rep "$3" . '\.'
+        get_key_b64=$(kubectl get secret -n "$1" "$2" -o "jsonpath={.data.$rep_out}") || return
+        printf '%s' "$get_key_b64" | base64 -d
+      }
       # key NS SECRET KEY — the value followed by an x, which the caller strips:
       # a command substitution would drop the value's trailing line breaks.
       key() { get_key "$@" && printf x; }
       # one_line WHAT VALUE — refuse a line break where the file cannot carry one.
       one_line() {
         case "$2" in
-          *$'\n'*|*$'\r'*) echo "$1 holds a line break, which its file cannot carry" >&2; return 1 ;;
+          *"$nl"*|*"$cr"*) echo "$1 holds a line break, which its file cannot carry" >&2; return 1 ;;
         esac
       }
-      pgpass_field() { local v=${1//\\/\\\\}; printf '%s' "${v//:/\\:}"; } # '\' and ':' escaped
+      pgpass_field() { rep "$1" '\' '\\'; rep "$rep_out" : '\:'; printf '%s' "$rep_out"; } # '\' and ':' escaped
       pg() { # ns secret userKey passKey host port user name
-        local u p f="/out/postgres/$8.conf"
+        f="/out/postgres/$8.conf"
         if [ -n "$3" ]; then u=$(key "$1" "$2" "$3"); u=${u%x}; else u=$7; fi
         p=$(key "$1" "$2" "$4"); p=${p%x}
         one_line "postgres instance $8: user" "$u"; one_line "postgres instance $8: password" "$p"
@@ -1044,12 +1065,12 @@ it expands or runs.
       # opt VALUE — a double-quoted option file value: '\' and '"' escaped, line
       # breaks as \n and \r, which MySQL's and MariaDB's clients read back.
       opt() {
-        local v=${1//\\/\\\\}
-        v=${v//\"/\\\"}; v=${v//$'\n'/\\n}; v=${v//$'\r'/\\r}
-        printf '"%s"' "$v"
+        rep "$1" '\' '\\'; rep "$rep_out" '"' '\"'
+        rep "$rep_out" "$nl" '\n'; rep "$rep_out" "$cr" '\r'
+        printf '"%s"' "$rep_out"
       }
       my() { # engine ns secret userKey passKey host port user name extraOptions
-        local u p f="/out/$1/$9.conf"
+        f="/out/$1/$9.conf"
         if [ -n "$4" ]; then u=$(key "$2" "$3" "$4"); u=${u%x}; else u=$8; fi
         p=$(key "$2" "$3" "$5"); p=${p%x}
         printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword=%s\n' "$(opt "$6")" "$(opt "$7")" "$(opt "$u")" "$(opt "$p")" > "$f"
@@ -1057,20 +1078,20 @@ it expands or runs.
         if [ -n "${10}" ]; then printf '%s\n' ${10} >> "$f"; fi
         chmod 600 "$f"
       }
-      yq1() { local v=${1//\'/\'\'}; printf "'%s'" "$v"; } # a single-quoted YAML scalar
+      yq1() { rep "$1" "'" "''"; printf "'%s'" "$rep_out"; } # a single-quoted YAML scalar
       urlenc() { # percent-encode all but RFC 3986 unreserved characters, byte by byte
-        local LC_ALL=C s=$1 out="" c i
-        for ((i = 0; i < ${#s}; i++)); do
-          c=${s:i:1}
-          case "$c" in
-            [A-Za-z0-9._~-]) out+=$c ;;
-            *) printf -v c '%%%02X' "'$c"; out+=$c ;;
-          esac
-        done
-        printf '%s' "$out"
+        printf '%s' "$1" | od -An -tu1 -v | awk '{
+          for (i = 1; i <= NF; i++) {
+            b = $i + 0
+            if ((b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || b == 45 || b == 46 || b == 95 || b == 126)
+              printf "%c", b
+            else
+              printf "%%%02X", b
+          }
+        }'
       }
       mo() { # ns secret uriKey userKey passKey host port user options name
-        local u p uri f="/out/mongodb/${10}.conf"
+        f="/out/mongodb/${10}.conf"
         if [ -n "$3" ]; then
           uri=$(key "$1" "$2" "$3"); uri=${uri%x}
           [ -n "$uri" ] || { echo "secret $1/$2 has no $3" >&2; return 1; }
@@ -1087,7 +1108,7 @@ it expands or runs.
         chmod 600 "$f"
       }
       rd() { # ns secret userKey passKey host port user name tls cacert insecure
-        local u p f="/out/redis/$8.conf"
+        f="/out/redis/$8.conf"
         if [ -n "$3" ]; then u=$(key "$1" "$2" "$3"); u=${u%x}; else u=$7; fi
         p=$(key "$1" "$2" "$4"); p=${p%x}
         # backup-redis takes each value verbatim to the end of its line.

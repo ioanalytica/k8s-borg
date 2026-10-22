@@ -391,11 +391,12 @@ databases:
     #      passwordKey: password
     #      # usernameKey: username  # read the user from the Secret instead
   ## @param databases.credentialsResolver Image for the secretRef resolver init container
+  ##   The init container runs a POSIX sh script: any image with kubectl, sh,
+  ##   base64, od and awk will do (BusyBox's are enough, Bash is not needed).
   credentialsResolver:
     image:
-      ## bitnamilegacy is a frozen mirror, its tags are static.
-      repository: bitnamilegacy/kubectl
-      tag: latest
+      repository: alpine/kubectl
+      tag: 1.37.1
       pullPolicy: IfNotPresent
 
 ## @section Node backup (DaemonSet)
@@ -615,7 +616,7 @@ borgUI:
     ## @param borgUI.image.repository Borg UI server image repository
     repository: ioanalytica/k8s-borg-ui
     ## @param borgUI.image.tag Borg UI server image tag
-    tag: "2.3.10-62-ga7219d4d6"
+    tag: "2.4.0"
     ## @param borgUI.image.pullPolicy Borg UI server image pull policy
     pullPolicy: IfNotPresent
   ## Startup budget for the database upgrade the entrypoint runs before serving.
