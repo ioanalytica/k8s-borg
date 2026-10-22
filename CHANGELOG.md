@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.9
 
+* **Borg UI 2.4.0.** The `borg-ui` submodule moves to the v2.4.0 release.
+  The agent version stays 0.1.21 and the database schema is unchanged.
 * **Agent version between Borg UI releases** (#77). When the `borg-ui` pin
   lies past a release and changed the agent, both images carry the agent
   version with the pin's distance from that release appended (Borg UI
