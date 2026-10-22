@@ -2,8 +2,9 @@
 #
 # The credentials resolver: the init container that writes the *.conf files
 # of secretRef database instances. Its script is taken from the rendered
-# console StatefulSet and run with a stub kubectl that serves the Secrets'
-# keys, its /out and /static directories moved below $TMP: the files must be
+# console StatefulSet and run by sh (POSIX: no Bash in the default image) with
+# a stub kubectl that serves the Secrets' keys, its /out and /static
+# directories moved below $TMP: the files must be
 # what backup-mariadb / backup-mysql / backup-postgres / backup-mongodb /
 # backup-redis read,
 # values escaped for their file, mode 600, and each client's option for no TLS
@@ -109,7 +110,14 @@ resolve() {
     | sed -e "s|/out/|$TMP/out/|g" -e "s|/static/|$TMP/static/|g" >"$TMP/resolve.sh"
   grep -q "$TMP/out/" "$TMP/resolve.sh" || fail "no resolver script rendered: $(cat "$TMP/resolve.sh")"
   mkdir -p "$TMP/out/mariadb" "$TMP/out/mysql" "$TMP/out/postgres" "$TMP/out/mongodb" "$TMP/out/redis"
-  (cd "$TMP" && PATH="$TMP/bin:$PATH" bash "$TMP/resolve.sh")
+  (cd "$TMP" && PATH="$TMP/bin:$PATH" sh "$TMP/resolve.sh")
+}
+
+@test "the resolver script is POSIX sh: the default image's shell is BusyBox ash" {
+  command -v shellcheck >/dev/null || skip "shellcheck is not installed"
+  resolve || fail "the resolver failed"
+  run shellcheck -s sh -S warning "$TMP/resolve.sh"
+  [ "$status" -eq 0 ] || fail "$output"
 }
 
 @test "a MariaDB instance gets a defaults file, the password escaped, TLS left to the client" {

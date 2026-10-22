@@ -391,11 +391,12 @@ databases:
     #      passwordKey: password
     #      # usernameKey: username  # read the user from the Secret instead
   ## @param databases.credentialsResolver Image for the secretRef resolver init container
+  ##   The init container runs a POSIX sh script: any image with kubectl, sh,
+  ##   base64, od and awk will do (BusyBox's are enough, Bash is not needed).
   credentialsResolver:
     image:
-      ## bitnamilegacy is a frozen mirror, its tags are static.
-      repository: bitnamilegacy/kubectl
-      tag: latest
+      repository: alpine/kubectl
+      tag: 1.37.1
       pullPolicy: IfNotPresent
 
 ## @section Node backup (DaemonSet)
