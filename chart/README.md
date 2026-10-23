@@ -1367,7 +1367,7 @@ a hostPath is not enough. Two values take the privilege away:
 |---|---|
 | default (`borgUI.fuse.enabled: true`) | `privileged: true` |
 | `borgUI.fuse.deviceResource: squat.ai/fuse` (the resource your FUSE device plugin advertises, e.g. [generic-device-plugin](https://github.com/squat/generic-device-plugin)) | not privileged; one FUSE device, `SYS_ADMIN`, privilege escalation for `fusermount3`, AppArmor unconfined |
-| `borgUI.fuse.enabled: false` | not privileged, no privilege escalation, no FUSE; the three features above fail |
+| `borgUI.fuse.enabled: false` | not privileged, no privilege escalation, no FUSE; the three features above fail, and so does `sudo` in the container (package install commands such as `sudo apt-get`) |
 
 Unprivileged, the container keeps `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`
 and `SETUID`: its entrypoint prepares `/data` as root and then drops to the

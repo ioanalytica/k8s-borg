@@ -763,7 +763,9 @@ borgUI:
   ##   disabled                    -> not privileged, no privilege escalation,
   ##                                  only the capabilities the entrypoint needs
   ##                                  to set up /data and drop to the borg user;
-  ##                                  the three features above fail
+  ##                                  the three features above fail, and so does
+  ##                                  sudo in the container (package install
+  ##                                  commands such as sudo apt-get)
   ##
   ## @param borgUI.fuse.enabled Let the Borg UI server mount through FUSE (SSH sources, SSH cloud mirrors, Mount archive)
   ## @param borgUI.fuse.deviceResource Extended resource of a FUSE device plugin, e.g. squat.ai/fuse; empty runs the container privileged

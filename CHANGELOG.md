@@ -20,7 +20,9 @@
     not request the device.
   * `borgUI.fuse.enabled: false` drops FUSE: the same capabilities without
     `SYS_ADMIN`, no privilege escalation, seccomp `RuntimeDefault`. The three
-    FUSE features then fail; everything else works.
+    FUSE features then fail, and so does `sudo` in the container, which
+    package install commands such as `sudo apt-get` rely on; everything
+    else works.
 
   Both profiles were checked against the published `k8s-borg-ui:2.4.0`
   image: the server starts and logs in with either, `borg mount` works
