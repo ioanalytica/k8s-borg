@@ -33,6 +33,9 @@ Fail fast on invalid mode combinations. Renders no object.
 {{- if and (eq .Values.borgUI.redis.mode "external") (not .Values.borgUI.redis.external.url) (not .Values.borgUI.redis.external.host) }}
 {{- fail "borgUI.redis.mode=external requires borgUI.redis.external.url or borgUI.redis.external.host" }}
 {{- end }}
+{{- if and .Values.borgUI.fuse.deviceResource (not .Values.borgUI.fuse.enabled) }}
+{{- fail "borgUI.fuse.deviceResource requests a FUSE device for borgUI.fuse.enabled=true; with FUSE disabled, leave it empty" }}
+{{- end }}
 {{- /*
 Borg 2.0.0b25 has no rest:// scheme and reads such a URL as a local directory.
 A base that comes from an existing Secret is not visible here; the borg2 wrapper

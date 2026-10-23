@@ -396,6 +396,53 @@ true
 {{- end -}}
 
 {{/*
+The Borg UI container's securityContext, selected by borgUI.fuse (see
+values.yaml). A borgUI.containerSecurityContext the user set replaces it, and
+an explicit {} still renders none, as it did before borgUI.fuse existed.
+Unless privileged, the entrypoint keeps what it needs as root before gosu
+drops to the borg user: chown/chmod of /data and the home directory, writing
+root-owned files (usermod), and setuid/setgid. FUSE adds SYS_ADMIN for the
+mount, privilege escalation for the setuid fusermount3, and leaves AppArmor
+unconfined because containerd's default profile denies mount.
+*/}}
+{{- define "k8s-borg.ui.securityContext" -}}
+{{- $ui := .Values.borgUI -}}
+{{- if not (kindIs "invalid" $ui.containerSecurityContext) -}}
+{{- if $ui.containerSecurityContext -}}
+{{- include "common.tplvalues.render" (dict "value" $ui.containerSecurityContext "context" .) -}}
+{{- end -}}
+{{- else if and $ui.fuse.enabled (not $ui.fuse.deviceResource) -}}
+privileged: true
+{{- else -}}
+allowPrivilegeEscalation: {{ $ui.fuse.enabled }}
+capabilities:
+  drop: ["ALL"]
+  add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"{{ if $ui.fuse.enabled }}, "SYS_ADMIN"{{ end }}]
+seccompProfile:
+  type: RuntimeDefault
+{{- if $ui.fuse.enabled }}
+appArmorProfile:
+  type: Unconfined
+{{- end }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+borgUI.resources plus one unit of the FUSE device plugin's resource when
+borgUI.fuse.deviceResource is set. Only the server pod takes it; the reconcile
+Job reuses borgUI.resources and must not hold a FUSE device.
+*/}}
+{{- define "k8s-borg.ui.resources" -}}
+{{- $res := deepCopy (.Values.borgUI.resources | default dict) -}}
+{{- if and .Values.borgUI.fuse.enabled .Values.borgUI.fuse.deviceResource -}}
+{{- $limits := get $res "limits" | default dict -}}
+{{- $_ := set $limits .Values.borgUI.fuse.deviceResource 1 -}}
+{{- $_ = set $res "limits" $limits -}}
+{{- end -}}
+{{- if $res }}{{ toYaml $res }}{{ end -}}
+{{- end -}}
+
+{{/*
 Whether the reconcile Job provisions notification channels (it is the only
 consumer of their credentials). Emits "true" or "".
 */}}

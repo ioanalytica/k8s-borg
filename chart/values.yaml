@@ -742,14 +742,36 @@ borgUI:
       secretName: "borgui-tls"
   ## @param borgUI.resources Borg UI server resources
   resources: {}
-  ## @param borgUI.containerSecurityContext Borg UI server container security context
-  ## Server-side backups of SSH sources mount the remote FS via sshfs, which needs
-  ## /dev/fuse — the same requirement the node/cluster backup pods already have.
-  ## `privileged: true` passes the host's /dev/fuse through (simplest). A tighter
-  ## alternative is capabilities.add: [SYS_ADMIN] plus a hostPath mount of /dev/fuse.
-  ## Leave empty ({}) if you never back up SSH/remote sources server-side.
-  containerSecurityContext:
-    privileged: true
+  ## FUSE in the Borg UI server. The server mounts through FUSE for three
+  ## features: server-side backups of SSH sources (sshfs), cloud mirrors of SSH
+  ## repositories (sshfs), and "Mount archive" (borg mount). Browsing and
+  ## restoring archives do not use it.
+  ##
+  ## FUSE needs three things in the container: /dev/fuse allowed by the device
+  ## cgroup, CAP_SYS_ADMIN, and the setuid fusermount3 (privilege escalation).
+  ## containerd allows /dev/fuse only to privileged containers and to devices a
+  ## device plugin (or CDI) assigns; a hostPath mount of /dev/fuse is not enough,
+  ## opening it fails with "Operation not permitted". Hence three ways to run:
+  ##
+  ##   enabled, deviceResource ""  -> privileged container (the default; works
+  ##                                  on every node, nothing else to install)
+  ##   enabled, deviceResource set -> not privileged: the pod requests one unit
+  ##                                  of the device plugin's FUSE resource and
+  ##                                  gets SYS_ADMIN, privilege escalation and
+  ##                                  AppArmor unconfined (containerd's default
+  ##                                  profile denies mount)
+  ##   disabled                    -> not privileged, no privilege escalation,
+  ##                                  only the capabilities the entrypoint needs
+  ##                                  to set up /data and drop to the borg user;
+  ##                                  the three features above fail
+  ##
+  ## @param borgUI.fuse.enabled Let the Borg UI server mount through FUSE (SSH sources, SSH cloud mirrors, Mount archive)
+  ## @param borgUI.fuse.deviceResource Extended resource of a FUSE device plugin, e.g. squat.ai/fuse; empty runs the container privileged
+  fuse:
+    enabled: true
+    deviceResource: ""
+  ## @param borgUI.containerSecurityContext Borg UI server container security context; set (even {}) it replaces the one borgUI.fuse selects
+  containerSecurityContext: ~
   ## Archive-listing cache backend for the Borg UI server.
   ##   disabled → the server keeps its in-memory cache (lost on every UI-pod roll).
   ##   internal → deploy a dedicated Redis pod (its OWN Deployment, NOT a sidecar —

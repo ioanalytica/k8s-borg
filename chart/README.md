@@ -1357,6 +1357,22 @@ host `/` read-only). This is required to read arbitrary source paths and mount
 FUSE. Keep the Borg UI Ingress restricted to trusted networks — it can reach
 every repository.
 
+The Borg UI server is privileged by default too, for FUSE: server-side
+backups of SSH sources, cloud mirrors of SSH repositories and "Mount archive"
+mount through it. containerd lets a container open `/dev/fuse` only when it
+is privileged or a device plugin assigned the device; mounting `/dev/fuse` as
+a hostPath is not enough. Two values take the privilege away:
+
+| Values | UI container |
+|---|---|
+| default (`borgUI.fuse.enabled: true`) | `privileged: true` |
+| `borgUI.fuse.deviceResource: squat.ai/fuse` (the resource your FUSE device plugin advertises, e.g. [generic-device-plugin](https://github.com/squat/generic-device-plugin)) | not privileged; one FUSE device, `SYS_ADMIN`, privilege escalation for `fusermount3`, AppArmor unconfined |
+| `borgUI.fuse.enabled: false` | not privileged, no privilege escalation, no FUSE; the three features above fail |
+
+Unprivileged, the container keeps `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`
+and `SETUID`: its entrypoint prepares `/data` as root and then drops to the
+`borg` user. A `borgUI.containerSecurityContext` you set replaces all of this.
+
 With `node.datastoreSnapshot` the node archives hold every Secret of the
 cluster, and with kubeadm its certificate authority's keys: whoever can read
 the repository and has its passphrase holds the cluster, and in an

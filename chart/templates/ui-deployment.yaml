@@ -49,8 +49,8 @@ spec:
         - name: ui
           image: {{ include "k8s-borg.ui.image" . | quote }}
           imagePullPolicy: {{ .Values.borgUI.image.pullPolicy | quote }}
-          {{- if .Values.borgUI.containerSecurityContext }}
-          securityContext: {{- include "common.tplvalues.render" (dict "value" .Values.borgUI.containerSecurityContext "context" $) | nindent 12 }}
+          {{- with include "k8s-borg.ui.securityContext" . }}
+          securityContext: {{- . | nindent 12 }}
           {{- end }}
           ports:
             - name: http
@@ -109,7 +109,7 @@ spec:
             tcpSocket:
               port: http
             periodSeconds: 30
-          {{- if .Values.borgUI.resources }}
-          resources: {{- toYaml .Values.borgUI.resources | nindent 12 }}
+          {{- with include "k8s-borg.ui.resources" . }}
+          resources: {{- . | nindent 12 }}
           {{- end }}
 {{- end }}

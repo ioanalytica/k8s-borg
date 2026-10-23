@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+* **Borg UI without `privileged` where FUSE allows it** (`borgUI.fuse`). The
+  Borg UI server mounts through FUSE for server-side backups of SSH sources,
+  cloud mirrors of SSH repositories and "Mount archive"; browsing and
+  restoring do not need it. FUSE needs `/dev/fuse` allowed by the device
+  cgroup, `SYS_ADMIN` and the setuid `fusermount3`, and containerd lets only
+  privileged containers and devices assigned by a device plugin open
+  `/dev/fuse` (a hostPath mount of it fails with "Operation not
+  permitted"). So the UI keeps FUSE and stays privileged by default, and
+  two new ways run it unprivileged:
+  * `borgUI.fuse.deviceResource` names a FUSE device plugin's resource
+    (e.g. `squat.ai/fuse`). The UI pod requests one unit and runs with
+    `capabilities.drop: [ALL]` plus `CHOWN`, `DAC_OVERRIDE`, `FOWNER`,
+    `SETGID`, `SETUID`, `SYS_ADMIN`, privilege escalation for
+    `fusermount3`, seccomp `RuntimeDefault` and AppArmor `Unconfined`
+    (containerd's default profile denies `mount`). The reconcile Job does
+    not request the device.
+  * `borgUI.fuse.enabled: false` drops FUSE: the same capabilities without
+    `SYS_ADMIN`, no privilege escalation, seccomp `RuntimeDefault`. The three
+    FUSE features then fail; everything else works.
+
+  Both profiles were checked against the published `k8s-borg-ui:2.4.0`
+  image: the server starts and logs in with either, `borg mount` works
+  with the device profile, and fails without `SYS_ADMIN`, with
+  `no-new-privileges` or with `/dev/fuse` only bind-mounted.
+  `borgUI.containerSecurityContext` now defaults to `~`; a value you set
+  still replaces the computed one, and an explicit `{}` still renders no
+  securityContext, so existing releases render unchanged.
+
 ## 1.1.9
 
 * **Borg UI 2.4.0.** The `borg-ui` submodule moves to the v2.4.0 release.
