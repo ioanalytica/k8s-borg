@@ -138,6 +138,37 @@ RUN set -eu; \
     install -D -m 0755 "${name}/etcdctl" /out/usr/local/bin/etcdctl; \
     install -D -m 0755 "${name}/etcdutl" /out/usr/local/bin/etcdutl
 
+# --- rclone -----------------------------------------------------------------
+# The official static build, pinned with its checksum per architecture. The
+# version and checksums are docker/rclone.env's (tests/rclone-pin.bats keeps
+# these defaults equal to it); Alpine's package lags behind upstream fixes.
+FROM python:${PYTHON_VERSION}-alpine AS rclone-fetch
+
+ARG TARGETARCH
+ARG RCLONE_VERSION=1.75.2
+ARG RCLONE_SHA256_AMD64=349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702
+ARG RCLONE_SHA256_ARM64=7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl unzip
+
+WORKDIR /build
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) sum="${RCLONE_SHA256_AMD64}" ;; \
+      arm64) sum="${RCLONE_SHA256_ARM64}" ;; \
+      *) echo "no rclone checksum for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    name="rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}"; \
+    curl -fsSL -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/${name}.zip"; \
+    printf '%s  rclone.zip\n' "${sum}" >rclone.zip.sha256; \
+    sha256sum -c rclone.zip.sha256; \
+    unzip -q rclone.zip "${name}/rclone"; \
+    install -D -m 0755 "${name}/rclone" /out/usr/bin/rclone; \
+    # rclone reads RCLONE_* variables as flags, and these ARGs are such
+    # variables here: RCLONE_VERSION would set --version.
+    env -u RCLONE_VERSION -u RCLONE_SHA256_AMD64 -u RCLONE_SHA256_ARM64 /out/usr/bin/rclone version
+
 # --- MySQL client: Oracle's build, with the glibc it runs on ------------------
 # databases.mysql dumps with MySQL's own mysqldump: mariadb-dump writes the
 # values of generated columns into its INSERTs, which MySQL rejects on restore
@@ -183,7 +214,8 @@ FROM python:${PYTHON_VERSION}-alpine
 # against libcurl, libxml2 and libstdc++, and fuse3 brings its library and
 # fusermount3. mariadb-connector-c holds the client's authentication plugins
 # (caching_sha2_password, ed25519, parsec); mariadb-client comes without them
-# and could not log in as a user that needs one. rclone is a separate Go program that no Borg release bundles, and
+# and could not log in as a user that needs one. rclone, from its own stage
+# (see above), is a separate Go program that no Borg release bundles, and
 # borgstore drives it over its rc API, so rclone: repositories need it present;
 # s3-verify-listing lists the mounted buckets with it as well. openssh-server is
 # only started by the repository server. mongodb-tools brings mongodump and
@@ -200,7 +232,6 @@ RUN apk add --no-cache \
         tzdata \
         rsync \
         curl \
-        rclone \
         postgresql-client \
         mariadb-client \
         mongodb-tools \
@@ -228,6 +259,7 @@ COPY --from=borg-builder /opt/borg-ui-agent/borg1/venv /opt/borg-ui-agent/borg1/
 COPY --from=borg-builder /opt/borg-ui-agent/borg2/venv /opt/borg-ui-agent/borg2/venv
 COPY --from=s3fs-builder /out/usr/bin/s3fs /usr/bin/s3fs
 COPY --from=etcd-fetch /out/usr/local/bin/ /usr/local/bin/
+COPY --from=rclone-fetch /out/usr/bin/rclone /usr/bin/rclone
 COPY --from=mysql-client /out/ /
 
 # Version-independent paths, so the wrappers resolve Borg even without this

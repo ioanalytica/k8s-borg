@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+* **rclone 1.75.2 in the agent image**, the current stable release, which
+  includes the 1.75.1 fixes for CVE-2026-88013 to -88018 and CVE-2026-88044
+  to -88046 (two of them critical: auth-proxy bypasses in `rclone serve s3`
+  and the rc server). The image takes the official static build from
+  downloads.rclone.org in a fetch stage instead of Alpine's package: Alpine
+  3.24 ships 1.74.1 without fixes for these CVEs, and its `v1.74.1-DEV`
+  build string kept scanners from reporting them. `docker/rclone.env` pins
+  version and checksums (from the release's PGP-signed `SHA256SUMS`);
+  `tests/rclone-pin.bats` keeps the Dockerfile's ARG defaults equal to it.
+  The UI image's rclone comes from borg-ui's runtime base and moves to
+  1.75.2 with the `borg-ui` pin.
+
 * **Borg UI without `privileged` where FUSE allows it** (`borgUI.fuse`). The
   Borg UI server mounts through FUSE for server-side backups of SSH sources,
   cloud mirrors of SSH repositories and "Mount archive"; browsing and
