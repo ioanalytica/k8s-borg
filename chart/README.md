@@ -296,8 +296,7 @@ bucket up like any other (tested with Dragonfly 2.0):
 
 - The snapshot directory is a prefix of its own per instance,
   `s3://<bucket>/<ns>-<instance>/` (`snapshot.dir` with the Dragonfly
-  operator, else `--dir`). Keep the trailing slash: without it an instance can
-  load the snapshot of another one whose prefix starts the same.
+  operator, else `--dir`).
 - `--s3_endpoint=<host>:<port>` for an S3 server other than AWS,
   `--s3_use_https=false` for one without TLS, `--df_snapshot_format=false` and
   `--dbfilename=dump`: one `dump.rdb`, an ordinary RDB file that each snapshot
