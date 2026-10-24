@@ -5,8 +5,8 @@
     redis-rdb-sync [--user U] [--tls] [--cacert F] [--insecure] --query HOST PORT ARG…
 
 The password comes from REDISCLI_AUTH, as for valkey-cli, so that it never
-shows in the process list. --query sends one command (backup-redis: INFO
-cluster, CLUSTER NODES) and prints its answer; an error answer is rc 2, where
+shows in the process list. --query sends one command (backup-redis: INFO,
+CLUSTER NODES) and prints its answer; an error answer is rc 2, where
 valkey-cli would exit 0.
 
 This is what `valkey-cli --rdb` does — REPLCONF capa eof, REPLCONF rdb-only 1,

@@ -33,8 +33,9 @@
 # or else by their IP address.
 #
 # An ACL user needs `+info +sync +replconf +cluster|nodes`: INFO tells a cluster
-# from a standalone server and Valkey from Redis, SYNC/REPLCONF carry the
-# snapshot, CLUSTER NODES lists the primaries of a cluster.
+# from a standalone server, Valkey from Redis and Dragonfly (which has no SYNC,
+# see chart/README.md) from both, SYNC/REPLCONF carry the snapshot, CLUSTER
+# NODES lists the primaries of a cluster.
 #
 # The dumps are not compressed any further: the server compresses the values
 # in an RDB file itself (rdbcompression), and Borg compresses on its own.
@@ -134,12 +135,19 @@ mkdir -p "${DB_BACKUP_DIR}"
 # Half-written files go, whatever the run's outcome.
 trap 'rm -f "${DB_BACKUP_DIR}"/*.tmp' EXIT
 
-info=$(query "$host" "$port" INFO cluster) \
-  || die "INFO cluster on ${host}:${port} failed (the user needs +info)"
+# INFO without a section: its default ones hold the server and the cluster
+# section on every server (several sections at once are Redis 7+).
+info=$(query "$host" "$port" INFO) \
+  || die "INFO on ${host}:${port} failed (the user needs +info)"
+# Dragonfly speaks the protocol but has no SYNC: it replicates only to other
+# Dragonfly instances. It writes its own snapshots, to S3 among others.
+if [[ $info =~ dragonfly_version:([^[:space:]]*) ]]; then
+  die "${host}:${port} is Dragonfly (${BASH_REMATCH[1]}), which has no SYNC to stream a snapshot over: let it write its snapshots to S3 and back the bucket up (see \"Dragonfly\" in chart/README.md)"
+fi
 case "$info" in
   *cluster_enabled:0*) cluster=false ;;
   *cluster_enabled:1*) cluster=true ;;
-  *) die "INFO cluster on ${host}:${port} has no cluster_enabled: ${info:-no answer}" ;;
+  *) die "INFO on ${host}:${port} has no cluster_enabled: ${info:-no answer}" ;;
 esac
 
 if [ "$cluster" = false ]; then

@@ -257,7 +257,7 @@ each makes its Borg chunk (about 2 MiB) new.
   `INFO` tells a cluster from a standalone server, `SYNC`/`REPLCONF` carry
   the snapshot, `CLUSTER NODES` lists the primaries. Without a `user` the
   default user is used (`requirepass`). A server that renames or disables
-  `SYNC` cannot be dumped.
+  `SYNC` cannot be dumped, nor can Dragonfly (see [Dragonfly](#dragonfly)).
 
 ### Redis and Valkey instances
 
@@ -284,6 +284,38 @@ It does what `valkey-cli --rdb` does and also tells a Valkey server its own
 version: Valkey 9 sends its new format only to a replica that announces a
 version able to read it, and without it the snapshot of a hash field with a
 TTL of its own fails.
+
+### Dragonfly
+
+Dragonfly speaks the Redis protocol but has no `SYNC`: it replicates only to
+other Dragonfly instances, with a protocol of its own. `backup-redis` cannot
+stream its snapshot, so an instance in `databases.redis` that reports
+`dragonfly_version` fails at once with rc 2 and points here. Dragonfly writes
+snapshots of its own instead, to S3 among other places, and k8s-borg backs the
+bucket up like any other (tested with Dragonfly 2.0):
+
+- The snapshot directory is a prefix of its own per instance,
+  `s3://<bucket>/<ns>-<instance>/` (`snapshot.dir` with the Dragonfly
+  operator, else `--dir`). Keep the trailing slash: without it an instance can
+  load the snapshot of another one whose prefix starts the same.
+- `--s3_endpoint=<host>:<port>` for an S3 server other than AWS,
+  `--s3_use_https=false` for one without TLS, `--df_snapshot_format=false` and
+  `--dbfilename=dump`: one `dump.rdb`, an ordinary RDB file that each snapshot
+  replaces, instead of Dragonfly's own format in several files.
+- The credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in
+  Dragonfly's environment, with `AWS_REGION` (servers that check the region,
+  such as Garage, refuse any other).
+- A schedule (`snapshot.cron`, else `--snapshot_cron`) that writes the
+  snapshot before the backup runs.
+- In k8s-borg the bucket goes into `cluster.s3Buckets` (with `s3.enabled`);
+  nothing Dragonfly-specific is needed.
+
+To restore, extract `dump.rdb` from an archive. For a new instance, put it
+into the instance's prefix with any S3 client before the instance is created:
+it loads the file at its first start. For a running instance, stop it first —
+Dragonfly writes a snapshot when it shuts down, which would replace the file —
+then replace the file and start it again. Tested: a new instance loaded the
+file and held the same keys as the source.
 
 ### PostgreSQL operators
 
