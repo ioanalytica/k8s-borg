@@ -315,11 +315,17 @@ mongorestore --config=[uri: from $CONF] --archive=$TMP/dumps/old/old.archive --d
 2026-10-14T11:40:01.123+0000	preparing collections to restore from
 2026-10-14T11:40:01.124+0000	don't know what to do with subdirectory "shop", skipping...
 2026-10-14T11:40:01.125+0000	don't know what to do with subdirectory "appdb", skipping...
+2026-10-14T11:40:01.126+0000	don't know what to do with subdirectory "", skipping...
+2026-10-14T11:40:01.127+0000	Failed: don't know what to do with subdirectory "x", skipping...
+2026-10-14T11:40:01.128+0000	don't know what to do with subdirectory "x", skipping... and more
 2026-10-14T11:40:01.200+0000	2 document(s) restored successfully. 0 document(s) failed to restore.
 LOG
   run --separate-stderr restore-mongodb "$CONF" --all
   [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
-  [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$stderr"
+  [ "$(grep -c "don't know what to do with subdirectory" <<<"$stderr")" -eq 2 ] || fail "$stderr"
+  # Only the message itself goes, not a line that merely contains it.
+  [[ "$stderr" == *'Failed: don'"'"'t know what to do with subdirectory "x", skipping...'* ]] || fail "$stderr"
+  [[ "$stderr" == *'"x", skipping... and more'* ]] || fail "$stderr"
   [[ "$stderr" == *"preparing collections to restore from"* ]] || fail "$stderr"
   [[ "$stderr" == *"2 document(s) restored successfully"* ]] || fail "$stderr"
   [[ "$output" == *"Restoring the users and roles first"* ]] || fail "$output"
@@ -329,7 +335,7 @@ LOG
     # shellcheck disable=SC2086
     run --separate-stderr restore-mongodb "$CONF" $args
     [ "$status" -eq 0 ] || fail "$args: rc=$status: $stderr"
-    [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$args: $stderr"
+    [[ "$stderr" != *'subdirectory "appdb"'* ]] || fail "$args: $stderr"
     [ "$(grep -c 'preparing collections to restore from' <<<"$stderr")" -ge 1 ] || fail "$args: $stderr"
   done
 
@@ -339,6 +345,6 @@ LOG
   run --separate-stderr restore-mongodb "$CONF" --all
   [ "$status" -eq 2 ] || fail "rc=$status: $stderr"
   [[ "$stderr" == *"preparing collections to restore from"* ]] || fail "$stderr"
-  [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$stderr"
+  [[ "$stderr" != *'subdirectory "appdb"'* ]] || fail "$stderr"
   [ "$(grep -c '^mongorestore' "$TMP/calls")" -eq 1 ] || fail "the full pass ran after a failed users pass: $(calls)"
 }

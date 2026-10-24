@@ -211,12 +211,25 @@ create_database_like() {
   sql "$(maintenance_db "$1")" <<<"$create"
 }
 
+# check_list FILE DUMP — pg_restore skips a line of a list it cannot match
+# to an entry of the dump with a warning, and restores the rest: such a list,
+# or one without any entry, is refused before anything is dropped.
+check_list() {
+  local warnings
+  warnings=$(pg_restore -L "$1" -l "$2" 2>&1 >/dev/null) || die "pg_restore cannot read $1 against $2: $warnings"
+  [ -z "$warnings" ] || die "$1 does not fit $2: $warnings"
+  grep -Eq '^[0-9]+;' "$1" || die "$1 lists no entry"
+}
+
 # restore_database DATABASE NAME — the dump of DATABASE into NAME, with
 # --use-list only the entries of the list.
 restore_database() {
   local file tolerated="" list=()
   file=$(dump_file "$1")
-  [ -z "$use_list" ] || list=(-L "$use_list")
+  if [ -n "$use_list" ]; then
+    check_list "$use_list" "$file"
+    list=(-L "$use_list")
+  fi
   [ "$server_major" -ge 17 ] || tolerated='^SET transaction_timeout = 0;$'
   drop_database "$2"
   if [ "$1" = "$2" ]; then
