@@ -121,10 +121,13 @@ config=$(mongodb-admin config "$config_file")
 # mongorestore ARGS… from the archive. Its log goes to stderr without the
 # lines that name each database of the archive as a subdirectory it skips:
 # mongorestore 100.14 prints them in both passes of --all with an oplog and
-# restores those databases all the same.
+# restores those databases all the same. Only that message is matched, as a
+# whole line after mongorestore's timestamp and tab (the dots as [.]: awk -v
+# would make \. a plain dot).
+skipped_subdirectory='^([^\t]*\t)?don'"'"'t know what to do with subdirectory "[^"]*", skipping[.][.][.]$'
 restore() {
   { mongorestore --config=<(printf '%s\n' "$config") --archive="$archive" "$@" 2>&1 >&3 3>&- \
-      | awk '!/don.t know what to do with subdirectory ".*", skipping/ { print; fflush() }' >&2; } 3>&1
+      | awk -v skip="$skipped_subdirectory" '$0 !~ skip { print; fflush() }' >&2; } 3>&1
 }
 
 case "$mode" in

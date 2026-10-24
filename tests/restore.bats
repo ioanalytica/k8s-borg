@@ -25,8 +25,15 @@ case "$*" in *"SHOW server_version_num"*) echo 180004; exit 0 ;; esac
 echo "psql $*" >>"$STUB/calls"
 case " $* " in *" -f "*|*" -c "*) ;; *) cat >/dev/null ;; esac
 STUB
+  # pg_restore -L LIST -l DUMP (the check of a list) prints $TMP/list-warnings
+  # to stderr and is not recorded with the restores.
   cat >"$TMP/stubs/pg_restore" <<'STUB'
 #!/usr/bin/env bash
+if [[ " $* " == *" -l "* ]]; then
+  echo "pg_restore $*" >>"$STUB/list-checks"
+  [ ! -e "$STUB/list-warnings" ] || cat "$STUB/list-warnings" >&2
+  exit 0
+fi
 echo "pg_restore $*" >>"$STUB/calls"
 STUB
   # The MariaDB and MySQL clients answer VERSION() as their engine's server
@@ -120,6 +127,8 @@ toc() {
   [ "$(grep '^pg_restore' "$TMP/calls")" = "pg_restore -h pg-new -p 5432 -U postgres -L $TMP/appdb.list -C -j 4 -d postgres $TMP/dumps/new/appdb.dump" ] \
     || fail "$(calls)"
   grep -qxF "psql -h pg-new -p 5432 -U postgres -X -q -v ON_ERROR_STOP=1 -d postgres -v name=appdb" "$TMP/calls" || fail "$(calls)"
+  # The list was checked against the dump first.
+  grep -qxF "pg_restore -L $TMP/appdb.list -l $TMP/dumps/new/appdb.dump" "$TMP/list-checks" || fail "$(cat "$TMP/list-checks")"
 }
 
 @test "--use-list with --as and --from restores the listed entries into NAME" {
@@ -132,10 +141,11 @@ toc() {
     || fail "$(calls)"
 }
 
-@test "--use-list is refused before anything is dropped: no list, --all or --globals" {
+@test "--use-list is refused before anything is dropped: no list, one without entries, --all or --globals" {
   dumps new globals.sql appdb.dump
   toc "$TMP/appdb.list"
-  for args in "appdb --use-list" "appdb --use-list $TMP/missing.list" \
+  printf '; only comments\n' >"$TMP/empty.list"
+  for args in "appdb --use-list" "appdb --use-list $TMP/missing.list" "appdb --use-list $TMP/empty.list" \
               "--all --use-list $TMP/appdb.list" "--globals --use-list $TMP/appdb.list"; do
     : >"$TMP/calls"
     # shellcheck disable=SC2086
@@ -143,6 +153,24 @@ toc() {
     [ "$status" -eq 2 ] || fail "$args: rc=$status: $stderr"
     [ -z "$(calls)" ] || fail "$args: $(calls)"
   done
+}
+
+@test "--use-list takes a list of bare IDs, also indented" {
+  dumps new appdb.dump
+  printf '; written by hand\n  220\n' >"$TMP/ids.list"
+  run --separate-stderr restore-postgres "$TMP/conf/new.conf" appdb --as copy --use-list "$TMP/ids.list"
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  grep -qF -- "-L $TMP/ids.list" "$TMP/calls" || fail "$(calls)"
+}
+
+@test "a list with a line pg_restore cannot match to the dump is refused before anything is dropped" {
+  dumps new appdb.dump
+  toc "$TMP/appdb.list" '9999; 1259 1 TABLE app nosuch app_owner'
+  echo 'pg_restore: warning: line ignored: 9999' >"$TMP/list-warnings"
+  run --separate-stderr restore-postgres "$TMP/conf/new.conf" appdb --use-list "$TMP/appdb.list"
+  [ "$status" -eq 2 ] || fail "rc=$status: $stderr"
+  [[ "$stderr" == *"does not fit"*"line ignored: 9999"* ]] || fail "$stderr"
+  [ -z "$(calls)" ] || fail "$(calls)"
 }
 
 # ---- restore-mariadb / restore-mysql --from ---------------------------------

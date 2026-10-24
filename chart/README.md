@@ -211,7 +211,7 @@ Then restore with the instance's credentials file (static configs in
 | `restore-postgres /root/.postgres/<instance>.conf <db> [-j N]` | one database, dropped and created again with its properties |
 | `restore-postgres /root/.postgres/<instance>.conf <db> --as <name> [-j N]` | the dump of `<db>` into `<name>` (dropped first), to compare before replacing; the database-level properties (owner, `ALTER DATABASE … SET`, its grants) are not applied |
 | `restore-postgres /root/.postgres/<instance>.conf --globals` | roles and tablespaces alone (passwords as with `--all`) |
-| `restore-postgres /root/.postgres/<instance>.conf <db> --use-list <file> [--as <name>]` | one database, only the entries of the list (`pg_restore -L`), see [PostgreSQL into another operator](#postgresql-into-another-operator) |
+| `restore-postgres /root/.postgres/<instance>.conf <db> --use-list <file> [--as <name>]` | one database, only the entries of the list (`pg_restore -L`), see [PostgreSQL into another operator](#postgresql-into-another-operator). A list with a line that matches no entry of the dump, which `pg_restore` would skip, or without any entry is refused before anything is dropped |
 | `restore-mariadb /root/.mariadb/<instance>.conf --all` | the whole instance from the full dump, users and grants included. Meant for an empty server: the dumped users replace the server's, the one in the credentials file included |
 | `restore-mariadb /root/.mariadb/<instance>.conf <db>` | one database, dropped and created again |
 | `restore-mariadb /root/.mariadb/<instance>.conf <db> --as <name>` | the dump of `<db>` into `<name>` (dropped first) |

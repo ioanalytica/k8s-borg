@@ -127,6 +127,16 @@ teardown_file() {
   [ "$(pg src postgres -c "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = 'appdb'")" = "e2e: Grüße" ]
   [ "$(pg src postgres -c "SELECT datacl IS NOT NULL FROM pg_database WHERE datname = 'appdb'")" = t ]
 
+  # A line that matches no entry of the dump: refused before appdb is dropped.
+  cp "$E2E_TMP/appdb.list" "$E2E_TMP/typo.list"
+  echo '99999; 1259 1 TABLE app nosuch app_owner' >>"$E2E_TMP/typo.list"
+  pg src appdb -c "CREATE TABLE app.only_before_the_check (id int)"
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres /root/.postgres/e2e.conf appdb --use-list "$E2E_TMP/typo.list"
+  [ "$status" -eq 2 ] || fail "rc=$status: $stderr"
+  [[ "$stderr" == *"does not fit"* ]] || fail "$stderr"
+  [ -n "$(pg src appdb -c "SELECT to_regclass('app.only_before_the_check')")" ] || fail "appdb was dropped"
+  pg src appdb -c "DROP TABLE app.only_before_the_check"
+
   # --as ignores them.
   run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres /root/.postgres/e2e.conf appdb --as appdb_list --use-list "$E2E_TMP/appdb.list"
   [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
