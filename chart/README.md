@@ -180,19 +180,25 @@ fails half-way leaves the dumps it finished next to the older ones of the
 databases it did not reach, and its unfinished `*.tmp` file, until the next
 good run; the archive never holds such a mix, because a failing dump stops the
 backup before Borg runs. In the console pod, extract the instance's directory
-into a directory with room for the uncompressed dumps, and point
-`DB_BACKUP_LOCATION` at the copy of `borg.dbBackupLocation` below it:
+into a new, empty directory with room for the uncompressed dumps, and point
+`DB_BACKUP_LOCATION` at the copy of `borg.dbBackupLocation` below it, only
+once the extraction succeeded:
 
 ```sh
-mkdir -p /tmp/restore && cd /tmp/restore
-borg extract --noxattrs --noacls "$BORG_REPO::<archive>" <dbBackupLocation>/<instance>      # Borg 1
-borg -r "$BORG_REPO" extract --noxattrs --noacls <archive> <dbBackupLocation>/<instance>    # Borg 2
-export DB_BACKUP_LOCATION=/tmp/restore/<dbBackupLocation>
+# Borg 1
+cd "$(mktemp -d /tmp/restore.XXXXXX)" \
+  && borg extract --noxattrs --noacls "$BORG_REPO::<archive>" <dbBackupLocation>/<instance> \
+  && export DB_BACKUP_LOCATION="$PWD/<dbBackupLocation>"
+# Borg 2 (<archive> may also be aid:<id>)
+cd "$(mktemp -d /tmp/restore.XXXXXX)" \
+  && borg -r "$BORG_REPO" extract --noxattrs --noacls <archive> <dbBackupLocation>/<instance> \
+  && export DB_BACKUP_LOCATION="$PWD/<dbBackupLocation>"
 ```
 
 `<dbBackupLocation>` is `borg.dbBackupLocation` without its leading `/`, as
-Borg stores paths; with Borg 2, `<archive>` may also be `aid:<id>`.
-`--noxattrs --noacls`: dumps written to NFS carry the extended attribute
+Borg stores paths. The console pod lives long: a directory that holds an
+earlier extraction would mix its dumps with the new ones, hence a new one each
+time; remove it after the restore. `--noxattrs --noacls`: dumps written to NFS carry the extended attribute
 `system.nfs4_acl`, which another file system refuses, with one warning per
 file and rc 1, which the wrapper counts as success.
 
