@@ -96,10 +96,9 @@ jobs:
   # the Borg suite; the agent image comes from the same build cache.
   e2e-db:
     # MongoDB 8 is tested as 8.2 (see run.sh): 8.0.21+, 8.3 and 9.0 refuse to
-    # start on a Linux kernel 6.19 or newer (SERVER-121912, SERVER-136848),
-    # which the ubuntu-24.04 runners now have as well. Back to the runner of
-    # the other jobs and to mongo:8: see #68.
-    runs-on: ubuntu-24.04
+    # start on a Linux kernel 6.19 or newer (SERVER-121912, SERVER-136848).
+    # Back to mongo:8 once MongoDB starts there: see #68.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
