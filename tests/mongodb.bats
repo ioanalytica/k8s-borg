@@ -58,6 +58,11 @@ for a; do
   args+=("$a")
 done
 echo "mongorestore ${args[*]}" >>"$STUB/calls"
+# $TMP/users-log / $TMP/restore-log: what it logs (to stderr, as
+# mongorestore does) in the users pass of --all / in any other run.
+log="$STUB/restore-log"
+[[ " $* " != *" --nsInclude=admin.system.users "* ]] || log="$STUB/users-log"
+[ ! -e "$log" ] || cat "$log" >&2
 # $TMP/replay-rc: the rc of a run that replays an oplog.
 [[ " $* " != *" --oplogReplay "* ]] || [ ! -e "$STUB/replay-rc" ] || exit "$(cat "$STUB/replay-rc")"
 exit "$(cat "$STUB/restore-rc" 2>/dev/null || echo 0)"
@@ -273,4 +278,67 @@ mongorestore --config=[uri: from $CONF] --archive=$TMP/dumps/$archive --nsInclud
   run restore-mongodb "$CONF" appdb
   [ "$status" -eq 2 ] || fail "rc=$status: $output"
   ! grep -q mongorestore "$TMP/calls" || fail "$(calls)"
+}
+
+@test "--from reads another instance's archive and connects with the given config" {
+  mkdir -p "$TMP/dumps/old"
+  echo dump >"$TMP/dumps/old/old.archive"
+  run restore-mongodb "$CONF" --all --from old
+  [ "$status" -eq 0 ] || fail "rc=$status: $output"
+  [ "$(grep '^mongorestore' "$TMP/calls")" = "mongorestore --config=[uri: from $CONF] --archive=$TMP/dumps/old/old.archive --drop --nsInclude=admin.system.users --nsInclude=admin.system.roles --nsInclude=admin.system.version
+mongorestore --config=[uri: from $CONF] --archive=$TMP/dumps/old/old.archive --drop --oplogReplay" ] || fail "$(calls)"
+  [[ "$output" == *"Restoring instance: old from"* ]] || fail "$output"
+
+  : >"$TMP/calls"
+  run restore-mongodb "$CONF" appdb --from old --as appcopy
+  [ "$status" -eq 0 ] || fail "rc=$status: $output"
+  grep -qxF "mongodb-admin drop-database $CONF appcopy" "$TMP/calls" || fail "$(calls)"
+  grep -qxF "mongorestore --config=[uri: from $CONF] --archive=$TMP/dumps/old/old.archive --nsInclude=appdb.* --nsFrom=appdb.* --nsTo=appcopy.*" "$TMP/calls" \
+    || fail "$(calls)"
+}
+
+@test "--from without an instance, with a path, or naming an instance without an archive fails with rc 2" {
+  dumped
+  for args in "--all --from" "--all --from ../inst" "--all --from a/b" "--all --from ." "--all --from .." "--all --from missing"; do
+    # shellcheck disable=SC2086
+    run restore-mongodb "$CONF" $args
+    [ "$status" -eq 2 ] || fail "$args: rc=$status: $output"
+  done
+  ! grep -q mongorestore "$TMP/calls" || fail "$(calls)"
+}
+
+@test "mongorestore's subdirectory lines are left out, its other lines and its rc kept" {
+  dumped
+  # mongorestore names every database of the archive as a subdirectory it
+  # skips, in both passes of --all with an oplog.
+  cat >"$TMP/users-log" <<'LOG'
+2026-10-14T11:40:01.123+0000	preparing collections to restore from
+2026-10-14T11:40:01.124+0000	don't know what to do with subdirectory "shop", skipping...
+2026-10-14T11:40:01.125+0000	don't know what to do with subdirectory "appdb", skipping...
+2026-10-14T11:40:01.200+0000	2 document(s) restored successfully. 0 document(s) failed to restore.
+LOG
+  run --separate-stderr restore-mongodb "$CONF" --all
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$stderr"
+  [[ "$stderr" == *"preparing collections to restore from"* ]] || fail "$stderr"
+  [[ "$stderr" == *"2 document(s) restored successfully"* ]] || fail "$stderr"
+  [[ "$output" == *"Restoring the users and roles first"* ]] || fail "$output"
+
+  cp "$TMP/users-log" "$TMP/restore-log"
+  for args in "--all" "--all --no-oplog" "appdb"; do
+    # shellcheck disable=SC2086
+    run --separate-stderr restore-mongodb "$CONF" $args
+    [ "$status" -eq 0 ] || fail "$args: rc=$status: $stderr"
+    [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$args: $stderr"
+    [ "$(grep -c 'preparing collections to restore from' <<<"$stderr")" -ge 1 ] || fail "$args: $stderr"
+  done
+
+  # A failing users pass still fails, its other lines shown.
+  echo 1 >"$TMP/restore-rc"
+  : >"$TMP/calls"
+  run --separate-stderr restore-mongodb "$CONF" --all
+  [ "$status" -eq 2 ] || fail "rc=$status: $stderr"
+  [[ "$stderr" == *"preparing collections to restore from"* ]] || fail "$stderr"
+  [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$stderr"
+  [ "$(grep -c '^mongorestore' "$TMP/calls")" -eq 1 ] || fail "the full pass ran after a failed users pass: $(calls)"
 }

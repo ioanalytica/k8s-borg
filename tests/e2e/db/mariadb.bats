@@ -26,11 +26,12 @@ setup_file() {
   my_fingerprint src >"$E2E_TMP/src.fingerprint"
   my_db_fingerprint src appdb >"$E2E_TMP/appdb.fingerprint"
 
-  # The chart mounts one defaults file per instance at /root/.mariadb; the
-  # restores use files of the same name (the same instance) for the other
-  # servers.
+  # The chart mounts one defaults file per instance at /root/.mariadb. The
+  # restore of the whole instance into `dst` connects with a file named after
+  # that server and reads the instance's dumps with --from; the other
+  # restores use files of the instance's name for the other servers.
   write_conf /root/.mariadb/e2e.conf src
-  write_conf "$E2E_TMP/dst/e2e.conf" dst
+  write_conf "$E2E_TMP/conf/dst.conf" dst
   write_conf "$E2E_TMP/dst2/e2e.conf" dst2
 
   export DUMPS="$E2E_TMP/dumps"
@@ -70,8 +71,8 @@ teardown_file() {
   assert_dump_dir "$RESTORED/e2e" $ALL_DUMPS
 }
 
-@test "restore-mariadb --all restores the instance into an empty server" {
-  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-mariadb "$E2E_TMP/dst/e2e.conf" --all
+@test "restore-mariadb --all --from restores the instance into an empty server" {
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-mariadb "$E2E_TMP/conf/dst.conf" --all --from e2e
   [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
   my_fingerprint dst >"$E2E_TMP/dst.fingerprint"
   assert_same "$E2E_TMP/src.fingerprint" "$E2E_TMP/dst.fingerprint"

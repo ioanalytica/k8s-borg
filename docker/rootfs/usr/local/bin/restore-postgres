@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Restore what backup-postgres dumped to $DB_BACKUP_LOCATION/<instance>/,
-# <instance> being the credentials file's name without its extension:
+# <instance> being the credentials file's name without its extension, or the
+# one --from names:
 #
 #   restore-postgres CREDENTIALS_FILE --all [-j N]
 #       the whole instance: globals.sql, then every <db>.dump, each database
@@ -16,6 +17,12 @@
 #   restore-postgres CREDENTIALS_FILE --globals
 #       roles and tablespaces alone
 #
+# --from INSTANCE: the dumps of INSTANCE, restored into the server of
+# CREDENTIALS_FILE (a rebuilt or another server).
+# --use-list FILE, with a database name: pg_restore -L FILE, only the entries
+# of the list, in its order; lines starting with ; are left out. pg_restore
+# -C -l DUMP writes one with the database's own entries (its grants and
+# comment, which a list of pg_restore -l lacks); with --as they are ignored.
 # -j N: parallel jobs of pg_restore, default 4 (one for a server before 17,
 # see below).
 #
@@ -27,9 +34,9 @@ trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; echo "Error: postgres restore failed (rc=$
 
 usage() {
   cat >&2 <<'EOF'
-Usage: restore-postgres CREDENTIALS_FILE --all [-j N]
-       restore-postgres CREDENTIALS_FILE DATABASE [--as NAME] [-j N]
-       restore-postgres CREDENTIALS_FILE --globals
+Usage: restore-postgres CREDENTIALS_FILE --all [--from INSTANCE] [-j N]
+       restore-postgres CREDENTIALS_FILE DATABASE [--as NAME] [--from INSTANCE] [--use-list FILE] [-j N]
+       restore-postgres CREDENTIALS_FILE --globals [--from INSTANCE]
 EOF
 }
 
@@ -43,7 +50,7 @@ credentials_file=${1:-}
 [ -f "$credentials_file" ] || die "credentials file $credentials_file not found"
 shift
 
-mode="" database_name="" target_name="" jobs=4
+mode="" database_name="" target_name="" from_instance="" use_list="" jobs=4
 while [ $# -gt 0 ]; do
   case "$1" in
     --all|--globals)
@@ -53,6 +60,16 @@ while [ $# -gt 0 ]; do
     --as)
       [ -n "${2:-}" ] || { usage; die "--as needs a database name"; }
       target_name=$2
+      shift
+      ;;
+    --from)
+      [ -n "${2:-}" ] || { usage; die "--from needs an instance name"; }
+      from_instance=$2
+      shift
+      ;;
+    --use-list)
+      [ -n "${2:-}" ] || { usage; die "--use-list needs a list file"; }
+      use_list=$2
       shift
       ;;
     -j)
@@ -75,12 +92,17 @@ done
 
 [ -n "$mode" ] || { usage; die "No database name specified (or --all / --globals)!"; }
 [ -z "$target_name" ] || [ "$mode" = database ] || { usage; die "--as goes with a database name"; }
+[ -z "$use_list" ] || [ "$mode" = database ] || { usage; die "--use-list goes with a database name"; }
+[ -z "$use_list" ] || [ -f "$use_list" ] || die "list file $use_list not found"
+case "$from_instance" in
+  */*|.|..) die "--from takes an instance name, not a path: $from_instance" ;;
+esac
 [ -n "$target_name" ] || target_name=$database_name
 
 [ -n "$DB_BACKUP_LOCATION" ] || die "environment variable DB_BACKUP_LOCATION not set!"
 
 xbase=${credentials_file##*/}
-instance_name=${xbase%.*}
+instance_name=${from_instance:-${xbase%.*}}
 DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
 
 # The first line of the credentials file names the server. DB/PASS are
@@ -189,10 +211,12 @@ create_database_like() {
   sql "$(maintenance_db "$1")" <<<"$create"
 }
 
-# restore_database DATABASE NAME — the dump of DATABASE into NAME.
+# restore_database DATABASE NAME — the dump of DATABASE into NAME, with
+# --use-list only the entries of the list.
 restore_database() {
-  local file tolerated=""
+  local file tolerated="" list=()
   file=$(dump_file "$1")
+  [ -z "$use_list" ] || list=(-L "$use_list")
   [ "$server_major" -ge 17 ] || tolerated='^SET transaction_timeout = 0;$'
   drop_database "$2"
   if [ "$1" = "$2" ]; then
@@ -201,12 +225,12 @@ restore_database() {
       tolerated="$tolerated|^CREATE DATABASE "
     fi
     echo "Restoring database: $1 from $file ..."
-    run_pg_restore "$tolerated" -C -j "$jobs" -d "$(maintenance_db "$2")" "$file"
+    run_pg_restore "$tolerated" "${list[@]}" -C -j "$jobs" -d "$(maintenance_db "$2")" "$file"
   else
     echo "Creating database: $2 ..."
     sql "$(maintenance_db "$2")" -v name="$2" <<<'CREATE DATABASE :"name" WITH TEMPLATE = template0;'
     echo "Restoring database: $1 as $2 from $file ..."
-    run_pg_restore "$tolerated" -j "$jobs" -d "$2" "$file"
+    run_pg_restore "$tolerated" "${list[@]}" -j "$jobs" -d "$2" "$file"
   fi
 }
 
