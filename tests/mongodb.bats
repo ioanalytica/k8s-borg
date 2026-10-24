@@ -318,14 +318,16 @@ mongorestore --config=[uri: from $CONF] --archive=$TMP/dumps/old/old.archive --d
 2026-10-14T11:40:01.126+0000	don't know what to do with subdirectory "", skipping...
 2026-10-14T11:40:01.127+0000	Failed: don't know what to do with subdirectory "x", skipping...
 2026-10-14T11:40:01.128+0000	don't know what to do with subdirectory "x", skipping... and more
+2026-10-14T11:40:01.129+0000	don't know what to do with subdirectory "x", skipping!!!
 2026-10-14T11:40:01.200+0000	2 document(s) restored successfully. 0 document(s) failed to restore.
 LOG
   run --separate-stderr restore-mongodb "$CONF" --all
   [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
-  [ "$(grep -c "don't know what to do with subdirectory" <<<"$stderr")" -eq 2 ] || fail "$stderr"
+  [ "$(grep -c "don't know what to do with subdirectory" <<<"$stderr")" -eq 3 ] || fail "$stderr"
   # Only the message itself goes, not a line that merely contains it.
   [[ "$stderr" == *'Failed: don'"'"'t know what to do with subdirectory "x", skipping...'* ]] || fail "$stderr"
   [[ "$stderr" == *'"x", skipping... and more'* ]] || fail "$stderr"
+  [[ "$stderr" == *'"x", skipping!!!'* ]] || fail "$stderr"
   [[ "$stderr" == *"preparing collections to restore from"* ]] || fail "$stderr"
   [[ "$stderr" == *"2 document(s) restored successfully"* ]] || fail "$stderr"
   [[ "$output" == *"Restoring the users and roles first"* ]] || fail "$output"

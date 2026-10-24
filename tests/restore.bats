@@ -155,6 +155,14 @@ toc() {
   done
 }
 
+@test "--use-list takes a list of bare IDs, also indented" {
+  dumps new appdb.dump
+  printf '; written by hand\n  220\n' >"$TMP/ids.list"
+  run --separate-stderr restore-postgres "$TMP/conf/new.conf" appdb --as copy --use-list "$TMP/ids.list"
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  grep -qF -- "-L $TMP/ids.list" "$TMP/calls" || fail "$(calls)"
+}
+
 @test "a list with a line pg_restore cannot match to the dump is refused before anything is dropped" {
   dumps new appdb.dump
   toc "$TMP/appdb.list" '9999; 1259 1 TABLE app nosuch app_owner'
