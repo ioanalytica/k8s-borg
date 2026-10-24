@@ -4,9 +4,9 @@
 # redis-rdb-sync for every connection (the password only through
 # REDISCLI_AUTH), one RDB file for a standalone server, one per primary of a
 # cluster named after its first slot range (with TLS reached by its announced
-# hostname), all-or-nothing replacement of the previous dump, and rc 2 for
-# every failure. redis-rdb-sync is a stub; the real servers are the database
-# end-to-end tests' job.
+# hostname), all-or-nothing replacement of the previous dump, Dragonfly
+# refused before any SYNC, and rc 2 for every failure. redis-rdb-sync is a
+# stub; the real servers are the database end-to-end tests' job.
 
 bats_require_minimum_version 1.5.0   # run --separate-stderr
 
@@ -31,7 +31,7 @@ answer() {
   cat "$1"
 }
 case "$*" in
-  *"--query "*"INFO cluster") answer "$STUB/info" "INFO cluster"; exit 0 ;;
+  *"--query "*" INFO") answer "$STUB/info" INFO; exit 0 ;;
   *"--query "*"CLUSTER NODES") answer "$STUB/nodes" "CLUSTER NODES"; exit 0 ;;
 esac
 args=("$@"); n=${#args[@]}
@@ -71,7 +71,7 @@ e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 10.0.0.5:6379@16379 slave 07c37dfeb2352
   conf host=r port=6380 user=backup 'password=p=w d#"' tls=true cacert=/ca.crt
   backup
   [ "$status" -eq 0 ] || fail "status $status: $stderr"
-  [ "$(cat "$TMP/calls")" = "redis-rdb-sync --user backup --tls --cacert /ca.crt --query r 6380 INFO cluster auth=p=w d#\"
+  [ "$(cat "$TMP/calls")" = "redis-rdb-sync --user backup --tls --cacert /ca.crt --query r 6380 INFO auth=p=w d#\"
 redis-rdb-sync --user backup --tls --cacert /ca.crt r 6380 $TMP/dumps/cache/cache.rdb.tmp auth=p=w d#\"" ] \
     || fail "$(cat "$TMP/calls")"
 }
@@ -132,6 +132,17 @@ redis-rdb-sync --user backup --tls --cacert /ca.crt r 6380 $TMP/dumps/cache/cach
   [ "$status" -eq 2 ] || fail "status $status"
   [[ $stderr == *"NOPERM"*"the user needs +info"* ]] || fail "$stderr"
   ! grep -qv -- '--query' "$TMP/calls" || fail "$(cat "$TMP/calls")"
+}
+
+@test "Dragonfly: rc 2 at once, pointing to its S3 snapshots, before any SYNC" {
+  conf host=dragonfly.cache.svc
+  printf '# Server\r\nredis_version:7.4.0\r\ndragonfly_version:df-v2.0.2\r\n\r\n# Cluster\r\ncluster_enabled:0\r\n' >"$TMP/info"
+  backup
+  [ "$status" -eq 2 ] || fail "status $status: $stderr"
+  [[ $stderr == *"Dragonfly"*"df-v2.0.2"*"S3"*"chart/README.md"* ]] || fail "$stderr"
+  [ "$(grep -c '^Error' <<<"$stderr")" -eq 1 ] || fail "$stderr"
+  ! grep -qv -- '--query' "$TMP/calls" || fail "$(cat "$TMP/calls")"
+  [ -z "$(files)" ] || fail "$(files)"
 }
 
 @test "a cluster: one RDB file per primary with slots, named after its first range, and CLUSTER NODES" {
