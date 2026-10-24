@@ -24,11 +24,12 @@ setup_file() {
   pg_fingerprint src >"$E2E_TMP/src.fingerprint"
   pg_db_fingerprint src appdb >"$E2E_TMP/appdb.fingerprint"
 
-  # The chart mounts one credentials file per instance at /root/.postgres;
-  # the restores use files of the same name (the same instance) for the
-  # other servers.
+  # The chart mounts one credentials file per instance at /root/.postgres. The
+  # restore of the whole instance into `dst` connects with a file named after
+  # that server and reads the instance's dumps with --from; the other
+  # restores use files of the instance's name for the other servers.
   write_conf /root/.postgres/e2e.conf src
-  write_conf "$E2E_TMP/dst/e2e.conf" dst
+  write_conf "$E2E_TMP/conf/dst.conf" dst
   write_conf "$E2E_TMP/dst2/e2e.conf" dst2
 
   export DUMPS="$E2E_TMP/dumps"
@@ -62,8 +63,8 @@ teardown_file() {
   assert_dump_dir "$RESTORED/e2e" globals.sql appdb.dump postgres.dump straße.dump template1.dump
 }
 
-@test "restore-postgres --all restores the instance into an empty server" {
-  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres "$E2E_TMP/dst/e2e.conf" --all
+@test "restore-postgres --all --from restores the instance into an empty server" {
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres "$E2E_TMP/conf/dst.conf" --all --from e2e
   [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
   pg_fingerprint dst >"$E2E_TMP/dst.fingerprint"
   assert_same "$E2E_TMP/src.fingerprint" "$E2E_TMP/dst.fingerprint"
@@ -111,6 +112,32 @@ teardown_file() {
   done
   pg_fingerprint src >"$E2E_TMP/src.restored"
   assert_same "$E2E_TMP/src.fingerprint" "$E2E_TMP/src.restored"
+}
+
+@test "restore-postgres DATABASE --use-list restores the entries of the list, the database created again" {
+  # The list pg_restore -C -l writes, without the content of app.bulk.
+  pg_restore -C -l "$RESTORED/e2e/appdb.dump" | grep -v ' TABLE DATA app bulk ' >"$E2E_TMP/appdb.list"
+  pg src appdb -c "CREATE TABLE app.only_before_the_restore (id int)"
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres /root/.postgres/e2e.conf appdb --use-list "$E2E_TMP/appdb.list"
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  [ "$(pg src appdb -c 'SELECT count(*) FROM app.bulk')" = 0 ]
+  [ "$(pg src appdb -c 'SELECT count(*) FROM app.items')" = 2003 ]
+  [ -z "$(pg src appdb -c "SELECT to_regclass('app.only_before_the_restore')")" ]
+  # The database's own entries come with a list of pg_restore -C -l.
+  [ "$(pg src postgres -c "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = 'appdb'")" = "e2e: Grüße" ]
+  [ "$(pg src postgres -c "SELECT datacl IS NOT NULL FROM pg_database WHERE datname = 'appdb'")" = t ]
+
+  # --as ignores them.
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres /root/.postgres/e2e.conf appdb --as appdb_list --use-list "$E2E_TMP/appdb.list"
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  [ "$(pg src appdb_list -c 'SELECT count(*) FROM app.items')" = 2003 ]
+  [ "$(pg src appdb_list -c 'SELECT count(*) FROM app.bulk')" = 0 ]
+  pg src postgres -c 'DROP DATABASE appdb_list'
+
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-postgres /root/.postgres/e2e.conf appdb
+  [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
+  pg_db_fingerprint src appdb >"$E2E_TMP/appdb.restored"
+  assert_same "$E2E_TMP/appdb.fingerprint" "$E2E_TMP/appdb.restored"
 }
 
 @test "restore-postgres --globals restores the roles alone" {

@@ -26,11 +26,12 @@ setup_file() {
   mo fingerprint src >"$E2E_TMP/src.fingerprint"
   mo fingerprint src appdb >"$E2E_TMP/appdb.fingerprint"
 
-  # The chart mounts one credentials file per instance at /root/.mongodb;
-  # the restores use files of the same name (the same instance) for the
-  # other servers.
+  # The chart mounts one credentials file per instance at /root/.mongodb. The
+  # restore of the whole instance into `dst` connects with a file named after
+  # that server and reads the instance's dumps with --from; the other
+  # restores use files of the instance's name for the other servers.
   write_conf /root/.mongodb/e2e.conf src
-  write_conf "$E2E_TMP/dst/e2e.conf" dst
+  write_conf "$E2E_TMP/conf/dst.conf" dst
 
   export DUMPS="$E2E_TMP/dumps"
   DB_BACKUP_LOCATION=$DUMPS backup-cluster-mongodb >"$E2E_TMP/backup.log" 2>&1 \
@@ -60,10 +61,12 @@ teardown_file() {
   assert_dump_dir "$RESTORED/e2e" e2e.archive
 }
 
-@test "restore-mongodb --all restores the instance into an empty replica set" {
-  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-mongodb "$E2E_TMP/dst/e2e.conf" --all
+@test "restore-mongodb --all --from restores the instance into an empty replica set" {
+  run --separate-stderr env DB_BACKUP_LOCATION="$RESTORED" restore-mongodb "$E2E_TMP/conf/dst.conf" --all --from e2e
   [ "$status" -eq 0 ] || fail "rc=$status: $stderr"
   [[ "$output" == *"replaying its oplog"* ]] || fail "$output"
+  # Without mongorestore's lines about databases it skips (and restores).
+  [[ "$stderr" != *"don't know what to do with subdirectory"* ]] || fail "$stderr"
   mo fingerprint dst >"$E2E_TMP/dst.fingerprint"
   assert_same "$E2E_TMP/src.fingerprint" "$E2E_TMP/dst.fingerprint"
   # The restored users and roles are in force, not just in the collections.

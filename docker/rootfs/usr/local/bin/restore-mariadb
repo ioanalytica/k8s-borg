@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Restore what backup-mariadb dumped to $DB_BACKUP_LOCATION/<instance>/,
-# <instance> being the defaults file's name without its extension:
+# <instance> being the defaults file's name without its extension, or the one
+# --from names:
 #
 #   restore-mariadb DEFAULTS_FILE --all
 #       the whole instance from <instance>-full-dump.sql: every database and
@@ -15,6 +16,8 @@
 #       the dump of DATABASE into the database NAME, which is dropped and
 #       created again first; DATABASE itself is not touched
 #
+# --from INSTANCE: the dumps of INSTANCE, restored into the server of
+# DEFAULTS_FILE (a rebuilt or another server).
 # The mysql schema alone is only restored with --all (or --as, to look at it).
 # Every error fails with rc >= 2.
 #
@@ -33,8 +36,8 @@ trap 'ec=$?; [ "$ec" -lt 2 ] && ec=2; [ "$BASH_SUBSHELL" -gt 0 ] || echo "Error:
 
 usage() {
   cat >&2 <<EOF
-Usage: restore-$engine DEFAULTS_FILE --all
-       restore-$engine DEFAULTS_FILE DATABASE [--as NAME]
+Usage: restore-$engine DEFAULTS_FILE --all [--from INSTANCE]
+       restore-$engine DEFAULTS_FILE DATABASE [--as NAME] [--from INSTANCE]
 EOF
 }
 
@@ -48,7 +51,7 @@ defaults_file=${1:-}
 [ -f "$defaults_file" ] || die "config file $defaults_file not found"
 shift
 
-mode="" database_name="" target_name=""
+mode="" database_name="" target_name="" from_instance=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --all)
@@ -58,6 +61,11 @@ while [ $# -gt 0 ]; do
     --as)
       [ -n "${2:-}" ] || { usage; die "--as needs a database name"; }
       target_name=$2
+      shift
+      ;;
+    --from)
+      [ -n "${2:-}" ] || { usage; die "--from needs an instance name"; }
+      from_instance=$2
       shift
       ;;
     -*)
@@ -75,12 +83,15 @@ done
 
 [ -n "$mode" ] || { usage; die "No database name specified (or --all)!"; }
 [ -z "$target_name" ] || [ "$mode" = database ] || { usage; die "--as goes with a database name"; }
+case "$from_instance" in
+  */*|.|..) die "--from takes an instance name, not a path: $from_instance" ;;
+esac
 [ -n "$target_name" ] || target_name=$database_name
 
 [ -n "$DB_BACKUP_LOCATION" ] || die "environment variable DB_BACKUP_LOCATION not set!"
 
 xbase=${defaults_file##*/}
-instance_name=${xbase%.*}
+instance_name=${from_instance:-${xbase%.*}}
 DB_BACKUP_DIR=${DB_BACKUP_LOCATION}/${instance_name}
 
 # backup_file NAME — the dump NAME in the instance's directory.
