@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* **Switch for Borg UI's backend error reports** (`borgUI.errorReporting.enabled`,
+  default `true` like the image). Borg UI releases after 2.4.0 send the
+  server's errors (request exceptions, 5xx responses, startup and migration
+  failures, failed jobs) to `https://t.borgui.com/e`. The chart always renders
+  `ERROR_REPORTING_ENABLED`, so `false` turns them off for the instance; older
+  images ignore it. The browser's analytics and error reports stay a per-user
+  preference. New `borgUI.extraEnv` appends EnvVar objects to the UI
+  container; a name the chart already sets fails the render.
+
 * **Archive names in UTC.** The default archive name template is now
   `<node>-{utcnow:%Y-%m-%d-%s}` (was `{now:…}`) in `register-backup-plan`
   and `borg-backup`. `{now}` is local time, which repeats an hour when

@@ -443,6 +443,70 @@ Job reuses borgUI.resources and must not hold a FUSE device.
 {{- end -}}
 
 {{/*
+borgUI.errorReporting.enabled as "true"/"false". Only a boolean is accepted:
+the string "false" is truthy in a template, and an empty value would stop the
+server at startup.
+*/}}
+{{- define "k8s-borg.ui.errorReportingEnabled" -}}
+{{- $v := .Values.borgUI.errorReporting.enabled -}}
+{{- if not (kindIs "bool" $v) -}}{{- fail (printf "borgUI.errorReporting.enabled must be true or false (got %v)" $v) -}}{{- end -}}
+{{- $v -}}
+{{- end -}}
+
+{{/*
+The env the chart sets on the Borg UI server container.
+*/}}
+{{- define "k8s-borg.ui.env" -}}
+- name: TZ
+  value: {{ .Values.timezone | quote }}
+- name: PUBLIC_BASE_URL
+  value: {{ .Values.borgUI.publicBaseUrl | quote }}
+{{- if or .Values.borgUI.adminPassword.value .Values.borgUI.adminPassword.existingSecret }}
+- name: INITIAL_ADMIN_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.borgUI.adminPassword.existingSecret | default (include "k8s-borg.secretName" .) }}
+      key: {{ .Values.borgUI.adminPassword.existingSecretKey | default "BORG_UI_ADMIN_PASS" }}
+{{- end }}
+# Always rendered: the image ships defaults for these, so a value that
+# differs from them only takes effect if we set it explicitly.
+- name: ENABLE_STARTUP_LICENSE_SYNC
+  value: {{ .Values.borgUI.licensing.startupSync | quote }}
+- name: ACTIVATION_SERVICE_URL
+  value: {{ .Values.borgUI.licensing.activationServiceUrl | quote }}
+- name: ERROR_REPORTING_ENABLED
+  value: {{ include "k8s-borg.ui.errorReportingEnabled" . | quote }}
+{{- with .Values.borgUI.licensing.activationPublicKey }}
+- name: ACTIVATION_PUBLIC_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- include "k8s-borg.env.redis" . | nindent 0 }}
+{{- include "k8s-borg.env.postgres" . | nindent 0 }}
+{{- end -}}
+
+{{/*
+borgUI.extraEnv, appended to the server container's env. A name the chart
+already sets (.env, the output of k8s-borg.ui.env) fails the render: of two
+entries with one name Kubernetes keeps only the last, which would override the
+chart value behind its back.
+Usage: include "k8s-borg.ui.extraEnv" (dict "context" $ "env" $env)
+*/}}
+{{- define "k8s-borg.ui.extraEnv" -}}
+{{- $extra := .context.Values.borgUI.extraEnv | default list -}}
+{{- if not (kindIs "slice" $extra) -}}{{- fail "borgUI.extraEnv must be a list of EnvVar objects (name plus value or valueFrom)" -}}{{- end -}}
+{{- $taken := dict -}}
+{{- range (fromYamlArray .env) -}}{{- $_ := set $taken .name true -}}{{- end -}}
+{{- $seen := dict -}}
+{{- range $i, $e := $extra -}}
+{{- if not (and (kindIs "map" $e) (kindIs "string" $e.name) $e.name) -}}{{- fail (printf "borgUI.extraEnv[%d] must be an EnvVar object with a name" $i) -}}{{- end -}}
+{{- if hasKey $taken $e.name -}}{{- fail (printf "borgUI.extraEnv[%d]: %s is set by the chart; use its chart value instead (see chart/README.md)" $i $e.name) -}}{{- end -}}
+{{- if hasKey $seen $e.name -}}{{- fail (printf "borgUI.extraEnv: %s is listed twice" $e.name) -}}{{- end -}}
+{{- $_ := set $seen $e.name true -}}
+{{- end -}}
+{{- if $extra }}{{ toYaml $extra }}{{ end -}}
+{{- end -}}
+
+{{/*
 Whether the reconcile Job provisions notification channels (it is the only
 consumer of their credentials). Emits "true" or "".
 */}}

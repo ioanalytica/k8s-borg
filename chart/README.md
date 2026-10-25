@@ -1404,6 +1404,51 @@ The activation service may still count the old instance as holding the license, 
 deactivate a paid license (Settings > Licensing) before deleting an instance you
 intend to rebuild.
 
+### Error reports (`borgUI.errorReporting`)
+
+Borg UI releases after 2.4.0 report the server's own errors to the Borg UI
+analytics ingest (`https://t.borgui.com/e`) as "Error - Report" events:
+unhandled request exceptions, 5xx responses with their cause, startup and
+migration failures, and failed jobs. Messages and stack traces are scrubbed of
+secrets before they are sent. The image default is on, and nothing is sent while
+any user has analytics turned off in Settings > Preferences. To turn the
+server's reports off for the whole instance:
+
+```yaml
+borgUI:
+  errorReporting:
+    enabled: false      # ERROR_REPORTING_ENABLED, always rendered
+```
+
+The value must be a boolean (a quoted `"false"` fails the render). Older images
+ignore it, so it can be set before the `borg-ui` pin moves.
+
+This covers the server only. Usage analytics and the error reports of the web
+interface go from the browser to the same ingest and follow each user's own
+analytics preference; there is no instance-wide switch for them.
+
+### Extra server env (`borgUI.extraEnv`)
+
+Server settings the chart has no value for can be set as a list of EnvVar
+objects, appended after the env the chart renders:
+
+```yaml
+borgUI:
+  extraEnv:
+    - name: LOG_LEVEL
+      value: "DEBUG"
+    - name: SOME_TOKEN
+      valueFrom:
+        secretKeyRef: { name: borgui-extra, key: token }
+```
+
+A chart value always wins: a name the chart already sets for the current values
+(`TZ`, `PUBLIC_BASE_URL`, `ENABLE_STARTUP_LICENSE_SYNC`, `ERROR_REPORTING_ENABLED`,
+`REDIS_*`, `DB_*`, …) fails the render, as does a name listed twice, because
+Kubernetes keeps only the last of two entries with one name.
+Set those through their chart values. Because the extra entries come last, their
+values can refer to the chart's as `$(NAME)`.
+
 ### Notification channels (`borgUI.notifications`)
 
 A fresh Borg UI has no notification channel, so every failed backup stays
