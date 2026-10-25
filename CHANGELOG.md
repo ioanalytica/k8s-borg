@@ -1,9 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
+
+* **Borg UI 2.4.1.** The `borg-ui` submodule moves to the v2.4.1 release
+  (agent 0.1.22, no database change).
+
+  **Upgrade note:** Borg UI 2.4.1 sends the server's error reports to
+  `https://t.borgui.com/e` by default. To keep them off, set
+  `borgUI.errorReporting.enabled: false` (next entry) with this upgrade.
 
 * **Switch for Borg UI's backend error reports** (`borgUI.errorReporting.enabled`,
-  default `true` like the image). Borg UI releases after 2.4.0 send the
+  default `true` like the image). Borg UI 2.4.1 and later send the
   server's errors (request exceptions, 5xx responses, startup and migration
   failures, failed jobs) to `https://t.borgui.com/e`. The chart always renders
   `ERROR_REPORTING_ENABLED`, so `false` turns them off for the instance; older
@@ -63,6 +70,28 @@
   `borgUI.containerSecurityContext` now defaults to `~`; a value you set
   still replaces the computed one, and an explicit `{}` still renders no
   securityContext, so existing releases render unchanged.
+
+* **Redis backups recognise Dragonfly** (#76). Dragonfly has no `SYNC`, so
+  `backup-redis` failed on it only at the snapshot transfer. An instance
+  that reports `dragonfly_version` now fails at once with rc 2 and a pointer
+  to the new Dragonfly section in `chart/README.md`: snapshots to S3, backed
+  up through `cluster.s3Buckets`, and how to restore them.
+
+* **Restore scripts** (#72, #73, #74, #75):
+  * `restore-postgres`, `restore-mariadb`, `restore-mysql` and
+    `restore-mongodb` take `--from <instance>`: the dumps of that instance,
+    restored into the server of the given credentials file. Without it the
+    instance is still the credentials file's name. A path, or an instance
+    without dumps, is refused before anything is dropped.
+  * `restore-postgres <db> --use-list FILE` passes the list to
+    `pg_restore -L`. A list that matches no entry of the dump, or has a
+    line pg_restore would skip, is refused before the target is dropped.
+  * `restore-mongodb` leaves out mongorestore's "don't know what to do with
+    subdirectory" lines, which mongorestore 100.14 prints for every database
+    of an `--all` restore with an oplog. Its other output and exit status
+    are unchanged.
+  * `chart/README.md` describes the extract step of a restore, PostgreSQL
+    into another operator, and MongoDB into another server.
 
 ## 1.1.9
 
