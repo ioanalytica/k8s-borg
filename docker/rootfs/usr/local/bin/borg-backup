@@ -52,13 +52,15 @@ borg-init || exit $?
 
 # Archive name: an explicit BORG_ARCHIVE_NAME_TEMPLATE (e.g. from the chart's
 # borg.archiveNameTemplate — same knob register-backup-plan honours) wins;
-# otherwise fall back to the prefix-based default. borg expands {now:FMT}.
-# NB: plain if-assignment, not ${VAR:-default} — the literal "}" in "{now:…}"
+# otherwise fall back to the prefix-based default. borg expands {utcnow:FMT}:
+# UTC, because local time repeats an hour when daylight saving time ends and
+# the second run of that hour would reuse the first one's archive name.
+# NB: plain if-assignment, not ${VAR:-default} — the literal "}" in "{utcnow:…}"
 # would prematurely close the brace expansion.
 if [ -n "${BORG_ARCHIVE_NAME_TEMPLATE:-}" ]; then
     ARCHIVE_NAME="${BORG_ARCHIVE_NAME_TEMPLATE}"
 else
-    ARCHIVE_NAME="${NODE_NAME}-{now:%Y-%m-%d-%s}"
+    ARCHIVE_NAME="${NODE_NAME}-{utcnow:%Y-%m-%d-%s}"
 fi
 
 # borg2 dropped the REPO::ARCHIVE syntax: the archive is a bare name and the

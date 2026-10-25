@@ -130,10 +130,13 @@ borg:
     ## @param borg.passphrase.existingSecretKey Key in existingSecret (default: BORG_PASSPHRASE)
     existingSecretKey: ""
   ## @param borg.archiveNameTemplate Managed-agent archive name template (register-backup-plan).
-  ## Empty = the agent's built-in default `$(NODE_NAME)-{now:%Y-%m-%d-%s}` (with a REPO_NAME
-  ## fallback). borg expands `{now:FMT}`/`{now}`; borg-ui expands `{date}/{time}/{timestamp}`.
+  ## Empty = the agent's built-in default `$(NODE_NAME)-{utcnow:%Y-%m-%d-%s}` (with a REPO_NAME
+  ## fallback). borg expands `{utcnow:FMT}`/`{now:FMT}`; borg-ui expands `{date}/{time}/{timestamp}`.
+  ## Prefer `{utcnow:…}` for timestamps: `{now:…}` is local time, which repeats an hour when
+  ## daylight saving time ends (same name twice, "Archive … already exists"), and on the
+  ## Alpine images `{now:%s}` is local wall time read as UTC, not the Unix time.
   ## To include the node name, use the k8s env-ref form `$(NODE_NAME)` (NOT `${NODE_NAME}`) —
-  ## e.g. "$(NODE_NAME)-{now:%s}" restores the old timestamp-only naming.
+  ## e.g. "$(NODE_NAME)-{utcnow:%s}" for timestamp-only naming.
   archiveNameTemplate: ""
   ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving, one
   ## directory per instance. The dumps are uncompressed (Borg deduplicates and compresses

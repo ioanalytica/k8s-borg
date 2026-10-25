@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* **Archive names in UTC.** The default archive name template is now
+  `<node>-{utcnow:%Y-%m-%d-%s}` (was `{now:…}`) in `register-backup-plan`
+  and `borg-backup`. `{now}` is local time, which repeats an hour when
+  daylight saving time ends: a backup that runs again in the repeated hour
+  gets the name of the one an hour before and fails with "Archive … already
+  exists". On the Alpine images `{now:%s}` was also not the Unix time but
+  the local wall time read as UTC. The `borg.archiveNameTemplate` comment
+  recommends `{utcnow:…}` for custom templates. Existing archives keep their
+  names; after the update the timestamps in new names move back by the UTC
+  offset once.
+
 * **rclone 1.75.2 in the agent image**, the current stable release, which
   includes the 1.75.1 fixes for CVE-2026-88013 to -88018 and CVE-2026-88044
   to -88046 (two of them critical: auth-proxy bypasses in `rclone serve s3`

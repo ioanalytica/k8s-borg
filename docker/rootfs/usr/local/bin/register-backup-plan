@@ -27,8 +27,8 @@
 #   BORG_UI_SERVER            e.g. http://k8s-borg-ui.borg.svc.cluster.local:8081
 #   BORG_REPO                 repository path/URL (to locate the repo record)
 #   BORG_MODE                 node | cluster (default cluster) — picks pattern set
-#   BORG_ARCHIVE_NAME_TEMPLATE  optional; default "${NODE_NAME}-{now:%Y-%m-%d-%s}"
-#                               (borg-native {now:FMT} passes through for borg1;
+#   BORG_ARCHIVE_NAME_TEMPLATE  optional; default "${NODE_NAME}-{utcnow:%Y-%m-%d-%s}"
+#                               (borg-native {utcnow:FMT}/{now:FMT} pass through for borg1;
 #                                borg-ui placeholders {date}/{time}/{timestamp} also work)
 #   BORG_PLAN_SKIP_MISSING_SOURCES  optional; default 1 = drop non-existent roots
 #   NODE_MOUNTINFO / NODE_FS_TYPES  optional; see node-skipped-mounts (node mode)
@@ -93,17 +93,19 @@ borgui_require_server
 : "${BORG_MODE:=cluster}"
 : "${BORG_PATTERNS_DIR:=/root/.borg}"
 : "${BORG_BACKUP_SCHEDULE_DIR:=/etc/borg-backup-schedules}"
-# Archive name: NODE_NAME prefix + BORG'S OWN placeholder {now:%Y-%m-%d-%s}
-# (date + unix seconds) — identical to legacy borg-backup (which named node
-# archives "${NODE_NAME}-{now:%Y-%m-%d-%s}"). borg-ui does only literal
-# {now}/{date}/{time}/{timestamp} substitution, so it leaves {now:FMT} untouched
-# (bare {now} would be ISO-with-millis + colons) and BORG expands it at create
-# time. For borg2 archive series the time placeholder is stripped, yielding a
-# stable, timeless name. Falls back to the hostname if NODE_NAME is unset.
-# NB: plain if-assignment, not ${VAR:=default} — the literal "}" in "{now:…}"
+# Archive name: NODE_NAME prefix + BORG'S OWN placeholder {utcnow:%Y-%m-%d-%s}
+# (date + unix seconds) — same as borg-backup's default. UTC, not {now}: local
+# time repeats an hour when daylight saving time ends, so the second run of
+# that hour would reuse the first one's name ("Archive … already exists").
+# borg-ui does only literal {now}/{utcnow}/{date}/{time}/{timestamp}
+# substitution, so it leaves {utcnow:FMT} untouched (bare {utcnow} would be
+# ISO-with-millis + colons) and BORG expands it at create time. For borg2
+# archive series the time placeholder is stripped, yielding a stable, timeless
+# name. Falls back to the hostname if NODE_NAME is unset.
+# NB: plain if-assignment, not ${VAR:=default} — the literal "}" in "{utcnow:…}"
 # would prematurely close a ${…:=…} expansion.
 if [ -z "${BORG_ARCHIVE_NAME_TEMPLATE:-}" ]; then
-  BORG_ARCHIVE_NAME_TEMPLATE="${NODE_NAME:-${REPO_NAME}}-{now:%Y-%m-%d-%s}"
+  BORG_ARCHIVE_NAME_TEMPLATE="${NODE_NAME:-${REPO_NAME}}-{utcnow:%Y-%m-%d-%s}"
 fi
 # Drop source roots that don't exist on THIS node (e.g. control-plane-only paths
 # on a worker) so borg doesn't warn -> exit 1 -> the job is marked "failed".
