@@ -1406,7 +1406,7 @@ intend to rebuild.
 
 ### Error reports (`borgUI.errorReporting`)
 
-Borg UI releases after 2.4.0 report the server's own errors to the Borg UI
+Borg UI 2.4.1 and later report the server's own errors to the Borg UI
 analytics ingest (`https://t.borgui.com/e`) as "Error - Report" events:
 unhandled request exceptions, 5xx responses with their cause, startup and
 migration failures, and failed jobs. Messages and stack traces are scrubbed of

@@ -619,7 +619,7 @@ borgUI:
     ## @param borgUI.image.repository Borg UI server image repository
     repository: ioanalytica/k8s-borg-ui
     ## @param borgUI.image.tag Borg UI server image tag
-    tag: "2.4.0"
+    tag: "2.4.1"
     ## @param borgUI.image.pullPolicy Borg UI server image pull policy
     pullPolicy: IfNotPresent
   ## Startup budget for the database upgrade the entrypoint runs before serving.
@@ -724,7 +724,7 @@ borgUI:
       existingSecret: ""
       ## @param borgUI.licensing.entitlement.existingSecretKey Key in that Secret
       existingSecretKey: "entitlement.json"
-  ## Backend error reports (Borg UI after 2.4.0; older images ignore the
+  ## Backend error reports (Borg UI 2.4.1 and later; older images ignore the
   ## setting). The server sends its own errors as "Error - Report" events to the
   ## Borg UI analytics ingest at https://t.borgui.com/e: unhandled request
   ## exceptions, 5xx responses with their cause, startup and migration failures,
