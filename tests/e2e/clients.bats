@@ -269,7 +269,13 @@ blamed_on_repository() {
   export BORG_RSH="ssh -p 1" BORGSTORE_RSH="ssh -p 1"
   run borg-init
   blamed_on_repository
-  [[ "$output" == *"Connection refused"* ]] || fail "$output"
+  # Borg 1 reads ssh's stdout before its stderr when both are ready, so when
+  # ssh's exit closes them in one go it reports the closed connection and drops
+  # ssh's "Connection refused".
+  [[ "$output" == *"Connection refused"* ]] ||
+    { [ "$BORG_VERSION" = "1" ] &&
+      [[ "$output" == *"Connection closed by remote host. Is borg working on the server?"* ]]; } ||
+    fail "$output"
 }
 
 # --- the passphrase -----------------------------------------------------------
