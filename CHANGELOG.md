@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+* **Borg UI 2.4.4.** The `borg-ui` submodule moves to the v2.4.4 release
+  (agent 0.1.22, one database revision, applied at startup).
+
 ## 1.2.0
 
 * **Borg UI 2.4.1.** The `borg-ui` submodule moves to the v2.4.1 release
