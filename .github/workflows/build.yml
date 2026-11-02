@@ -221,6 +221,9 @@ jobs:
     needs: [agent, runtime-base, server, chart]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-26.04
+    # Signing and verifying take seconds; an unreachable Sigstore service must
+    # not hold the release run for GitHub's six hours.
+    timeout-minutes: 10
     permissions:
       packages: write        # cosign stores each signature next to its artifact
       id-token: write        # the token Fulcio issues the signing certificate for

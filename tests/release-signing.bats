@@ -125,6 +125,12 @@ signed_var() {
   [ "$found" = "build.yml:sign:write" ] || fail "id-token permissions: ${found:-none}"
 }
 
+@test "the sign job has a time limit" {
+  # It waits on Sigstore's services; without a limit a hang holds the release
+  # run for GitHub's six hours.
+  wf_job "$BUILD_WF" sign | grep -qE '^    timeout-minutes: [0-9]+$' || fail "the sign job has no time limit"
+}
+
 @test "cosign is installed by a pinned installer, at one pinned release" {
   local installs releases
   installs="$(grep -hE '^ +- uses: sigstore/cosign-installer@' "$WF"/*.y*ml)"
