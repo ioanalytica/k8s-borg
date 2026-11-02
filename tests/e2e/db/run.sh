@@ -158,6 +158,9 @@ if [ "${1:-}" = "--one" ]; then
 
   cleanup() {
     local role
+    # A run that failed before its tests (set -e) still has its watchdog,
+    # which would otherwise report the version stuck long after it is gone.
+    [ -z "${watchdog:-}" ] || kill "$watchdog" 2>/dev/null || true
     # -v: the server images declare their data directory a volume, which
     # would otherwise outlive the container.
     for role in "${roles[@]}" tests; do docker rm -f -v "${name}-${role}" >/dev/null 2>&1 || true; done

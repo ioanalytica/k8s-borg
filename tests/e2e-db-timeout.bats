@@ -41,6 +41,8 @@ case "$1" in
       exec sleep 317 3>&-
     fi
     echo "ok 2 the second test" ;;
+  network)
+    [ "$2:${FAKE_FAIL:-}" != create:network ] || exit 1 ;;
   exec)
     [ -s "$FAKE_DOCKER/tests.pid" ] || exit 1
     [ "$3" = true ] || printf '%s\n' "PID   PPID  ELAPSED COMMAND" "   64    59  0:45   valkey-cli --cluster create" ;;
@@ -97,6 +99,20 @@ no_sleep_left() {
   [[ "$output" == *"ok 2 the second test"* ]] || fail "$output"
   [[ "$output" != *"no result after"* ]] || fail "$output"
   [ $((SECONDS - start)) -lt 20 ] || fail "run.sh waited for its watchdog: $((SECONDS - start))s"
+  no_sleep_left
+}
+
+@test "a version that fails before its tests stops its watchdog with it" {
+  # Left running, the watchdog would report the version stuck after
+  # E2E_DB_TIMEOUT and look for its parent's children by a PID long gone; and
+  # it holds run.sh's output open (a copy bash keeps of the redirected fd), so
+  # whatever reads that output waits for it.
+  local start=$SECONDS
+  FAKE_FAIL=network E2E_DB_TIMEOUT=31 run "$RUN_SH" sqlite:alpine
+  [ "$status" -eq 1 ] || fail "status $status: $output"
+  [[ "$output" == *"── database e2e summary"*"✗ sqlite:alpine"* ]] || fail "$output"
+  ! grep -q "^run " "$CALLS" || fail "a container was started: $(cat "$CALLS")"
+  [ $((SECONDS - start)) -lt 20 ] || fail "run.sh's output stayed open for its watchdog: $((SECONDS - start))s"
   no_sleep_left
 }
 
