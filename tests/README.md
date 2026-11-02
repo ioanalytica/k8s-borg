@@ -27,6 +27,7 @@ bats tests/                           # unit tests (no docker, ~1s)
 bats tests/borg-rc.bats               # a single file
 ./tests/e2e/run.sh                    # end-to-end, both Borg majors (needs docker)
 ./tests/e2e/run.sh 2                  # only Borg 2
+./tests/e2e/run.sh 2 prune.bats       # only these files of tests/e2e, Borg 2
 ./tests/e2e/db/run.sh                 # database dumps, every server version (needs docker)
 ./tests/e2e/db/run.sh postgres:17     # a single server version
 ```
@@ -63,7 +64,8 @@ bats tests/borg-rc.bats               # a single file
 | `examples-helm.bats` | `examples/helm/k8s-borg.yaml`: every key its HelmRelease sets is one `chart/values.yaml` knows (an empty map there takes any key), it renders as is, as standalone backups without Borg UI and with the cluster backup as a Borg UI plan, and it pins the chart version of `Chart.yaml` (a release; while `Chart.yaml` carries a prerelease — any version with a `-` suffix — the example stays on the last release) |
 | `changelog-section.bats` | `scripts/changelog-section.sh`, the body of a release: the entry of one version without its heading and the blank lines around it, a version matched whole (`1.2.3` is not `1.2.3-beta.1`), the last section ending at the end of the file, nothing for a version without a section, and an entry in `CHANGELOG.md` for the chart version |
 | `docs-only.bats` | `scripts/docs-only.sh`, which lets a pull request skip the end-to-end jobs: Markdown at the top level, `LICENSE` and `examples/` are documentation; a path below `docker/`, `chart/`, `tests/`, `scripts/` or `.github/`, the `borg-ui` submodule, Markdown anywhere below the top level, any other file and an empty list are not |
-| `lint-test-workflow.bats` | `.github/workflows/lint-test.yml`: every check the ruleset on `main` requires is a job under its own name; the Borg suites run as one job per major to the end, Borg 1 alone writing the image cache back; `e2e` waits for both with `always()` and, run on every combination of results, passes only when both majors passed or a documentation-only pull request skipped them; only the end-to-end jobs skip, on the verdict `true` alone, which only a pull request writes, never a tag build; no `paths` filter; every job has a time limit, `e2e-db`'s beyond `run.sh`'s own per-version limit plus the slowest suite; the decision run on real merges: a documentation change passes whatever `main` did since, a script renamed to Markdown does not, and a `HEAD` that is not the merge fails it |
+| `lint-test-workflow.bats` | `.github/workflows/lint-test.yml`: every check the ruleset on `main` requires is a job under its own name; the Borg suites run side by side to the end, Borg 1 alone writing the image cache back; each major runs every file of `tests/e2e` exactly once, so a new file in no part of Borg 2 fails it, and the matrix is `include` alone, with no two jobs of one name; `e2e` waits for every Borg job with `always()` and, run on every combination of results, passes only when they all passed or a documentation-only pull request skipped them; only the end-to-end jobs skip, on the verdict `true` alone, which only a pull request writes, never a tag build; no `paths` filter; every job has a time limit, `e2e-db`'s beyond `run.sh`'s own per-version limit plus the slowest suite; the decision run on real merges: a documentation change passes whatever `main` did since, a script renamed to Markdown does not, and a `HEAD` that is not the merge fails it |
+| `e2e-run.bats` | `tests/e2e/run.sh` against a fake docker: without arguments every file of `tests/e2e` runs once per major, with arguments only the files and majors given; a major other than 1 and 2, a file `tests/e2e` does not have and a path are refused before docker runs |
 | `e2e-db-timeout.bats` | `tests/e2e/db/run.sh` against a fake docker: a test container that hangs past `E2E_DB_TIMEOUT` is stopped, and the version fails with its name, the tests' output so far and what the container was running; a server start that hangs is ended, so nothing is created after the cleanup; a version that finishes in time passes without waiting for the watchdog, which does not outlive it, nor that of a version that fails before its tests; the summary gives the run's time and each version's phases |
 | `chart-console-reaper.bats` | the console pod shares its process namespace (the pause container is PID 1 and reaps orphaned processes such as an s3fs that ended after its unmount), also as a managed agent in plan mode |
 | `chart-schedules.bats` | `borg.checkSchedule` / `borg.backupSchedule`: the hostnames the console and node pods set and their `<key>_check_schedule` / `<key>_backup_schedule` entries; a schedule change rolls the console pod (`cluster.mode=agent`, its backup schedule in plan mode only) and the node pods (`node.backupMode=agent`), and no other pod or object; the install notes (`helm install --dry-run=client`) name perHost keys no agent pod applies and none for `cluster.nodeName` or `k8s-borg-<node>` keys |
@@ -118,9 +120,13 @@ The whole suite runs **twice**, once per Borg major (`BORG_TEST_VERSION`), which
 is what turns the borg1/borg2 differences into assertions instead of comments:
 `init`/`repo-create`, `list`/`repo-list`, `info`/`repo-info`,
 `delete`/`repo-delete`, the `REPO::ARCHIVE` syntax Borg 2 dropped, and the
-different `mount` argument shape. In CI each major is a job of its own,
-`e2e (Borg 1)` and `e2e (Borg 2)`, side by side; the check `e2e` passes when
-both do.
+different `mount` argument shape. In CI the majors run side by side, and Borg 2
+in two parts by file, since it takes twice as long: `e2e (Borg 1)`,
+`e2e (Borg 2, part 1)` and `e2e (Borg 2, part 2)`. The check `e2e` passes when
+all of them do. The parts are the matrix of `e2e-borg` in
+`.github/workflows/lint-test.yml`, each with its files; a new file goes into
+one of them, or `lint-test-workflow.bats` fails. `run.sh 2 <file>…` runs one
+part locally.
 
 | File | Subject |
 | --- | --- |

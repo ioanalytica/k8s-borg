@@ -3,9 +3,12 @@
 ## Unreleased
 
 * **Lint & test is faster.** The Borg end-to-end suite runs Borg 1 and Borg 2
-  as two jobs side by side instead of one after the other (7 and 14 minutes,
-  22 for the job), behind the same required check `e2e`, which passes only
-  when both do: a run takes about as long as the Borg 2 half, some 15 minutes.
+  as jobs side by side instead of one after the other (7 and 14 minutes, 22
+  for the job), and Borg 2 in two parts by file, behind the same required
+  check `e2e`, which passes only when all of them do: a run takes about as
+  long as the database suite, some 10 minutes. `tests/e2e/run.sh` takes the
+  files to run next to the majors, and a new file of `tests/e2e` in no part
+  of Borg 2 fails `tests/lint-test-workflow.bats`.
   A pull request that changes documentation alone (Markdown at the top level,
   `LICENSE`, `examples/`; `scripts/docs-only.sh`) skips the end-to-end jobs,
   and the unit tests, shellcheck and the chart lint still run; pushes to

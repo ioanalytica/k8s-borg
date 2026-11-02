@@ -1,10 +1,11 @@
 #!/usr/bin/env bats
 #
 # .github/workflows/lint-test.yml: the checks the ruleset on main requires by
-# name (shellcheck, chart-lint, bats, e2e, e2e-db), the Borg suites as one job
-# per major behind the one check `e2e`, and the skip of the end-to-end jobs
-# for a pull request that changes documentation alone — which a tag build, a
-# branch push or a failed decision never gets.
+# name (shellcheck, chart-lint, bats, e2e, e2e-db), the Borg suites as jobs
+# side by side — Borg 2 in parts, every file of tests/e2e run once per major —
+# behind the one check `e2e`, and the skip of the end-to-end jobs for a pull
+# request that changes documentation alone — which a tag build, a branch push
+# or a failed decision never gets.
 #
 # GitHub counts a skipped job as a passed check; that is what lets a skip keep
 # a required check green, and what would let a failure through as well if the
@@ -37,6 +38,31 @@ run_block() {
     on { exit }'
 }
 
+# matrix_keys — the keys of the e2e-borg matrix itself.
+matrix_keys() {
+  job e2e-borg | awk '
+    /^      matrix:$/ { on = 1; next }
+    on && /^      [^ ]/ { exit }
+    on && /^        [a-z]/ { print }'
+}
+
+# matrix_jobs — the jobs of the e2e-borg matrix, one per line: the major, the
+# part ("-" for none) and the files ("-" for none, that is all of them).
+matrix_jobs() {
+  job e2e-borg | awk '
+    function flush() { if (major != "") print major, part, (files == "" ? "-" : files) }
+    /^          - borg: / { flush(); major = $3; part = "-"; files = ""; next }
+    /^            part: / { part = $2; next }
+    /^            files: / { sub(/^            files: /, ""); files = $0; next }
+    END { flush() }'
+}
+
+# e2e_files — the files of tests/e2e the suite consists of, one per line, sorted.
+e2e_files() {
+  local f
+  for f in "$REPO_ROOT"/tests/e2e/*.bats; do echo "${f##*/}"; done | sort
+}
+
 SKIP_IF="    if: \${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}"
 PR_ONLY="if: github.event_name == 'pull_request' && !startsWith(github.ref, 'refs/tags/')"
 
@@ -48,6 +74,9 @@ PR_ONLY="if: github.event_name == 'pull_request' && !startsWith(github.ref, 'ref
   done
   [ -n "$(run_block e2e)" ] || fail "no run block in e2e"
   [ -n "$(run_block changes)" ] || fail "no run block in changes"
+  [ -n "$(run_block e2e-borg)" ] || fail "no run block in e2e-borg"
+  [ "$(matrix_jobs | wc -l)" -ge 2 ] || fail "the matrix reads as $(matrix_jobs)"
+  [ "$(e2e_files | wc -l)" -ge 2 ] || fail "tests/e2e reads as $(e2e_files)"
 }
 
 @test "every check the ruleset requires is a job under its own name" {
@@ -61,14 +90,36 @@ PR_ONLY="if: github.event_name == 'pull_request' && !startsWith(github.ref, 'ref
   done
 }
 
-@test "the Borg suites run as one job per major, both to the end" {
-  job e2e-borg | grep -qx '    name: e2e (Borg ${{ matrix.borg }})' \
-    || fail "the per-major jobs are named otherwise — a name of exactly 'e2e' would clash with the aggregate"
-  job e2e-borg | grep -qx '        borg: \[1, 2\]' || fail "the matrix is not Borg 1 and Borg 2"
-  job e2e-borg | grep -qx '      fail-fast: false' || fail "a failure in one major cancels the other"
-  job e2e-borg | grep -qx '        run: SKIP_BUILD=1 ./tests/e2e/run.sh "$BORG_MAJOR"' \
-    || fail "a job runs more than its own major"
+@test "the Borg suites run side by side, every job to the end" {
+  job e2e-borg | grep -qxF "    name: e2e (Borg \${{ matrix.borg }}\${{ matrix.part && format(', part {0}', matrix.part) || '' }})" \
+    || fail "the Borg jobs are named otherwise — a name of exactly 'e2e' would clash with the aggregate"
+  job e2e-borg | grep -qx '      fail-fast: false' || fail "a failure in one job cancels the others"
   job e2e-borg | grep -qx '          BORG_MAJOR: ${{ matrix.borg }}' || fail "BORG_MAJOR is not the matrix entry"
+  job e2e-borg | grep -qx '          FILES: ${{ matrix.files }}' || fail "FILES is not the matrix entry"
+  [ "$(run_block e2e-borg)" = "$(printf '%s\n' 'read -r -a files <<<"$FILES"' \
+      'SKIP_BUILD=1 ./tests/e2e/run.sh "$BORG_MAJOR" "${files[@]}"')" ] \
+    || fail "a job runs more than its own major and files: $(run_block e2e-borg)"
+}
+
+@test "each Borg major runs every file of tests/e2e once" {
+  # Next to a `borg:` list GitHub merges an include entry into a job of that
+  # list rather than adding one, and two parts would become one job.
+  [ "$(matrix_keys)" = "        include:" ] || fail "the matrix has keys besides include: $(matrix_keys)"
+  [ "$(matrix_jobs | cut -d' ' -f1 | sort -u | tr '\n' ' ')" = "1 2 " ] \
+    || fail "the majors are not Borg 1 and Borg 2: $(matrix_jobs)"
+  # Two jobs of one name would be told apart by nothing but their order.
+  run bash -c "cut -d' ' -f1,2 | sort | uniq -d" <<<"$(matrix_jobs)"
+  [ -z "$output" ] || fail "jobs of the same name: $output"
+  local major runs
+  for major in 1 2; do
+    runs="$(matrix_jobs | while read -r m _ files; do
+      [ "$m" = "$major" ] || continue
+      if [ "$files" = - ]; then e2e_files; else tr ' ' '\n' <<<"$files"; fi
+    done | sort)"
+    [ "$runs" = "$(e2e_files)" ] \
+      || fail "Borg $major does not run every file of tests/e2e exactly once — a new file goes into a part (< not run, > extra or twice):
+$(diff <(e2e_files) <(echo "$runs"))"
+  done
 }
 
 @test "only the Borg 1 job writes the image cache back" {
@@ -78,24 +129,25 @@ PR_ONLY="if: github.event_name == 'pull_request' && !startsWith(github.ref, 'ref
   [ "$status" -ne 0 ] || fail "e2e-db writes the cache: $output"
 }
 
-@test "e2e is the aggregate of both majors and runs whatever they did" {
-  job e2e | grep -qx '    needs: \[changes, e2e-borg\]' || fail "e2e does not wait for the per-major jobs"
-  # Without always() a failed major skips e2e, and a skipped check passes.
+@test "e2e is the aggregate of every Borg job and runs whatever they did" {
+  job e2e | grep -qx '    needs: \[changes, e2e-borg\]' || fail "e2e does not wait for the Borg jobs"
+  # Without always() a failed job skips e2e, and a skipped check passes.
   job e2e | grep -qx '    if: always()' || fail "e2e is not always()"
   run grep -E 'run\.sh|uses:' <(job e2e)
   [ "$status" -ne 0 ] || fail "the aggregate runs something itself: $output"
 }
 
-@test "e2e passes when both majors passed or a documentation-only pull request skipped them" {
-  # verdict RESULT DOCS_ONLY — the aggregate's script on these inputs.
+@test "e2e passes when every Borg job passed or a documentation-only pull request skipped them" {
+  # verdict RESULT DOCS_ONLY — the aggregate's script on these inputs. RESULT
+  # is the matrix's one result: success only when every job succeeded.
   verdict() { RESULT="$1" DOCS_ONLY="$2" bash -e -c "$(run_block e2e)" >/dev/null; }
-  verdict success ''       || fail "both majors passed, and e2e failed"
+  verdict success ''       || fail "every Borg job passed, and e2e failed"
   verdict skipped true     || fail "a documentation-only pull request fails e2e"
-  ! verdict failure ''     || fail "a failed major passes e2e"
-  ! verdict failure true   || fail "a failed major passes e2e"
-  ! verdict cancelled ''   || fail "a cancelled major passes e2e"
-  ! verdict skipped ''     || fail "majors skipped without a documentation-only verdict pass e2e"
-  ! verdict skipped false  || fail "majors skipped without a documentation-only verdict pass e2e"
+  ! verdict failure ''     || fail "a failed Borg job passes e2e"
+  ! verdict failure true   || fail "a failed Borg job passes e2e"
+  ! verdict cancelled ''   || fail "a cancelled Borg job passes e2e"
+  ! verdict skipped ''     || fail "Borg jobs skipped without a documentation-only verdict pass e2e"
+  ! verdict skipped false  || fail "Borg jobs skipped without a documentation-only verdict pass e2e"
 }
 
 @test "the end-to-end jobs skip on a documentation-only verdict alone" {
