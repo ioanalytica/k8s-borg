@@ -19,6 +19,13 @@
   running and had printed: a hung `redis:7` had left the log empty for 40
   minutes (`tests/e2e-db-timeout.bats`).
 
+* **The database suite says where its time goes.** Its summary gives each
+  server version's phases (server image, servers started, tests, servers
+  ready) and each image's pull: a version's output comes in one piece when it
+  is done, so its lines in a CI log all carry that time. The server images
+  are pulled from the start, four at a time, while the first versions run,
+  instead of by each version when its turn comes.
+
 * **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
   pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
   which the chart has since moved; it did not render. It is now modelled on a

@@ -19,6 +19,7 @@ setup_file() {
   for host in src dst dst2; do
     wait_for 90 pg_ready "$host"
   done
+  servers_ready
 
   pg_seed src
   pg_fingerprint src >"$E2E_TMP/src.fingerprint"

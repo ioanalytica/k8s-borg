@@ -19,6 +19,7 @@ setup_file() {
   for host in src dst dst2; do
     wait_for 120 mo ready "$host"
   done
+  servers_ready
   mo initiate src
   mo initiate dst
 

@@ -22,6 +22,7 @@ setup_file() {
   export E2E_TMP
   E2E_TMP=$(mktemp -d)
   wait_for 60 test -f "$LOCAL/wal/ready" -a -f "$LOCAL/delete/ready"
+  servers_ready
 
   fake_api_start "$E2E_TMP/api"
   fake_pvc app local-data pvc-local

@@ -20,6 +20,10 @@ wait_for() {
   done
 }
 
+# servers_ready — note in the TAP output how long the servers took to answer,
+# counted from the start of the test file; run.sh puts it in its summary.
+servers_ready() { echo "# servers ready after ${SECONDS}s" >&3; }
+
 # mode_of FILE — the permission bits, e.g. 600.
 mode_of() { stat -c %a "$1"; }
 

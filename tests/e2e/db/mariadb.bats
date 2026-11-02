@@ -21,6 +21,7 @@ setup_file() {
   for host in src dst dst2; do
     wait_for 120 my_ready "$host"
   done
+  servers_ready
 
   my_seed src
   my_fingerprint src >"$E2E_TMP/src.fingerprint"

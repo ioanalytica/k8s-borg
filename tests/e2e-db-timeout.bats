@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 #
 # tests/e2e/db/run.sh stops a server version that takes longer than
-# E2E_DB_TIMEOUT. One once hung in CI for 40 minutes without a line of output,
+# E2E_DB_TIMEOUT, pulls the server images from the start, and reports each
+# version's phases. One once hung in CI for 40 minutes without a line of output,
 # because a server version's log is printed only when it is done; the job had
 # no time limit and would have waited six hours.
 #
@@ -33,6 +34,7 @@ case "$1" in
       exit 0
     fi
     echo "1..2"
+    echo "# servers ready after 3s"
     echo "ok 1 the first test"
     if [ "${FAKE_HANG:-}" = tests ]; then
       echo $$ >"$FAKE_DOCKER/tests.pid"
@@ -65,7 +67,7 @@ no_sleep_left() {
   [[ "$output" == *"ok 1 the first test"* ]] || fail "the tests' output so far is missing: $output"
   [[ "$output" == *"✗ sqlite:alpine: no result after 2s (E2E_DB_TIMEOUT), stopped"* ]] || fail "$output"
   [[ "$output" == *"valkey-cli --cluster create"* ]] || fail "what the container was running is missing: $output"
-  [[ "$output" == *"── database e2e summary ──"*"✗ sqlite:alpine"* ]] || fail "$output"
+  [[ "$output" == *"── database e2e summary"*"✗ sqlite:alpine"* ]] || fail "$output"
   grep -qx "kill fake-db-1-sqlitealpine-tests" "$CALLS" || fail "the test container was not stopped: $(cat "$CALLS")"
   # The run's own cleanup, after the stop.
   sed -n '/^kill fake-db-1-sqlitealpine-tests$/,$p' "$CALLS" | grep -q "^rm -f -v fake-db-1-sqlitealpine-tests$" \
@@ -77,7 +79,7 @@ no_sleep_left() {
   FAKE_HANG=server E2E_DB_TIMEOUT=2 run "$RUN_SH" sqlite:alpine
   [ "$status" -eq 1 ] || fail "status $status: $output"
   [[ "$output" == *"✗ sqlite:alpine: no result after 2s (E2E_DB_TIMEOUT), stopped"* ]] || fail "$output"
-  [[ "$output" == *"── database e2e summary ──"*"✗ sqlite:alpine"* ]] || fail "$output"
+  [[ "$output" == *"── database e2e summary"*"✗ sqlite:alpine"* ]] || fail "$output"
   ! grep -q "^run -q --name fake-db-2-sqlitealpine-tests" "$CALLS" || fail "the tests ran after the hang: $(cat "$CALLS")"
   # A docker that run.sh gave up on would still be running, and create later.
   local i
@@ -96,4 +98,28 @@ no_sleep_left() {
   [[ "$output" != *"no result after"* ]] || fail "$output"
   [ $((SECONDS - start)) -lt 20 ] || fail "run.sh waited for its watchdog: $((SECONDS - start))s"
   no_sleep_left
+}
+
+@test "the summary gives each version's phases and each image's pull" {
+  run "$RUN_SH" sqlite:alpine postgres:17
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" =~ "── database e2e summary: "[0-9]+"s, 3 at a time ──" ]] || fail "$output"
+  local v
+  for v in sqlite:alpine postgres:17; do
+    [[ "$output" =~ "✓ $v "[0-9]+"s: image "[0-9]+"s, servers "[0-9]+"s, tests "[0-9]+"s (servers ready after 3s)" ]] \
+      || fail "no phases for $v: $output"
+  done
+  [[ "$output" == *"── image pulls, from the start, four at a time ──"* ]] || fail "$output"
+  [[ "$output" =~ "python:3.13-alpine: pulled in "[0-9]+"s" ]] || fail "$output"
+  [[ "$output" =~ "postgres:17-alpine: pulled in "[0-9]+"s" ]] || fail "$output"
+}
+
+@test "each image is pulled once from the start, and a version finds it there" {
+  run "$RUN_SH" sqlite:alpine sqlite:alpine postgres:17
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(grep -cx "pull -q python:3.13-alpine" "$CALLS")" -eq 1 ] || fail "$(cat "$CALLS")"
+  [ "$(grep -cx "pull -q postgres:17-alpine" "$CALLS")" -eq 1 ] || fail "$(cat "$CALLS")"
+  # The fake has every image, so no version pulls one of its own.
+  [ "$(grep -c "^pull " "$CALLS")" -eq 2 ] || fail "$(cat "$CALLS")"
+  grep -qx "image inspect postgres:17-alpine" "$CALLS" || fail "$(cat "$CALLS")"
 }
