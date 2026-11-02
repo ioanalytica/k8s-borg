@@ -25,10 +25,13 @@ alike.
 - **Borg, in Kubernetes**: deduplication across runs (database dumps stay
   uncompressed so that it works), encryption on the client, and repositories on
   any SSH host with Borg, a Hetzner Storage Box included.
-- **Backups a compromised cluster cannot wipe**: the optional repository server
-  binds every client key to its own directory, can limit a client to
-  append-only access, enforced on the server, and keeps an external copy on S3
-  or SFTP.
+- **A repository server in the same release**, optional: `borg serve` over SSH,
+  unprivileged, every client key bound to its own directory with permissions
+  the server enforces, and a copy of all repositories on S3 or SFTP for when its
+  storage fails. The chart's own backup pods need full access, since they prune
+  and compact, and the copy is a mirror, so it protects against lost storage,
+  not against deletions; see "External copy" in
+  [`chart/README.md`](chart/README.md#external-copy).
 - **One place for clusters and machines**: with Borg UI, the cluster's backups
   run as managed agents next to those of hosts outside the cluster.
 - **Restores that are tested**: every database engine's dump and restore runs

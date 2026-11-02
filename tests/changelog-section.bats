@@ -66,5 +66,6 @@ teardown() { common_teardown; }
 @test "the repository's CHANGELOG.md has an entry for the chart version" {
   load helpers/versions
   run "$SCRIPT" "$(chart_version)"
-  [ -n "$output" ] || fail "no '## $(chart_version)' section in CHANGELOG.md"
+  [ "$status" -eq 0 ] && [ -n "$output" ] \
+    || fail "no '## $(chart_version)' section in CHANGELOG.md (status $status): $output"
 }

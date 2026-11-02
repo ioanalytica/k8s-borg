@@ -19,13 +19,16 @@ Thanks for helping. Bug reports, questions and pull requests are all welcome.
 ```sh
 git clone --recurse-submodules https://github.com/ioanalytica/k8s-borg.git
 cd k8s-borg
-./run-tests.sh --quick    # shellcheck + bats unit tests, a few seconds
+./docker/ui-app-version.sh --fetch-tags   # borg-ui's release tags, read by the version tests
+./run-tests.sh --quick    # shellcheck + bats unit tests, a few minutes
 ./run-tests.sh            # adds the end-to-end suites (needs docker)
 ```
 
-The tests need `shellcheck`, `bats`, `helm` and Python with PyYAML; the
-end-to-end suites need docker. [`tests/README.md`](tests/README.md) describes
-each layer. CI runs all of them on every pull request.
+The tests need `shellcheck`, `bats`, `helm` and Python 3 with PyYAML
+(`apt-get install python3-yaml`, or `pip install PyYAML` in a virtual
+environment); the end-to-end suites need docker.
+[`tests/README.md`](tests/README.md) describes each layer. CI runs all of them
+on every pull request.
 
 A pull request is easiest to review when it:
 

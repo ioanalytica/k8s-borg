@@ -7,7 +7,8 @@ servers. All run in `.github/workflows/lint-test.yml` on every push and pull
 request.
 
 ```sh
-brew install shellcheck bats-core helm pyyaml   # or: apt-get install shellcheck bats python3-yaml, plus helm
+brew install shellcheck bats-core helm   # or: apt-get install shellcheck bats python3-yaml, plus helm
+python3 -m venv .venv && . .venv/bin/activate && pip install PyYAML   # if python3 lacks PyYAML
 
 ./run-tests.sh                        # all layers, with a summary
 ./run-tests.sh --quick                # lint + unit tests only, ~3s

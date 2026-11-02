@@ -5,8 +5,10 @@
 * **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
   pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
   which the chart has since moved; it did not render. It now pins the current
-  chart, uses `node.include`, `cluster.include` and `cluster.s3Buckets`, and
-  shows the managed-agent switches (`node.backupMode`, `cluster.mode`).
+  chart, uses `node.include`, `cluster.include` and `cluster.s3Buckets`,
+  archives the database dumps it configures (their directory was missing from
+  the include patterns), and shows the Borg UI switches (`node.backupMode`,
+  `cluster.mode`, `cluster.backupMode`, `borg.backupSchedule`).
   `tests/examples-helm.bats` checks every key it sets against
   `chart/values.yaml`, renders it with and without Borg UI, and fails when it
   pins another chart version. The example Secret carries only the keys the
@@ -26,6 +28,9 @@
   `CODE_OF_CONDUCT.md`, issue forms and a pull request template. The README
   explains why to use k8s-borg, how it compares with Velero, K8up and VolSync,
   what it and the Borg UI server contact, and what costs money.
+
+* **The `borg-ui` submodule is cloned over HTTPS**, so a clone with
+  `--recurse-submodules` needs no GitHub SSH key.
 
 * **`main` is the default branch.** `develop` is renamed to `main`, the one
   long-lived branch, with releases as tags on it, as in Borg UI; the stale

@@ -65,7 +65,8 @@ PY
     --set borgUI.ingress.host=borgui.example.com \
     --set borgUI.adminPassword.existingSecret=k8s-borg-secret \
     --set borgUI.adminPassword.existingSecretKey=BORG_UI_ADMIN_PASS \
-    --set node.backupMode=agent --set cluster.mode=agent
+    --set node.backupMode=agent --set cluster.mode=agent --set cluster.backupMode=plan \
+    --set-string 'borg.backupSchedule.default=0 2 * * *'
   [ "$status" -eq 0 ] || fail "$output"
 }
 

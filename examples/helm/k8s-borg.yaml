@@ -54,6 +54,10 @@ spec:
       passphrase:
         existingSecret: k8s-borg-secret
         existingSecretKey: BORG_PASSPHRASE
+      # With Borg UI plans (node.backupMode: agent, cluster.backupMode: plan) the
+      # backups run on this schedule; without one, the plans only run by hand.
+      # backupSchedule:
+      #   default: "0 2 * * *"
 
     s3:
       enabled: true
@@ -88,17 +92,20 @@ spec:
     # The cluster's shared data: the CronJob, and the console pod for restores.
     cluster:
       # mode: agent         # with Borg UI: the console pod enrolls as a managed agent
+      # backupMode: plan    # and runs the cluster backup as a Borg UI plan, not the CronJob
       nodeName: "k8s-borg-mycluster"
       include:
         - "P fm"
         - "R /mnt/s3"
         - "R /mnt/nfs/users"
+        - "R /mnt/nfs/data/db-backup"   # the database dumps (borg.dbBackupLocation)
       s3Buckets:
         - "my-bucket-1"
         - "my-bucket-2"
 
-    # Optional Borg UI server; uncomment the two `mode` lines above as well to
-    # run the backups as managed agents.
+    # Optional Borg UI server. To run the backups as Borg UI plans, uncomment
+    # node.backupMode, cluster.mode, cluster.backupMode and borg.backupSchedule
+    # above as well.
     # borgUI:
     #   enabled: true
     #   ingress:
