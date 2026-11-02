@@ -6,6 +6,10 @@ name: Lint & test
 # published while the tests that would have failed them were still running.
 # Tags are deliberately absent here, or a release would run the suite twice.
 #
+# Every job has a time limit: without one, a hung job holds the run for
+# GitHub's default of six hours. The end-to-end limits are about twice the
+# longest run seen (with a cold image cache); the short jobs get minutes.
+#
 # No `paths` filters on the triggers: a workflow skipped by one leaves its
 # checks pending, and the ruleset on main requires them. A pull request that
 # changes documentation alone skips the end-to-end jobs instead (the `changes`
@@ -29,6 +33,7 @@ jobs:
   # "true" alone.
   changes:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.diff.outputs.docs-only }}
     steps:
@@ -54,6 +59,7 @@ jobs:
 
   chart-lint:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -67,6 +73,7 @@ jobs:
 
   shellcheck:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -79,6 +86,7 @@ jobs:
 
   bats:
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -114,6 +122,8 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ubuntu-26.04
+    # Borg 2: an image build of up to 8 minutes, then a 14-minute suite.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -149,6 +159,7 @@ jobs:
     needs: [changes, e2e-borg]
     if: always()
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - name: Borg 1 and Borg 2
         env:
@@ -169,6 +180,10 @@ jobs:
     # start on a Linux kernel 6.19 or newer (SERVER-121912, SERVER-136848).
     # Back to mongo:8 once MongoDB starts there: see #68.
     runs-on: ubuntu-26.04
+    # Up to 16 minutes so far. A server version that hangs is stopped by
+    # run.sh after E2E_DB_TIMEOUT (10 minutes) with what it was doing; the
+    # limit leaves room for that to happen first.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7.0.1
         with:

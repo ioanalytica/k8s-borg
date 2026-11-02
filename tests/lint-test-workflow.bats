@@ -111,6 +111,22 @@ PR_ONLY="if: github.event_name == 'pull_request' && !startsWith(github.ref, 'ref
   done
 }
 
+@test "every job has a time limit, and e2e-db's leaves run.sh time to stop a stuck version" {
+  # Without one a hung job holds the run for GitHub's six hours.
+  local j limit target
+  for j in changes chart-lint shellcheck bats e2e-borg e2e e2e-db; do
+    job "$j" | grep -qE '^    timeout-minutes: [0-9]+$' || fail "job $j has no time limit"
+  done
+  # run.sh stops a server version after E2E_DB_TIMEOUT and says what it was
+  # doing; GitHub's limit must not end the job first. e2e-db has taken up to
+  # 16 minutes with a cold image cache.
+  limit="$(job e2e-db | sed -n 's/^    timeout-minutes: //p')"
+  target="$(sed -n 's/^TIMEOUT="\${E2E_DB_TIMEOUT:-\([0-9][0-9]*\)}"$/\1/p' "$REPO_ROOT/tests/e2e/db/run.sh")"
+  [ -n "$target" ] || fail "no default E2E_DB_TIMEOUT in tests/e2e/db/run.sh"
+  [ $((limit * 60)) -ge $((target + 20 * 60)) ] \
+    || fail "e2e-db stops after ${limit} min, run.sh after ${target}s plus up to 20 min of suite"
+}
+
 @test "tag builds and branch pushes never skip" {
   # Tag builds call this workflow from Build & push; its `gate` is the suite.
   grep -q 'uses: ./.github/workflows/lint-test.yml' "$REPO_ROOT/.github/workflows/build.yml" \

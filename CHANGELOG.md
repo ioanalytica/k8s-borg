@@ -12,6 +12,13 @@
   `main` and tag builds always run everything. `tests/lint-test-workflow.bats`
   and `tests/docs-only.bats` pin both.
 
+* **A hung end-to-end job ends.** Every job of Lint & test has a time limit,
+  the end-to-end ones about twice their longest run; before, a hung job held
+  the run for six hours. `tests/e2e/db/run.sh` stops a server version after
+  `E2E_DB_TIMEOUT` seconds (default 600) and fails it with what its tests were
+  running and had printed: a hung `redis:7` had left the log empty for 40
+  minutes (`tests/e2e-db-timeout.bats`).
+
 * **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
   pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
   which the chart has since moved; it did not render. It is now modelled on a

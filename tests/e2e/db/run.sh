@@ -14,6 +14,10 @@
 #   E2E_DB_JOBS    server versions tested at the same time (default 3)
 #   E2E_DB_PREFIX  prefix of the containers and networks (default
 #                  k8s-borg-e2e-db), so that runs side by side do not collide
+#   E2E_DB_TIMEOUT seconds one server version may take (default 600; the
+#                  slowest, MongoDB 7, takes under 3 minutes in CI). One that
+#                  takes longer fails, with what its tests had printed, the
+#                  processes they were running and its servers' logs.
 #   E2E_DB_SCRIPTS_FROM_CHECKOUT=1
 #                  bind-mount this checkout's dump and restore scripts and
 #                  tests over the image's (bats is installed when missing).
@@ -43,6 +47,7 @@ DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 pos
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
+TIMEOUT="${E2E_DB_TIMEOUT:-600}"
 # A password with the characters the chart's credentials resolver escapes:
 # ':' and '\' in a pgpass line, '"' and '\' in a MariaDB/MySQL option file.
 DB_PASSWORD='e2e:pa"ss\word'
@@ -180,6 +185,41 @@ if [ "${1:-}" = "--one" ]; then
 
   {
     echo "▶ $spec ($server_image)"
+    # A server version that hangs would hold its slot, and the job, until
+    # GitHub's limit without a line of output: its log is printed when it is
+    # done. After E2E_DB_TIMEOUT seconds the watchdog says so, shows what the
+    # test container is running and the output of the test that is stuck
+    # (where bats keeps it while the test runs), and stops the test container,
+    # which fails the run below with the servers' state and logs.
+    (
+      sleeper=""
+      trap 'kill "$sleeper" 2>/dev/null; exit 0' TERM
+      sleep "$TIMEOUT" & sleeper=$!
+      wait "$sleeper"
+      echo "✗ $spec: no result after ${TIMEOUT}s (E2E_DB_TIMEOUT), stopped"
+      docker ps -a --filter "name=${name}-" --format '── {{.Names}}: {{.Status}}' 2>&1 || true
+      if docker exec "${name}-tests" true 2>/dev/null; then
+        echo "── running in ${name}-tests"
+        docker exec "${name}-tests" sh -c '
+          ps -o pid,ppid,etime,args
+          for out in /tmp/bats-run-*/test/*.out; do
+            [ -e "$out" ] || continue
+            echo "── output so far of: $(cat "${out%.out}.name" 2>/dev/null)"
+            tail -n 60 "$out"
+          done' 2>&1 || true
+        docker kill "${name}-tests" >/dev/null 2>&1 || true
+      else
+        # Stuck in a docker command of its own (a server image that does not
+        # arrive): that command is ended, the run fails there and its EXIT
+        # trap removes what it created. Ending the shell instead would leave
+        # the command to create its container after the cleanup.
+        self=$(exec sh -c 'echo "$PPID"')
+        for pid in $(pgrep -P "$$"); do
+          [ "$pid" = "$self" ] || kill -TERM "$pid" 2>/dev/null || true
+        done
+      fi
+    ) &
+    watchdog=$!
     docker network create "$name" >/dev/null
     for role in "${roles[@]}"; do
       opts=() args=()
@@ -208,6 +248,8 @@ if [ "${1:-}" = "--one" ]; then
         docker logs --tail 25 "${name}-${role}" 2>&1 | cut -c1-400
       done
     fi
+    kill "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
     exit "$rc"
   } >"$log" 2>&1
 fi
