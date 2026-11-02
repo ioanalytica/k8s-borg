@@ -141,9 +141,9 @@ teardown_file() {
   local first unchanged changed
   # Borg cuts its chunks where the content says (borg-backup keeps Borg's
   # default chunker): at least 512 KiB, about 2 MiB, at most 8 MiB. A dump
-  # of about 50 MB, so that a few chunks stay well below the first archive.
+  # of about 70 MB, more than 8 of the largest chunks.
   local max_chunk=$((8 * 1024 * 1024))
-  rd_bulk src 20001 100000
+  rd_bulk src 20001 140000
   DB_BACKUP_LOCATION=$DUMPS backup-redis /root/.redis/e2e.conf >/dev/null
   first=$(borg_create "$E2E_TMP/dedup-repo" first "$DUMPS/e2e")
 
@@ -157,19 +157,19 @@ teardown_file() {
 
   # Two snapshots of an unchanged server differ in a few bytes of the header
   # and the checksum at the end: the first and the last chunk are new, two
-  # chunks of up to 8 MiB each, a third of the first archive at most (a
-  # quarter was exceeded: 29 %). The keys are in the server's hash order, so
-  # a changed key lands anywhere in the file: on top of those two it makes
-  # the chunk it is in new, and the next one where it moves the cut between
-  # them. Nothing after it moves, as its value keeps its length: a shorter
-  # one moved a cut made at 8 MiB, where the content offered none, and made
-  # the next chunks new too (7 % of 193 runs in CI). 64 KiB: the archive's
-  # own metadata. Measured: unchanged 2–29 % of the first archive, a changed
-  # key another 2–16 %.
+  # chunks of up to 8 MiB each (a bound of a quarter of the first archive
+  # was exceeded at 29 %). The keys are in the server's hash order, so a
+  # changed key lands anywhere in the file: on top of those two it makes the
+  # chunk it is in new, and the next one where it moves the cut between
+  # them. Four chunks stay below half of the first archive. Nothing after
+  # the key moves, as its value keeps its length: a shorter one moved a cut
+  # made at 8 MiB, where the content offered none, and made the next chunks
+  # new too (7 % of 193 runs in CI). 64 KiB: the archive's own metadata.
+  # Measured: unchanged 0.9–14.4 MiB, a changed key another 1.1–8.0 MiB.
   echo "# dump $(wc -c <"$DUMPS/e2e/e2e.rdb") bytes; added to the repository: first archive $first, unchanged $unchanged, changed $changed" >&3
-  [ "$first" -gt $((4 * max_chunk)) ] || fail "the first archive added $first bytes, less than 4 chunks of 8 MiB"
+  [ "$first" -gt $((8 * max_chunk + 4 * 65536)) ] || fail "the first archive added $first bytes, not more than 8 chunks of 8 MiB"
   [ "$unchanged" -le $((2 * max_chunk + 65536)) ] \
     || fail "unchanged: $unchanged bytes new, more than 2 chunks of 8 MiB; the first archive added $first"
-  [ "$changed" -le $((unchanged + 2 * max_chunk + 65536)) ] \
-    || fail "changed: $changed bytes new, more than 2 chunks of 8 MiB on top of unchanged's $unchanged; the first archive added $first"
+  [ "$changed" -le $((unchanged + 2 * max_chunk + 65536)) ] && [ "$changed" -lt $((first / 2)) ] \
+    || fail "changed: $changed bytes new, more than 2 chunks of 8 MiB on top of unchanged's $unchanged or half the first archive's $first"
 }
