@@ -2,12 +2,14 @@
 
 | Path | What it is |
 | --- | --- |
-| [`helm/k8s-borg.yaml`](helm/k8s-borg.yaml) | A [Flux](https://fluxcd.io/) `HelmRepository` and `HelmRelease` installing the published chart: node backups, a cluster backup of a shared NFS file system, two S3 buckets and two databases, and the optional Borg UI part commented out |
+| [`helm/k8s-borg.yaml`](helm/k8s-borg.yaml) | A [Flux](https://fluxcd.io/) `HelmRepository` and `HelmRelease` modelled on a production release, with every site-specific value replaced: node and cluster backups to a Hetzner Storage Box, S3 buckets, MariaDB and PostgreSQL dumps with the operators' credentials, a Borg UI server with OIDC login and mail notifications running the node backups as managed agents, and a repository server for other clusters |
 | [`secrets/`](secrets) | **Placeholder** Secrets with the keys the release above references |
 
 The `values:` block of the HelmRelease is an ordinary values file, so the same
 settings work with plain Helm. Every key in it is checked against the chart by
-`tests/examples-helm.bats`, and it pins the current chart version.
+`tests/examples-helm.bats`, which also renders it without Borg UI, and it pins
+the current chart version. For a first try, the install command in the
+[README](../README.md#install) needs none of this.
 
 > **These are examples, not a turnkey deployment.** Replace the `<...>` /
 > `<CHANGE_ME>` / `*.example.com` placeholders for your cluster; every parameter

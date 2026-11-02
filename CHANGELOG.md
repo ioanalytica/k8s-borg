@@ -4,15 +4,15 @@
 
 * **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
   pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
-  which the chart has since moved; it did not render. It now pins the current
-  chart, uses `node.include`, `cluster.include` and `cluster.s3Buckets`,
-  archives the database dumps it configures (their directory was missing from
-  the include patterns), and shows the Borg UI switches (`node.backupMode`,
-  `cluster.mode`, `cluster.backupMode`, `borg.backupSchedule`).
+  which the chart has since moved; it did not render. It is now modelled on a
+  production release with every site-specific value replaced: node and
+  cluster backups to a Hetzner Storage Box, database credentials from the
+  operators' Secrets, Borg UI with OIDC, notifications and node agents, and a
+  repository server for other clusters.
   `tests/examples-helm.bats` checks every key it sets against
-  `chart/values.yaml`, renders it with and without Borg UI, and fails when it
-  pins another chart version. The example Secret carries only the keys the
-  release references.
+  `chart/values.yaml`, renders it as is, without Borg UI and with the cluster
+  backup as a Borg UI plan, and fails when it pins another chart version. The
+  example Secrets carry exactly the keys the release references.
 
 * **Plain manifests removed from `examples/`.** The Kustomize manifests showed
   a 1.0.4 deployment; with a current image their CronJob would have skipped S3

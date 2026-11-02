@@ -59,14 +59,15 @@ PY
   [ "$status" -eq 0 ] || fail "$output"
 }
 
-@test "the example renders with its commented Borg UI part switched on" {
+@test "the example renders as standalone backups, without Borg UI" {
   run helm template k8s-borg "$CHART_DIR" -n k8s-borg -f "$EX_VALUES" \
-    --set borgUI.enabled=true --set borgUI.ingress.enabled=true \
-    --set borgUI.ingress.host=borgui.example.com \
-    --set borgUI.adminPassword.existingSecret=k8s-borg-secret \
-    --set borgUI.adminPassword.existingSecretKey=BORG_UI_ADMIN_PASS \
-    --set node.backupMode=agent --set cluster.mode=agent --set cluster.backupMode=plan \
-    --set-string 'borg.backupSchedule.default=0 2 * * *'
+    --set borgUI.enabled=false --set node.backupMode=interval --set cluster.mode=legacy
+  [ "$status" -eq 0 ] || fail "$output"
+}
+
+@test "the example renders with the cluster backup as a Borg UI plan" {
+  run helm template k8s-borg "$CHART_DIR" -n k8s-borg -f "$EX_VALUES" \
+    --set cluster.backupMode=plan
   [ "$status" -eq 0 ] || fail "$output"
 }
 
