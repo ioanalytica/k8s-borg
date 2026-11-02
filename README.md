@@ -336,7 +336,9 @@ afterwards belongs to what you verified. With
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3:
 
 ```sh
-repo=ghcr.io/ioanalytica/k8s-borg   # or ghcr.io/ioanalytica/k8s-borg-ui, ghcr.io/ioanalytica/charts/k8s-borg
+# Signed: ghcr.io/ioanalytica/k8s-borg, ghcr.io/ioanalytica/k8s-borg-ui,
+# ghcr.io/ioanalytica/k8s-borg-ui-runtime-base and ghcr.io/ioanalytica/charts/k8s-borg
+repo=ghcr.io/ioanalytica/k8s-borg
 digest=$(docker buildx imagetools inspect "$repo:<tag>" --format '{{json .Manifest}}' | jq -r .digest)
 cosign verify "$repo@$digest" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
