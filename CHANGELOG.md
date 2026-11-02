@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* **Lint & test is faster.** The Borg end-to-end suite runs Borg 1 and Borg 2
+  as two jobs side by side instead of one after the other (7 and 14 minutes,
+  22 for the job), behind the same required check `e2e`, which passes only
+  when both do: a run takes about as long as the Borg 2 half, some 15 minutes.
+  A pull request that changes documentation alone (Markdown at the top level,
+  `LICENSE`, `examples/`; `scripts/docs-only.sh`) skips the end-to-end jobs,
+  and the unit tests, shellcheck and the chart lint still run; pushes to
+  `main` and tag builds always run everything. `tests/lint-test-workflow.bats`
+  and `tests/docs-only.bats` pin both.
+
 * **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
   pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
   which the chart has since moved; it did not render. It is now modelled on a

@@ -5,6 +5,11 @@ name: Lint & test
 # point: the two used to be parallel workflows on the same trigger, so images
 # published while the tests that would have failed them were still running.
 # Tags are deliberately absent here, or a release would run the suite twice.
+#
+# No `paths` filters on the triggers: a workflow skipped by one leaves its
+# checks pending, and the ruleset on main requires them. A pull request that
+# changes documentation alone skips the end-to-end jobs instead (the `changes`
+# job), and a job skipped by its `if:` counts as passed.
 on:
   push:
     branches: [main]
@@ -17,6 +22,36 @@ permissions:
   contents: read
 
 jobs:
+  # Whether this run may skip the end-to-end jobs: only a pull request whose
+  # every changed path is documentation (scripts/docs-only.sh) may. Branch
+  # pushes and tag builds — which call this workflow from Build & push — run
+  # everything, and so does a run where this job fails: the jobs below skip on
+  # "true" alone.
+  changes:
+    runs-on: ubuntu-26.04
+    outputs:
+      docs-only: ${{ steps.diff.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        if: github.event_name == 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        with:
+          fetch-depth: 2   # the merge commit and both its parents
+          persist-credentials: false
+      - name: Documentation only?
+        id: diff
+        if: github.event_name == 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        # HEAD is the pull request merged into its base, HEAD^1 that base:
+        # their difference is what merging would change. Without a second
+        # parent HEAD is not that merge, and the step fails. A rename counts as
+        # a deletion and an addition, so moving a file out of docker/ is not
+        # read as adding a page of documentation.
+        run: |
+          git rev-parse --verify --quiet 'HEAD^2' >/dev/null
+          git diff --no-renames --name-only 'HEAD^1' HEAD >"$RUNNER_TEMP/changed"
+          if scripts/docs-only.sh <"$RUNNER_TEMP/changed"; then
+            echo "docs-only=true" >>"$GITHUB_OUTPUT"
+          fi
+
   chart-lint:
     runs-on: ubuntu-26.04
     steps:
@@ -71,15 +106,27 @@ jobs:
 
   # End-to-end against real Borg repositories, inside the agent image. Slower
   # than the jobs above (it builds the image), so it runs alongside them rather
-  # than gating them.
-  e2e:
+  # than gating them. One job per Borg major, side by side: one after the other
+  # they took 7 and 14 minutes. fail-fast off, so that a failure in one major
+  # still shows the other's result.
+  e2e-borg:
+    name: e2e (Borg ${{ matrix.borg }})
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        borg: [1, 2]
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive   # the agent Dockerfile builds from borg-ui/
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4.2.0
+      # Both build from the same cache, and Borg 1 alone writes it back: two
+      # writers of one scope race, and the Borg 1 suite is the shorter one, so
+      # the export does not lengthen the run.
       - name: Build the agent image
         uses: docker/build-push-action@v7.3.0
         with:
@@ -88,14 +135,36 @@ jobs:
           tags: k8s-borg:test
           load: true
           cache-from: type=gha,scope=k8s-borg-e2e
-          cache-to: type=gha,mode=max,scope=k8s-borg-e2e
-      - name: Run the suite for Borg 1 and Borg 2
-        run: SKIP_BUILD=1 ./tests/e2e/run.sh
+          cache-to: ${{ matrix.borg == 1 && 'type=gha,mode=max,scope=k8s-borg-e2e' || '' }}
+      - name: Run the suite for Borg ${{ matrix.borg }}
+        env:
+          BORG_MAJOR: ${{ matrix.borg }}
+        run: SKIP_BUILD=1 ./tests/e2e/run.sh "$BORG_MAJOR"
+
+  # The check the ruleset on main requires under the name `e2e`: passed when
+  # both majors passed, or when a documentation-only pull request skipped them.
+  # always(), because a job skipped after a failed need reports "skipped" too,
+  # which a required check counts as passed — a cancelled run fails here.
+  e2e:
+    needs: [changes, e2e-borg]
+    if: always()
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Borg 1 and Borg 2
+        env:
+          RESULT: ${{ needs.e2e-borg.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs-only }}
+        run: |
+          echo "e2e (Borg 1, Borg 2): $RESULT"
+          [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$DOCS_ONLY" = true ]; }
 
   # The database dumps and restores against real servers, every version of
   # the matrix (tests/e2e/db/run.sh). A job of its own, so that it runs next to
   # the Borg suite; the agent image comes from the same build cache.
   e2e-db:
+    # Skipped like the Borg suites; required as is, since a skipped job passes.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     # MongoDB 8 is tested as 8.2 (see run.sh): 8.0.21+, 8.3 and 9.0 refuse to
     # start on a Linux kernel 6.19 or newer (SERVER-121912, SERVER-136848).
     # Back to mongo:8 once MongoDB starts there: see #68.

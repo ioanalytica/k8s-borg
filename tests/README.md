@@ -4,7 +4,9 @@ Tests for the shell scripts that ship in the images, in three layers: fast unit
 tests on the host, end-to-end tests against real Borg repositories inside the
 agent image, and end-to-end tests of the database dumps against real database
 servers. All run in `.github/workflows/lint-test.yml` on every push and pull
-request.
+request; a pull request that changes documentation alone (`scripts/docs-only.sh`:
+Markdown at the top level, `LICENSE`, `examples/`) skips the two end-to-end
+layers.
 
 ```sh
 brew install shellcheck bats-core helm   # or: apt-get install shellcheck bats python3-yaml, plus helm
@@ -60,6 +62,8 @@ bats tests/borg-rc.bats               # a single file
 | `chart-ui-security.bats` | the Borg UI container's privileges by `borgUI.fuse`: privileged by default, as before; with a FUSE device plugin's resource not privileged, `SYS_ADMIN`, privilege escalation, AppArmor unconfined, seccomp `RuntimeDefault` and one device in the limits, which the reconcile Job does not request; with FUSE off no escalation, no `SYS_ADMIN` and no device; a `containerSecurityContext` the user set wins and `{}` renders none; a device resource with FUSE off is refused |
 | `examples-helm.bats` | `examples/helm/k8s-borg.yaml`: every key its HelmRelease sets is one `chart/values.yaml` knows (an empty map there takes any key), it renders as is, as standalone backups without Borg UI and with the cluster backup as a Borg UI plan, and it pins the chart version of `Chart.yaml` (a release; while `Chart.yaml` carries a prerelease — any version with a `-` suffix — the example stays on the last release) |
 | `changelog-section.bats` | `scripts/changelog-section.sh`, the body of a release: the entry of one version without its heading and the blank lines around it, a version matched whole (`1.2.3` is not `1.2.3-beta.1`), the last section ending at the end of the file, nothing for a version without a section, and an entry in `CHANGELOG.md` for the chart version |
+| `docs-only.bats` | `scripts/docs-only.sh`, which lets a pull request skip the end-to-end jobs: Markdown at the top level, `LICENSE` and `examples/` are documentation; a path below `docker/`, `chart/`, `tests/`, `scripts/` or `.github/`, the `borg-ui` submodule, Markdown anywhere below the top level, any other file and an empty list are not |
+| `lint-test-workflow.bats` | `.github/workflows/lint-test.yml`: every check the ruleset on `main` requires is a job under its own name; the Borg suites run as one job per major to the end, Borg 1 alone writing the image cache back; `e2e` waits for both with `always()` and, run on every combination of results, passes only when both majors passed or a documentation-only pull request skipped them; only the end-to-end jobs skip, on the verdict `true` alone, which only a pull request writes, never a tag build; no `paths` filter; the decision run on real merges: a documentation change passes whatever `main` did since, a script renamed to Markdown does not, and a `HEAD` that is not the merge fails it |
 | `chart-console-reaper.bats` | the console pod shares its process namespace (the pause container is PID 1 and reaps orphaned processes such as an s3fs that ended after its unmount), also as a managed agent in plan mode |
 | `chart-schedules.bats` | `borg.checkSchedule` / `borg.backupSchedule`: the hostnames the console and node pods set and their `<key>_check_schedule` / `<key>_backup_schedule` entries; a schedule change rolls the console pod (`cluster.mode=agent`, its backup schedule in plan mode only) and the node pods (`node.backupMode=agent`), and no other pod or object; the install notes (`helm install --dry-run=client`) name perHost keys no agent pod applies and none for `cluster.nodeName` or `k8s-borg-<node>` keys |
 | `borg-files-cache-flag.bats` | the S3-mounted gate for `--files-cache=mtime,size` (negative cases only — the positive one needs a real fuse.s3fs mount) |
@@ -113,7 +117,9 @@ The whole suite runs **twice**, once per Borg major (`BORG_TEST_VERSION`), which
 is what turns the borg1/borg2 differences into assertions instead of comments:
 `init`/`repo-create`, `list`/`repo-list`, `info`/`repo-info`,
 `delete`/`repo-delete`, the `REPO::ARCHIVE` syntax Borg 2 dropped, and the
-different `mount` argument shape.
+different `mount` argument shape. In CI each major is a job of its own,
+`e2e (Borg 1)` and `e2e (Borg 2)`, side by side; the check `e2e` passes when
+both do.
 
 | File | Subject |
 | --- | --- |

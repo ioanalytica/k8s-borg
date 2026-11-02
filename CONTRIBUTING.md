@@ -28,7 +28,8 @@ The tests need `shellcheck`, `bats`, `helm` and Python 3 with PyYAML
 (`apt-get install python3-yaml`, or `pip install PyYAML` in a virtual
 environment); the end-to-end suites need docker.
 [`tests/README.md`](tests/README.md) describes each layer. CI runs all of them
-on every pull request.
+on every pull request, except the end-to-end suites on one that changes only
+documentation: Markdown at the top level, `LICENSE` or `examples/`.
 
 A pull request is easiest to review when it:
 
