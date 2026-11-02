@@ -322,6 +322,34 @@ The server and its runtime base build the same way via
 `docker/docker-build-server.sh` and `docker/docker-build-runtime-base.sh`
 (build the runtime base first: the server is `FROM` it).
 
+## Verify the images
+
+Releases after 1.2.3 sign their images and their chart with
+[Sigstore](https://www.sigstore.dev/) cosign, keyless: the certificate is issued
+to this repository's `build.yml` running for the release tag, and each signature
+is recorded in the public Rekor log. Every platform of an image also carries an
+SPDX SBOM and SLSA provenance. Both are attestation manifests listed in the
+image index, so the index's signature covers them.
+
+Resolve the tag once and use the digest from then on, so that what you read
+afterwards belongs to what you verified. With
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3:
+
+```sh
+repo=ghcr.io/ioanalytica/k8s-borg   # or ghcr.io/ioanalytica/k8s-borg-ui, ghcr.io/ioanalytica/charts/k8s-borg
+digest=$(docker buildx imagetools inspect "$repo:<tag>" --format '{{json .Manifest}}' | jq -r .digest)
+cosign verify "$repo@$digest" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/ioanalytica/k8s-borg/\.github/workflows/build\.yml@refs/tags/'
+```
+
+The SBOM and the provenance of an image, per platform:
+
+```sh
+docker buildx imagetools inspect "$repo@$digest" --format '{{json .SBOM}}'
+docker buildx imagetools inspect "$repo@$digest" --format '{{json .Provenance}}'
+```
+
 ## Test
 
 ```sh

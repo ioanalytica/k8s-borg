@@ -2,9 +2,19 @@ name: build-image (reusable)
 
 # Builds one image multi-arch WITHOUT QEMU: each platform builds natively on its
 # own runner, then the per-arch digests are merged into one manifest list.
+#
+# Every platform image carries an SBOM and provenance as an attestation
+# manifest, which the merge keeps in the index. The digest of that index is the
+# workflow's output: build.yml signs it there rather than here, so that every
+# certificate of a release names the one workflow, build.yml, that README.md
+# tells users to verify.
 
 on:
   workflow_call:
+    outputs:
+      digest:
+        description: Digest of the merged multi-arch index
+        value: ${{ jobs.merge.outputs.digest }}
     inputs:
       image:
         description: Short image name under ghcr.io/ioanalytica/
@@ -97,6 +107,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          # An SPDX SBOM of the final image and SLSA v1 provenance, stated
+          # rather than left to the action's defaults, which depend on the
+          # repository's visibility. mode=max records the build arguments, so
+          # none may carry a secret (tests/release-signing.bats).
+          sbom: true
+          provenance: mode=max,version=v1
           cache-from: type=gha,scope=${{ inputs.image }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ inputs.image }}-${{ matrix.platform }}
       - name: Export digest
@@ -119,6 +135,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -142,5 +160,23 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}@sha256:%s ' *)
+      # The index is resolved once, here; from now on it is named by digest,
+      # which is what gets signed. A signature over the index covers the
+      # attestation manifests it lists, so a merge that dropped one would
+      # publish a signed image without its SBOM or provenance: fail instead.
       - name: Inspect
-        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}:${{ steps.meta.outputs.version }}
+        id: index
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          ref="$IMAGE@$digest"
+          platforms="$(docker buildx imagetools inspect --raw "$ref" | jq '[.manifests[] | select(.platform.os != "unknown")] | length')"
+          for att in SBOM:SPDX Provenance:SLSA; do
+            docker buildx imagetools inspect "$ref" --format "{{json .${att%%:*}}}" \
+              | jq -e --argjson n "$platforms" --arg kind "${att#*:}" '[.[] | select(.[$kind])] | length == $n' >/dev/null \
+              || { echo "✗ $ref: not every one of its $platforms platforms has a ${att%%:*} attestation" >&2; exit 1; }
+          done
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"

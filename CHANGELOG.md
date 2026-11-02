@@ -79,6 +79,14 @@
   perHost keys that no agent pod applies; a `k8s-borg-…` key counts as a node
   pod's, as the chart does not know the node names.
 
+* **Signed images and chart, with SBOMs.** A release signs the agent, Borg UI
+  and runtime base images and the chart with Sigstore cosign, keyless and by
+  digest; the certificate names `build.yml` at the release tag. Every platform
+  image now carries an SPDX SBOM next to its SLSA provenance, both covered by
+  the signature of the image index. "Verify the images" in the README has the
+  commands. `tests/release-signing.bats` keeps the workflows from dropping any
+  of it.
+
 ## 1.2.3
 
 * **Borg UI 2.4.6.** The `borg-ui` submodule moves to the v2.4.6 release
