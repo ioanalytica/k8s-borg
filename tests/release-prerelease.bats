@@ -16,7 +16,7 @@ setup() {
 
 @test "a version with a -suffix is a GitHub prerelease, never the Latest release" {
   local s
-  s="$(wf_step "$BUILD_WF" 'name: Create GitHub Release (tags only)')"
+  s="$(wf_step "$BUILD_WF" 'name: Create GitHub Release')"
   grep -q 'uses: softprops/action-gh-release@' <<<"$s" || fail "no release step found"
   grep -qxF "          prerelease: $PRERELEASE" <<<"$s"  || fail "the release is not marked as a prerelease for a -suffix"
   grep -qxF "          make_latest: $RELEASE" <<<"$s"    || fail "a -suffix version can become the Latest release"

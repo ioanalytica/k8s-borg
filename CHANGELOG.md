@@ -83,9 +83,9 @@
   and runtime base images and the chart with Sigstore cosign, keyless and by
   digest; the certificate names `build.yml` at the release tag. Every platform
   image now carries an SPDX SBOM next to its SLSA provenance, both covered by
-  the signature of the image index. "Verify the images" in the README has the
-  commands. `tests/release-signing.bats` keeps the workflows from dropping any
-  of it.
+  the signature of the image index. The GitHub Release is published only once
+  the signatures verified. "Verify the images" in the README has the commands.
+  `tests/release-signing.bats` keeps the workflows from dropping any of it.
 
 * **Versions with a suffix are prereleases.** A tag such as `1.2.4-beta.1` or
   the chart revision `1.2.3-1` is published as a GitHub prerelease, never as

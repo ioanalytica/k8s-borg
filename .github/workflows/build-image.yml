@@ -157,22 +157,26 @@ jobs:
       - name: Create manifest list & push
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create \
+          docker buildx imagetools create --metadata-file "$RUNNER_TEMP/index-metadata.json" \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}@sha256:%s ' *)
-      # The index is resolved once, here; from now on it is named by digest,
-      # which is what gets signed. A signature over the index covers the
-      # attestation manifests it lists, so a merge that dropped one would
-      # publish a signed image without its SBOM or provenance: fail instead.
+      # The digest is the one imagetools reports for the index it pushed. Read
+      # back through a tag, it could name another run's index: two releases
+      # with the same borg-ui pin push the same UI and runtime base tags. From
+      # here on the index is named by that digest, which is what gets signed.
+      # A signature over the index covers the attestation manifests it lists,
+      # so a merge that dropped one would publish a signed image without its
+      # SBOM or provenance: fail instead (tests/release-signing.bats runs this
+      # script).
       - name: Inspect
         id: index
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          docker buildx imagetools inspect "$IMAGE:$VERSION"
-          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          digest="$(jq -r '."containerimage.descriptor".digest // empty' "$RUNNER_TEMP/index-metadata.json")"
+          [[ "$digest" == sha256:* ]] || { echo "✗ imagetools create reported no digest for $IMAGE" >&2; exit 1; }
           ref="$IMAGE@$digest"
+          docker buildx imagetools inspect "$ref"
           platforms="$(docker buildx imagetools inspect --raw "$ref" | jq '[.manifests[] | select(.platform.os != "unknown")] | length')"
           for att in SBOM:SPDX Provenance:SLSA; do
             docker buildx imagetools inspect "$ref" --format "{{json .${att%%:*}}}" \

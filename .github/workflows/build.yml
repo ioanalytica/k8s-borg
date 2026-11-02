@@ -154,15 +154,15 @@ jobs:
     needs: gate
     runs-on: ubuntu-26.04
     permissions:
-      contents: write        # create GitHub Releases on tags
+      contents: read
       packages: write
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # The release step gets its token through the action, and helm gets
-          # its own registry login — neither needs one left in .git/config.
+          # helm gets its own registry login; nothing needs a token left in
+          # .git/config.
           persist-credentials: false
       # Pinned: without a version the action fetches "latest" from the
       # GitHub API and silently falls back to an old Helm 3 when that fails.
@@ -192,22 +192,16 @@ jobs:
           digest="$(sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' <<<"$out")"
           [ -n "$digest" ] || { echo "✗ helm push reported no digest" >&2; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-      - name: Release notes from CHANGELOG.md (tags only)
+      # The release job attaches this very file, the bytes of the chart layer
+      # just pushed and then signed.
+      - name: Hand the package to the release job (tags only)
         if: startsWith(github.ref, 'refs/tags/')
-        run: scripts/changelog-section.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
-      - name: Create GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v7
         with:
-          files: ${{ runner.temp }}/chart/k8s-borg-*.tgz
-          # The CHANGELOG entry, followed by GitHub's generated list of pull
-          # requests and the compare link.
-          body_path: ${{ runner.temp }}/release-notes.md
-          generate_release_notes: true
-          # A version with a -suffix is a prerelease, never the repository's
-          # Latest release.
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
+          name: chart
+          path: ${{ runner.temp }}/chart/k8s-borg-*.tgz
+          if-no-files-found: error
+          retention-days: 1
 
   # Keyless Sigstore signatures for everything the release pushed to GHCR, each
   # by its digest: a tag can be moved to another manifest, the digest is what
@@ -249,3 +243,37 @@ jobs:
           cosign verify "$AGENT" "$RUNTIME_BASE" "$SERVER" "$CHART" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity-regexp "$SIGNER" >/dev/null
+
+  # The GitHub Release comes last, once the signatures verified: a release page
+  # must not announce artifacts that fail the check README.md gives users. A
+  # failed sign job leaves no release behind; re-running it publishes one.
+  release:
+    needs: [chart, sign]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write        # create the GitHub Release
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # The release step gets its token through the action.
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
+          path: ${{ runner.temp }}/chart
+      - name: Release notes from CHANGELOG.md
+        run: scripts/changelog-section.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ runner.temp }}/chart/k8s-borg-*.tgz
+          # The CHANGELOG entry, followed by GitHub's generated list of pull
+          # requests and the compare link.
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: true
+          # A version with a -suffix is a prerelease, never the repository's
+          # Latest release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}

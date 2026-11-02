@@ -21,6 +21,18 @@ wf_step() {
     !on { line = $0; sub(/^ */, "", line); if (line == head) { on = 1; col = index($0, "-") } }' "$1"
 }
 
+# wf_run FILE HEAD — the `run: |` script of that step, without its indentation,
+# for a test to run against stub commands. GitHub expressions (`${{ … }}`) are
+# left in; a test replaces them before running the script.
+wf_run() {
+  wf_step "$1" "$2" | awk '
+    !on && $1 == "run:" && $2 == "|" { on = 1; next }
+    !on { next }
+    !ind && NF { match($0, /^ */); ind = RLENGTH }
+    NF && match($0, /^ */) && RLENGTH < ind { exit }
+    { print substr($0, ind + 1) }'
+}
+
 # wf_image_jobs FILE — the jobs of a workflow that build an image with
 # build-image.yml.
 wf_image_jobs() {
