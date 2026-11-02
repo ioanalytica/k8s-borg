@@ -47,9 +47,10 @@
   schedule did not restart them: the console StatefulSet and the node
   DaemonSet now carry checksums of the schedule ConfigMaps, so a change rolls
   the pods that apply it (the console pod for its backup schedule in
-  `cluster.backupMode=plan` only). The install notes name the perHost keys
-  that no agent pod applies; a `k8s-borg-…` key counts as a node pod's, as the
-  chart does not know the node names.
+  `cluster.backupMode=plan` only). A check schedule removed from the values
+  stays in Borg UI until it is turned off there. The install notes name the
+  perHost keys that no agent pod applies; a `k8s-borg-…` key counts as a node
+  pod's, as the chart does not know the node names.
 
 ## 1.2.3
 

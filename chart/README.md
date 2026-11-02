@@ -178,6 +178,10 @@ the node pods (`node.backupMode=agent`), `borg.backupSchedule` the node pods
 and, with `cluster.backupMode=plan`, the console pod. The section counts as a
 whole: a change to one node's key rolls every pod that applies the section.
 
+`set-check-schedule` only sets a check schedule: one removed from the values
+stays in Borg UI until you turn it off there. A removed backup schedule turns
+the plan's schedule off, as `register-backup-plan` rewrites the whole plan.
+
 ## Database dumps
 
 Each cluster backup first dumps every instance of the configured engines
