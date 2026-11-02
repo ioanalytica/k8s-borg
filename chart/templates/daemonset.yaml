@@ -36,6 +36,12 @@ spec:
   template:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "node") | nindent 8 }}
+      {{- if eq .Values.node.backupMode "agent" }}
+      annotations:
+        # The agent applies its check and backup schedules once, at start.
+        checksum/check-schedules: {{ include (print $.Template.BasePath "/configmap-check-schedules.yaml") . | sha256sum }}
+        checksum/backup-schedules: {{ include (print $.Template.BasePath "/configmap-backup-schedules.yaml") . | sha256sum }}
+      {{- end }}
     spec:
       {{- if $sqlite.enabled }}
       serviceAccountName: {{ include "k8s-borg.nodeSAName" . }}

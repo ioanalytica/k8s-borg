@@ -305,6 +305,29 @@ true
 {{- end -}}
 
 {{/*
+perHost schedule keys that no agent pod applies, one values path per line. The
+keys are pod hostnames: the console pod's is cluster.nodeName (it applies the
+check schedule as an agent, the backup schedule in plan mode only), a node
+pod's "k8s-borg-<node name>" (daemonset.yaml). Node names are not known at
+render time, so any key with that prefix counts while the nodes run as agents.
+*/}}
+{{- define "k8s-borg.schedules.unusedKeys" -}}
+{{- $console := and .Values.cluster.enabled (eq .Values.cluster.mode "agent") -}}
+{{- $nodes := and .Values.node.enabled (eq .Values.node.backupMode "agent") -}}
+{{- range $host, $cron := .Values.borg.checkSchedule.perHost }}
+{{- if not (or (and $console (eq $host $.Values.cluster.nodeName)) (and $nodes (hasPrefix "k8s-borg-" $host))) }}
+borg.checkSchedule.perHost.{{ $host }}
+{{- end }}
+{{- end }}
+{{- $console = and $console (eq .Values.cluster.backupMode "plan") -}}
+{{- range $host, $cron := .Values.borg.backupSchedule.perHost }}
+{{- if not (or (and $console (eq $host $.Values.cluster.nodeName)) (and $nodes (hasPrefix "k8s-borg-" $host))) }}
+borg.backupSchedule.perHost.{{ $host }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Names for the reconcile Job's PAT Secret, ServiceAccount and Role.
 */}}
 {{- define "k8s-borg.ui.patSecretName" -}}

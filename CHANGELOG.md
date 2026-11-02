@@ -37,6 +37,20 @@
   `master` is gone. Lint & test runs on pushes to `main`, the chart is
   published from tags only, and the chart's icon is read from `main`.
 
+* **Per-host schedules: the right keys, and applied on change.** The keys of
+  `borg.checkSchedule.perHost` and `borg.backupSchedule.perHost` are pod
+  hostnames: `cluster.nodeName` itself for the console pod (default
+  `k8s-borg-mycluster`), `k8s-borg-<node name>` for a node pod. values.yaml
+  gave `console` as an example key, which no pod has; values.yaml and
+  chart/README.md ("Check and backup schedules") now say which key is whose.
+  The agents apply their schedules only when they start, and a changed
+  schedule did not restart them: the console StatefulSet and the node
+  DaemonSet now carry checksums of the schedule ConfigMaps, so a change rolls
+  the pods that apply it (the console pod for its backup schedule in
+  `cluster.backupMode=plan` only). The install notes name the perHost keys
+  that no agent pod applies; a `k8s-borg-…` key counts as a node pod's, as the
+  chart does not know the node names.
+
 ## 1.2.3
 
 * **Borg UI 2.4.6.** The `borg-ui` submodule moves to the v2.4.6 release

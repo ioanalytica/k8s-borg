@@ -21,6 +21,15 @@ spec:
   template:
     metadata:
       labels: {{- include "k8s-borg.labels" (dict "context" $ "component" "app") | nindent 8 }}
+      {{- if eq .Values.cluster.mode "agent" }}
+      annotations:
+        # The agent applies its check schedule, and in plan mode its backup
+        # schedule, once, at start.
+        checksum/check-schedules: {{ include (print $.Template.BasePath "/configmap-check-schedules.yaml") . | sha256sum }}
+        {{- if eq .Values.cluster.backupMode "plan" }}
+        checksum/backup-schedules: {{ include (print $.Template.BasePath "/configmap-backup-schedules.yaml") . | sha256sum }}
+        {{- end }}
+      {{- end }}
     spec:
       # The main process (the agent, or tail) does not collect the exit status
       # of orphaned processes: an s3fs that ends after its unmount, busybox
