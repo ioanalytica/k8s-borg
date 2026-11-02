@@ -20,13 +20,27 @@ write_conf() {
   chmod 600 "$file"
 }
 
-# rd HOST ARG… — valkey-cli as the administrator; with TLS to the cluster
-# nodes c1–c3, which speak nothing else.
+# rd_cli ARG… — valkey-cli as the administrator. It waits for an answer
+# without a limit (-t bounds the connect only): after RD_TIMEOUT seconds it
+# is stopped and fails, saying so.
+RD_TIMEOUT=60
+rd_cli() {
+  local rc=0
+  REDISCLI_AUTH=$DB_PASSWORD timeout "$RD_TIMEOUT" valkey-cli "$@" || rc=$?
+  # 124: coreutils' timeout; 143: busybox's, whose command ends on SIGTERM.
+  case "$rc" in
+    124 | 143) printf 'valkey-cli %.100s: no result after %ss, stopped\n' "${*//$'\n'/ }" "$RD_TIMEOUT" >&2 ;;
+  esac
+  return "$rc"
+}
+
+# rd HOST ARG… — rd_cli to HOST; with TLS to the cluster nodes c1–c3, which
+# speak nothing else.
 rd() {
   local host=$1 tls=()
   shift
   case "$host" in c?) tls=(--tls --cacert /tls/ca.crt) ;; esac
-  REDISCLI_AUTH=$DB_PASSWORD valkey-cli -h "$host" ${tls[@]+"${tls[@]}"} "$@"
+  rd_cli -h "$host" ${tls[@]+"${tls[@]}"} "$@"
 }
 
 rd_ready() { [ "$(rd "$1" PING)" = PONG ]; }
@@ -88,26 +102,34 @@ rd_fingerprint() {
 # rd_cluster — c1–c3 as a cluster of three primaries over TLS, ready on
 # every node; then 3000 keys spread over the slots.
 rd_cluster() {
-  local nodes=() host ip i
+  local nodes=() host ip i out
   for host in c1 c2 c3; do
     ip=$(getent hosts "$host" | awk '{print $1}')
     nodes+=("$ip:6379")
   done
-  REDISCLI_AUTH=$DB_PASSWORD valkey-cli --tls --cacert /tls/ca.crt \
-    --cluster create "${nodes[@]}" --cluster-yes >/dev/null
+  rd_cli --tls --cacert /tls/ca.crt --cluster create "${nodes[@]}" --cluster-yes >/dev/null
   for host in c1 c2 c3; do
     wait_for 60 rd_cluster_ok "$host"
   done
-  # -c follows the MOVED redirects to the node that holds a key's slot.
-  for ((i = 1; i <= 3000; i++)); do
+  # -c follows the MOVED redirects to the node that holds a key's slot. It
+  # exits 0 whatever the commands got: every SET has to answer OK.
+  out=$(for ((i = 1; i <= 3000; i++)); do
     printf 'SET ck:%d v%d\n' "$i" "$i"
-  done | rd c1 -c >/dev/null
+  done | rd c1 -c 2>&1) && [ "$(grep -cx OK <<<"$out")" -eq 3000 ] \
+    || fail "3000 SETs through valkey-cli -c, the other answers:" \
+      "$(grep -vx -e OK -e '' -e '-> Redirected .*' <<<"$out" | sort | uniq -c | sort -rn | head -5 | sed 's/^ *\([0-9]*\) /\1× /')"
 }
 
-# rd_cluster_ok HOST — HOST sees the cluster as ok, with three primaries.
+# rd_cluster_ok HOST — HOST sees the cluster as ok, with the primaries c1–c3
+# by the hostnames they announce. A node learns them from the gossip,
+# possibly after cluster_state:ok, and until then redirects to such a node
+# as `?` (MOVED 13597 ?:6379): valkey-cli -c sends that command and every
+# later one to the host `?`, each failing only when the name lookup does,
+# which can take seconds.
 rd_cluster_ok() {
   rd "$1" CLUSTER INFO | tr -d '\r' | grep -qx 'cluster_state:ok' \
-    && [ "$(rd "$1" CLUSTER NODES | grep -c master)" -eq 3 ]
+    && [ "$(rd "$1" CLUSTER NODES | awk '$3 ~ /master/ { split($2, a, ","); print a[2] }' \
+      | LC_ALL=C sort | tr '\n' ' ')" = "c1 c2 c3 " ]
 }
 
 # rd_cluster_fingerprint — the union of the primaries' fingerprints (db 0).
