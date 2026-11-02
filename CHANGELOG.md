@@ -27,7 +27,10 @@
   explains why to use k8s-borg, how it compares with Velero, K8up and VolSync,
   what it and the Borg UI server contact, and what costs money.
 
-* The chart's icon is read from `develop` instead of the stale `master` branch.
+* **`main` is the default branch.** `develop` is renamed to `main`, the one
+  long-lived branch, with releases as tags on it, as in Borg UI; the stale
+  `master` is gone. Lint & test runs on pushes to `main`, the chart is
+  published from tags only, and the chart's icon is read from `main`.
 
 ## 1.2.3
 

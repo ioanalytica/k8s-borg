@@ -1,7 +1,7 @@
 # k8s-borg
 
-[![Lint & test](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml/badge.svg?branch=develop)](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml)
-[![Daily CVE scan](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml/badge.svg?branch=develop)](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml)
+[![Lint & test](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml/badge.svg?branch=main)](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml)
+[![Daily CVE scan](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml/badge.svg?branch=main)](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml)
 [![Release](https://img.shields.io/github/v/release/ioanalytica/k8s-borg)](https://github.com/ioanalytica/k8s-borg/releases/latest)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
 

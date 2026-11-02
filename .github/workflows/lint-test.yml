@@ -7,7 +7,7 @@ name: Lint & test
 # Tags are deliberately absent here, or a release would run the suite twice.
 on:
   push:
-    branches: [develop, master]
+    branches: [main]
   pull_request:
   workflow_call:
 
