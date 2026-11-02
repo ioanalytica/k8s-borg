@@ -114,29 +114,42 @@ jobs:
 
   # End-to-end against real Borg repositories, inside the agent image. Slower
   # than the jobs above (it builds the image), so it runs alongside them rather
-  # than gating them. One job per Borg major, side by side: one after the other
-  # they took 7 and 14 minutes. fail-fast off, so that a failure in one major
-  # still shows the other's result.
+  # than gating them. The Borg majors side by side, and Borg 2 in two parts:
+  # one after the other they took 7 and 14 minutes. fail-fast off, so that a
+  # failure in one job still shows the others' results.
   e2e-borg:
-    name: e2e (Borg ${{ matrix.borg }})
+    name: e2e (Borg ${{ matrix.borg }}${{ matrix.part && format(', part {0}', matrix.part) || '' }})
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ubuntu-26.04
-    # Borg 2: an image build of up to 8 minutes, then a 14-minute suite.
-    timeout-minutes: 45
+    # An image build of up to 8 minutes, then up to 8 minutes of tests.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        borg: [1, 2]
+        # A job with `files` runs those files of tests/e2e, one without runs
+        # all of them. Each major runs every file once (lint-test-workflow.bats),
+        # so a new file goes into a part. Borg 2's parts take about as long as
+        # Borg 1 (430 s): 451 s and 413 s of tests in run 41481753460.
+        # `include` alone: next to a `borg:` list, an include entry would be
+        # merged into that list's job instead of adding one.
+        include:
+          - borg: 1
+          - borg: 2
+            part: 1
+            files: clients.bats prune.bats s3fs.bats
+          - borg: 2
+            part: 2
+            files: repo-server-offsite.bats lifecycle.bats repo-server.bats
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive   # the agent Dockerfile builds from borg-ui/
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4.2.0
-      # Both build from the same cache, and Borg 1 alone writes it back: two
-      # writers of one scope race, and the Borg 1 suite is the shorter one, so
-      # the export does not lengthen the run.
+      # Every job builds from the same cache, and Borg 1 alone writes it back:
+      # two writers of one scope race, and the Borg 1 job still ends well
+      # before e2e-db, so the export does not lengthen the run.
       - name: Build the agent image
         uses: docker/build-push-action@v7.3.0
         with:
@@ -149,24 +162,29 @@ jobs:
       - name: Run the suite for Borg ${{ matrix.borg }}
         env:
           BORG_MAJOR: ${{ matrix.borg }}
-        run: SKIP_BUILD=1 ./tests/e2e/run.sh "$BORG_MAJOR"
+          FILES: ${{ matrix.files }}
+        run: |
+          read -r -a files <<<"$FILES"
+          SKIP_BUILD=1 ./tests/e2e/run.sh "$BORG_MAJOR" "${files[@]}"
 
   # The check the ruleset on main requires under the name `e2e`: passed when
-  # both majors passed, or when a documentation-only pull request skipped them.
-  # always(), because a job skipped after a failed need reports "skipped" too,
-  # which a required check counts as passed — a cancelled run fails here.
+  # every job of e2e-borg passed, or when a documentation-only pull request
+  # skipped them. The matrix has one result, success only when every job
+  # succeeded. always(), because a job skipped after a failed need reports
+  # "skipped" too, which a required check counts as passed — a cancelled run
+  # fails here.
   e2e:
     needs: [changes, e2e-borg]
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
-      - name: Borg 1 and Borg 2
+      - name: Every Borg job
         env:
           RESULT: ${{ needs.e2e-borg.result }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs-only }}
         run: |
-          echo "e2e (Borg 1, Borg 2): $RESULT"
+          echo "e2e-borg, every job: $RESULT"
           [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$DOCS_ONLY" = true ]; }
 
   # The database dumps and restores against real servers, every version of

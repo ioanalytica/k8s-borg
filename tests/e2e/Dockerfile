@@ -19,6 +19,7 @@ COPY --from=docker.io/dxflrs/garage:v2.4.1 /garage /usr/local/bin/garage
 COPY tests/e2e /tests/e2e
 
 # The agent image's entrypoint starts the agent; here the container is a test
-# runner and nothing else.
+# runner and nothing else. run.sh gives bats its files itself; CMD runs the
+# whole suite for a plain `docker run`.
 ENTRYPOINT []
 CMD ["bats", "--print-output-on-failure", "/tests/e2e"]

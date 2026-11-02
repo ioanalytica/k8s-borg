@@ -5,7 +5,12 @@
 #
 #   ./tests/e2e/run.sh              # build + run both majors
 #   ./tests/e2e/run.sh 2            # only Borg 2
+#   ./tests/e2e/run.sh 2 clients.bats prune.bats   # only these files, Borg 2
 #   IMAGE=k8s-borg:test ./tests/e2e/run.sh   # reuse an already built image
+#
+# The arguments are Borg majors (1, 2; both by default) and files of tests/e2e
+# by name (all of them by default). CI runs Borg 2 in parts, each with its own
+# files.
 #
 # FUSE is required (borg-mount). The container needs /dev/fuse and CAP_SYS_ADMIN;
 # the host OS does not matter, since on macOS and Windows Docker runs the
@@ -16,7 +21,23 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 IMAGE="${IMAGE:-k8s-borg:test}"
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
-read -r -a versions <<<"${*:-1 2}"
+
+# Checked before anything is built: a misspelt file would otherwise surface
+# only once the image is there, as a bats error inside the container.
+versions=()
+targets=()
+for arg in "$@"; do
+  case "$arg" in
+    1|2) versions+=("$arg") ;;
+    */*) echo "✗ $arg: name a file of tests/e2e without its directory" >&2; exit 2 ;;
+    *.bats)
+      [ -f "tests/e2e/$arg" ] || { echo "✗ there is no tests/e2e/$arg" >&2; exit 2; }
+      targets+=("/tests/e2e/$arg") ;;
+    *) echo "✗ $arg is neither a Borg major (1, 2) nor a file of tests/e2e" >&2; exit 2 ;;
+  esac
+done
+[ "${#versions[@]}" -gt 0 ] || versions=(1 2)
+[ "${#targets[@]}" -gt 0 ] || targets=(/tests/e2e)
 
 if ! docker info >/dev/null 2>&1; then
   echo "✗ docker is not available — start Docker and retry" >&2
@@ -43,11 +64,11 @@ fi
 
 rc=0
 for v in "${versions[@]}"; do
-  echo "▶ e2e suite, Borg $v"
+  echo "▶ e2e suite, Borg $v: ${targets[*]}"
   docker run --rm "${fuse_flags[@]}" \
     -e "BORG_TEST_VERSION=$v" \
     -e "BATS_TEST_NAME_PREFIX=borg$v: " \
-    "$E2E_IMAGE" || rc=1
+    "$E2E_IMAGE" bats --print-output-on-failure "${targets[@]}" || rc=1
 done
 
 [ "$rc" -eq 0 ] && echo "✓ e2e suite passed" || echo "✗ e2e suite failed" >&2
