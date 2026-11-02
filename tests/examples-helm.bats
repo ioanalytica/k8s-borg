@@ -70,7 +70,15 @@ PY
 }
 
 @test "the example pins the current chart version" {
-  [ -n "$(chart_version)" ] || fail "no version: in Chart.yaml"
-  [ "$(helmrelease_field version)" = "$(chart_version)" ] \
+  local v
+  v="$(chart_version)"
+  [ -n "$v" ] || fail "no version: in Chart.yaml"
+  # A beta is built from a branch whose Chart.yaml carries the beta's version
+  # (check-release-tag.sh); the example stays on the last release meanwhile.
+  # A -N chart revision is a release and is pinned like any other.
+  if [[ "$v" == *-* && ! "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+    skip "chart $v is a prerelease; the example stays on the last release"
+  fi
+  [ "$(helmrelease_field version)" = "$v" ] \
     || fail "example pins $(helmrelease_field version), chart is $(chart_version)"
 }
