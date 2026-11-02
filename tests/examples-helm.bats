@@ -73,10 +73,10 @@ PY
   local v
   v="$(chart_version)"
   [ -n "$v" ] || fail "no version: in Chart.yaml"
-  # A beta is built from a branch whose Chart.yaml carries the beta's version
+  # Every version with a -suffix (a beta, an rc, a -N revision) is a
+  # prerelease. One is built from a branch whose Chart.yaml carries its version
   # (check-release-tag.sh); the example stays on the last release meanwhile.
-  # A -N chart revision is a release and is pinned like any other.
-  if [[ "$v" == *-* && ! "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+  if [[ "$v" == *-* ]]; then
     skip "chart $v is a prerelease; the example stays on the last release"
   fi
   [ "$(helmrelease_field version)" = "$v" ] \
