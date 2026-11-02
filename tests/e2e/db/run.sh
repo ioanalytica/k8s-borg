@@ -52,27 +52,6 @@ TIMEOUT="${E2E_DB_TIMEOUT:-600}"
 # ':' and '\' in a pgpass line, '"' and '\' in a MariaDB/MySQL option file.
 DB_PASSWORD='e2e:pa"ss\word'
 
-# image_of ENGINE:VERSION — the server image of a server version (for SQLite
-# the image of the application), nothing for one this script does not know.
-image_of() {
-  local engine=${1%%:*} version=${1#*:}
-  case "$engine" in
-    postgres) echo "postgres:${version}-alpine" ;;
-    mariadb)  echo "mariadb:${version}" ;;
-    mysql)    echo "mysql:${version}" ;;
-    percona)  echo "percona/percona-server:${version}" ;;
-    mongodb)  echo "mongo:${version}" ;;
-    redis)    echo "redis:${version}" ;;
-    valkey)   echo "valkey/valkey:${version}" ;;
-    sqlite)
-      case "$version" in
-        alpine)   echo "python:3.13-alpine" ;;
-        bookworm) echo "python:3.13-slim-bookworm" ;;
-        bullseye) echo "python:3.12-slim-bullseye" ;;
-      esac ;;
-  esac
-}
-
 # --one ENGINE:VERSION LOG — one server version: start its servers, run its
 # tests, remove everything again. Called by the main run below, in parallel.
 if [ "${1:-}" = "--one" ]; then
@@ -90,16 +69,17 @@ if [ "${1:-}" = "--one" ]; then
   # SQL unescaped and fails on DB_PASSWORD; the servers start with this one
   # and the tests set DB_PASSWORD (helpers/mysql.bash).
   bootstrap_password=e2e-bootstrap
-  server_image=$(image_of "$spec")
   case "$engine" in
-    postgres) server_env=(-e "POSTGRES_PASSWORD=$DB_PASSWORD") ;;
-    mariadb)  server_env=(-e "MARIADB_ROOT_PASSWORD=$DB_PASSWORD") ;;
+    postgres) server_image="postgres:${version}-alpine"; server_env=(-e "POSTGRES_PASSWORD=$DB_PASSWORD") ;;
+    mariadb)  server_image="mariadb:${version}";         server_env=(-e "MARIADB_ROOT_PASSWORD=$DB_PASSWORD") ;;
     mysql|percona)
+      if [ "$engine" = mysql ]; then server_image="mysql:${version}"; else server_image="percona/percona-server:${version}"; fi
       server_env=(-e "MYSQL_ROOT_PASSWORD=$bootstrap_password")
       server_args() { printf '%s\n' --gtid-mode=ON --enforce-gtid-consistency=ON; }
       tests=mysql
       ;;
     mongodb)
+      server_image="mongo:${version}"
       server_env=(-e MONGO_INITDB_ROOT_USERNAME=root -e "MONGO_INITDB_ROOT_PASSWORD=$DB_PASSWORD")
       # `src` and `dst` are single-member replica sets (the oplog case, with
       # authentication, which a replica set only has with a key file); `dst2`
@@ -114,8 +94,8 @@ if [ "${1:-}" = "--one" ]; then
       }
       ;;
     redis|valkey)
-      server_bin=redis-server
-      [ "$engine" = redis ] || server_bin=valkey-server
+      server_image="redis:${version}" server_bin=redis-server
+      [ "$engine" = redis ] || { server_image="valkey/valkey:${version}" server_bin=valkey-server; }
       roles=(src dst c1 c2 c3) tests=redis server_env=()
       # The cluster speaks TLS only (certificates below), its nodes announce
       # their hostnames, and the certificate names them and nothing else.
@@ -138,7 +118,12 @@ if [ "${1:-}" = "--one" ]; then
       }
       ;;
     sqlite)
-      [ -n "$server_image" ] || { echo "unknown SQLite application image in $spec" >"$log"; exit 1; }
+      case "$version" in
+        alpine)   server_image="python:3.13-alpine" ;;
+        bookworm) server_image="python:3.13-slim-bookworm" ;;
+        bullseye) server_image="python:3.12-slim-bullseye" ;;
+        *) echo "unknown SQLite application image in $spec" >"$log"; exit 1 ;;
+      esac
       # The application: a writer per journal mode on a volume of its own,
       # which the tests see read-only where a node sees a pod's volume, once
       # as a local volume and once as the kubelet's mount of a CSI volume.
@@ -238,8 +223,7 @@ if [ "${1:-}" = "--one" ]; then
       fi
     ) &
     watchdog=$!
-    # The phases in seconds, for the summary: the server image (pulled at the
-    # start of the run; a version that gets there first waits for that pull),
+    # The phases in seconds, for the summary: pulling the server image,
     # starting the servers, and the tests, which note when the servers
     # answered (`# servers ready after Ns`, counted from their start).
     phase=$SECONDS
@@ -294,17 +278,6 @@ logs=$(mktemp -d)
 trap 'rm -rf "$logs"' EXIT
 
 echo "▶ database e2e: ${servers[*]} (image $E2E_IMAGE, $JOBS at a time)"
-# The server images are pulled from the start, four at a time in the order the
-# versions run, while the first versions run: otherwise each version pulls its
-# image only when its turn comes. A version whose image is not in yet waits
-# for that same pull. The summary lists each pull's time.
-for spec in "${servers[@]}"; do image_of "$spec"; done | awk 'NF && !seen[$0]++' >"$logs/images"
-xargs -P 4 -I{} sh -c '
-  start=$(date +%s)
-  if docker pull -q "$1" >/dev/null 2>&1; then result=pulled; else result=failed; fi
-  echo "$1: $result in $(( $(date +%s) - start ))s" >>"$2/pulls"
-' sh {} "$logs" <"$logs/images" &
-pulls=$!
 # Each server version logs to a file of its own and its result is printed in
 # one piece when it is done, so that parallel runs do not interleave.
 # The workers run as a process group of their own (set -m): an interrupted
@@ -321,17 +294,13 @@ xargs -P "$JOBS" -I{} sh -c '
 ' "$self" {} "$logs" <"$logs/servers" &
 workers=$!
 set +m
-trap 'trap - INT TERM HUP; kill -TERM -- "-$workers" 2>/dev/null; kill "$pulls" 2>/dev/null; wait "$workers" || true; exit 130' INT TERM HUP
+trap 'trap - INT TERM HUP; kill -TERM -- "-$workers" 2>/dev/null; wait "$workers" || true; exit 130' INT TERM HUP
 wait "$workers" || true
 trap - INT TERM HUP
-# Every version that ran had its image; a pull still going is of no use now.
-kill "$pulls" 2>/dev/null || true
 
 echo
 echo "── database e2e summary: ${SECONDS}s, $JOBS at a time ──"
 sort "$logs/results"
-echo "── image pulls, from the start, four at a time ──"
-cat "$logs/pulls" 2>/dev/null || true
 if grep -q '^✗' "$logs/results"; then
   exit 1
 fi

@@ -1,8 +1,7 @@
 #!/usr/bin/env bats
 #
 # tests/e2e/db/run.sh stops a server version that takes longer than
-# E2E_DB_TIMEOUT, pulls the server images from the start, and reports each
-# version's phases. One once hung in CI for 40 minutes without a line of output,
+# E2E_DB_TIMEOUT, and reports each version's phases. One once hung in CI for 40 minutes without a line of output,
 # because a server version's log is printed only when it is done; the job had
 # no time limit and would have waited six hours.
 #
@@ -116,7 +115,7 @@ no_sleep_left() {
   no_sleep_left
 }
 
-@test "the summary gives each version's phases and each image's pull" {
+@test "the summary gives the run's time and each version's phases" {
   run "$RUN_SH" sqlite:alpine postgres:17
   [ "$status" -eq 0 ] || fail "status $status: $output"
   [[ "$output" =~ "── database e2e summary: "[0-9]+"s, 3 at a time ──" ]] || fail "$output"
@@ -125,17 +124,4 @@ no_sleep_left() {
     [[ "$output" =~ "✓ $v "[0-9]+"s: image "[0-9]+"s, servers "[0-9]+"s, tests "[0-9]+"s (servers ready after 3s)" ]] \
       || fail "no phases for $v: $output"
   done
-  [[ "$output" == *"── image pulls, from the start, four at a time ──"* ]] || fail "$output"
-  [[ "$output" =~ "python:3.13-alpine: pulled in "[0-9]+"s" ]] || fail "$output"
-  [[ "$output" =~ "postgres:17-alpine: pulled in "[0-9]+"s" ]] || fail "$output"
-}
-
-@test "each image is pulled once from the start, and a version finds it there" {
-  run "$RUN_SH" sqlite:alpine sqlite:alpine postgres:17
-  [ "$status" -eq 0 ] || fail "status $status: $output"
-  [ "$(grep -cx "pull -q python:3.13-alpine" "$CALLS")" -eq 1 ] || fail "$(cat "$CALLS")"
-  [ "$(grep -cx "pull -q postgres:17-alpine" "$CALLS")" -eq 1 ] || fail "$(cat "$CALLS")"
-  # The fake has every image, so no version pulls one of its own.
-  [ "$(grep -c "^pull " "$CALLS")" -eq 2 ] || fail "$(cat "$CALLS")"
-  grep -qx "image inspect postgres:17-alpine" "$CALLS" || fail "$(cat "$CALLS")"
 }
