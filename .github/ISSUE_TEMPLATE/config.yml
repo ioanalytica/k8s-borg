@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or idea
+    url: https://github.com/ioanalytica/k8s-borg/discussions
+    about: Ask and discuss in GitHub Discussions.
+  - name: Security vulnerability
+    url: https://github.com/ioanalytica/k8s-borg/security/advisories/new
+    about: Report it privately, never in a public issue.
+  - name: Borg UI web interface, server or agent
+    url: https://github.com/karanhudia/borg-ui/issues
+    about: Borg UI is developed upstream; k8s-borg ships it pinned to a release.

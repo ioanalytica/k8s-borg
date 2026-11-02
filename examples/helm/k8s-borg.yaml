@@ -1,6 +1,10 @@
 # Flux: install k8s-borg from the public OCI chart repository.
 # Sensitive values are referenced from Secrets you create separately (SOPS /
-# Sealed Secrets / External Secrets) — nothing secret lives in this file.
+# Sealed Secrets / External Secrets) — nothing secret lives in this file; see
+# ../secrets for the keys each Secret needs.
+#
+# tests/examples-helm.bats renders these values against the chart and fails on
+# a key chart/values.yaml does not know, so this file cannot drift from the chart.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
@@ -22,7 +26,7 @@ spec:
   chart:
     spec:
       chart: k8s-borg
-      version: "1.0.4-0"
+      version: "1.2.3"
       sourceRef:
         kind: HelmRepository
         name: ioanalytica-public
@@ -31,7 +35,7 @@ spec:
     timezone: "UTC"
 
     # The shared backup source is yours — mount it here (NFS, PVC, …) at /mnt/nfs
-    # and reference it from config.clusterInclude.
+    # and reference it from cluster.include.
     extraVolumes:
       - name: nfs
         nfs:
@@ -61,20 +65,6 @@ spec:
         existingSecret: k8s-borg-secret
         existingSecretKey: AWS_SECRET_KEY
 
-    config:
-      clusterInclude:
-        - "P fm"
-        - "R /mnt/s3"
-        - "R /mnt/nfs/users"
-      nodeInclude:
-        - "P fm"
-        - "R /node/etc"
-        - "R /node/home"
-        - "R /node/root"
-      s3Buckets:
-        - "my-bucket-1"
-        - "my-bucket-2"
-
     ssh:
       existingSecret: k8s-borg-ssh-secret
 
@@ -86,12 +76,29 @@ spec:
         enabled: true
         existingSecret: k8s-borg-postgres-secret
 
-    cluster:
-      nodeName: "k8s-borg-mycluster"
-    app:
-      nodeName: "k8s-borg-mycluster"
+    # One repository per node; the host's root is mounted at /node.
+    node:
+      # backupMode: agent   # with Borg UI: each node pod enrolls as a managed agent
+      include:
+        - "P fm"
+        - "R /node/etc"
+        - "R /node/home"
+        - "R /node/root"
 
-    # Optional Borg UI server + managed-agent enrollment.
+    # The cluster's shared data: the CronJob, and the console pod for restores.
+    cluster:
+      # mode: agent         # with Borg UI: the console pod enrolls as a managed agent
+      nodeName: "k8s-borg-mycluster"
+      include:
+        - "P fm"
+        - "R /mnt/s3"
+        - "R /mnt/nfs/users"
+      s3Buckets:
+        - "my-bucket-1"
+        - "my-bucket-2"
+
+    # Optional Borg UI server; uncomment the two `mode` lines above as well to
+    # run the backups as managed agents.
     # borgUI:
     #   enabled: true
     #   ingress:
@@ -100,8 +107,6 @@ spec:
     #   adminPassword:
     #     existingSecret: k8s-borg-secret
     #     existingSecretKey: BORG_UI_ADMIN_PASS
-    #   agent:
-    #     enabled: true
 
     persistence:
       cache:

@@ -1,50 +1,38 @@
-# Example manifests
+# Examples
 
-Sanitized, deploy-shaped example manifests for running k8s-borg on a Kubernetes
-cluster with [Kustomize](https://kustomize.io/). They mirror a real deployment
-but every site-specific value (hosts, domains, repositories, buckets,
-credentials) has been replaced with a placeholder.
-
-> **These are examples, not a turnkey deployment.** Review every file and replace
-> the `<...>` / `<CHANGE_ME>` / `*.example.com` placeholders for your cluster.
-
-## Layout
-
-| Path | What it deploys |
+| Path | What it is |
 | --- | --- |
-| `borg-namespace.yaml` | the `borg` namespace |
-| `k8s-borg-config.yaml` | ConfigMap: include/exclude patterns + S3 bucket list |
-| `k8s-borg-daemonset.yaml` | **DaemonSet** — one node backup per node (`BORG_MODE=node`, `hostPath` root, privileged) |
-| `k8s-borg-cronjob.yaml` | **CronJob** — periodic cluster-data backup (shared FS, S3, logical DB dumps) |
-| `k8s-borg-app-sts.yaml` | **`k8s-borg-app`** — long-running pod for console access to backups/repos |
-| `k8s-borg-ui-*.yaml` | optional Borg UI server (Deployment/Service/Ingress) |
-| `storage/` | NFS PersistentVolumes/Claims (shared FS + Borg client cache) |
-| `secrets/` | **placeholder** Secrets — Borg repo, SSH key, S3 keys, DB credentials |
+| [`helm/k8s-borg.yaml`](helm/k8s-borg.yaml) | A [Flux](https://fluxcd.io/) `HelmRepository` and `HelmRelease` installing the published chart: node backups, a cluster backup of a shared NFS file system, two S3 buckets and two databases, and the optional Borg UI part commented out |
+| [`secrets/`](secrets) | **Placeholder** Secrets with the keys the release above references |
 
-## Usage
+The `values:` block of the HelmRelease is an ordinary values file, so the same
+settings work with plain Helm. Every key in it is checked against the chart by
+`tests/examples-helm.bats`, and it pins the current chart version.
+
+> **These are examples, not a turnkey deployment.** Replace the `<...>` /
+> `<CHANGE_ME>` / `*.example.com` placeholders for your cluster; every parameter
+> is documented in [`chart/README.md`](../chart/README.md).
+
+## Plain manifests
+
+The chart is the maintained way to deploy k8s-borg. For plain YAML, for
+example to apply with Kustomize, render the chart with your values:
 
 ```sh
-# edit the placeholders first!
-kubectl apply -k examples/
+helm template k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg --version <version> \
+  -n k8s-borg -f my-values.yaml > k8s-borg.yaml
 ```
-
-Images default to the published `ghcr.io/ioanalytica/k8s-borg:1.0.4` (agent) and
-`ghcr.io/ioanalytica/k8s-borg-ui:2.2.5` (server).
 
 ## Secrets
 
-`secrets/` holds **placeholder** Secrets so the kustomization is self-contained.
-Do **not** commit real credentials — replace the values and manage them with an
-encrypted-at-rest tool (SOPS, Sealed Secrets, External Secrets Operator, …).
+Do **not** commit real credentials — keep them in an encrypted-at-rest tool
+(SOPS, Sealed Secrets, External Secrets Operator, …) and reference them from
+the release with `existingSecret`. See [`secrets/README.md`](secrets/README.md).
 
-## Notes on the security posture
+## Security posture
 
-The backup pods run **privileged** with `SYS_ADMIN` (and, for node backups, a
-read-only `hostPath` mount of `/`). That is intentional: node/cluster backups
-must read arbitrary source paths and mount FUSE (S3, `borg mount`). Scope the
-namespace and RBAC accordingly.
-
-The optional Borg UI server can reach every repository — keep its Ingress
-restricted to trusted networks (see the comment in `k8s-borg-ui-ingress.yaml`).
-`BORG_UI_AGENT=true` enrolls the pod as a Borg UI managed agent; unset, k8s-borg
-runs the standalone backup flow without Borg UI.
+Node and cluster backups run **privileged** with `SYS_ADMIN`, and node backups
+mount the host's root read-only: they read arbitrary source paths and mount
+FUSE (S3, `borg mount`). The optional Borg UI server can reach every repository
+— keep its Ingress restricted to trusted networks. Details in "Security
+posture" in [`chart/README.md`](../chart/README.md#security-posture).

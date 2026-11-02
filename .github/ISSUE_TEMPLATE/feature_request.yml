@@ -1,0 +1,19 @@
+name: Feature request
+description: Something k8s-borg should back up, restore or do differently.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to achieve?
+      description: The situation and what is missing today, rather than a solution first.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How could k8s-borg do it?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do instead today?

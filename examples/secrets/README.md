@@ -1,7 +1,7 @@
 # Secrets
 
-The manifests here are **placeholders** — they show which keys each Secret needs
-so the kustomization is self-contained and applies out of the box.
+The manifests here are **placeholders** — they show which keys each Secret that
+[`../helm/k8s-borg.yaml`](../helm/k8s-borg.yaml) references needs.
 
 > ⚠️ **Never commit your real secrets.**
 > Store them in a vault, or encrypt them with [SOPS](https://github.com/getsops/sops)

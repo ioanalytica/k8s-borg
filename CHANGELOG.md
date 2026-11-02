@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+* **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
+  pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
+  which the chart has since moved; it did not render. It now pins the current
+  chart, uses `node.include`, `cluster.include` and `cluster.s3Buckets`, and
+  shows the managed-agent switches (`node.backupMode`, `cluster.mode`).
+  `tests/examples-helm.bats` checks every key it sets against
+  `chart/values.yaml`, renders it with and without Borg UI, and fails when it
+  pins another chart version. The example Secret carries only the keys the
+  release references.
+
+* **Plain manifests removed from `examples/`.** The Kustomize manifests showed
+  a 1.0.4 deployment; with a current image their CronJob would have skipped S3
+  without a word (no `S3_ENABLED`). The chart is the maintained way to deploy;
+  `helm template` renders it to plain YAML.
+
+* **Release notes from the changelog.** A release now starts with its
+  `CHANGELOG.md` entry, followed by GitHub's list of pull requests
+  (`scripts/changelog-section.sh`).
+
+* **Project documents.** `CONTRIBUTING.md` (with a DCO sign-off for
+  contributions), `SECURITY.md` (private reporting through GitHub),
+  `CODE_OF_CONDUCT.md`, issue forms and a pull request template. The README
+  explains why to use k8s-borg, how it compares with Velero, K8up and VolSync,
+  what it and the Borg UI server contact, and what costs money.
+
+* The chart's icon is read from `develop` instead of the stale `master` branch.
+
 ## 1.2.3
 
 * **Borg UI 2.4.6.** The `borg-ui` submodule moves to the v2.4.6 release
