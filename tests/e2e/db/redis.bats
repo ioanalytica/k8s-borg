@@ -21,6 +21,7 @@ setup_file() {
   for host in src dst c1 c2 c3; do
     wait_for 60 rd_ready "$host"
   done
+  servers_ready
 
   rd_seed src
   rd_cluster

@@ -14,6 +14,10 @@
 #   E2E_DB_JOBS    server versions tested at the same time (default 3)
 #   E2E_DB_PREFIX  prefix of the containers and networks (default
 #                  k8s-borg-e2e-db), so that runs side by side do not collide
+#   E2E_DB_TIMEOUT seconds one server version may take (default 600; the
+#                  slowest, MongoDB 7, takes under 3 minutes in CI). One that
+#                  takes longer fails, with what its tests had printed, the
+#                  processes they were running and its servers' logs.
 #   E2E_DB_SCRIPTS_FROM_CHECKOUT=1
 #                  bind-mount this checkout's dump and restore scripts and
 #                  tests over the image's (bats is installed when missing).
@@ -43,6 +47,7 @@ DEFAULT_SERVERS="postgres:13 postgres:14 postgres:15 postgres:16 postgres:17 pos
 E2E_IMAGE="${E2E_IMAGE:-k8s-borg:e2e}"
 PREFIX="${E2E_DB_PREFIX:-k8s-borg-e2e-db}"
 JOBS="${E2E_DB_JOBS:-3}"
+TIMEOUT="${E2E_DB_TIMEOUT:-600}"
 # A password with the characters the chart's credentials resolver escapes:
 # ':' and '\' in a pgpass line, '"' and '\' in a MariaDB/MySQL option file.
 DB_PASSWORD='e2e:pa"ss\word'
@@ -138,6 +143,9 @@ if [ "${1:-}" = "--one" ]; then
 
   cleanup() {
     local role
+    # A run that failed before its tests (set -e) still has its watchdog,
+    # which would otherwise report the version stuck long after it is gone.
+    [ -z "${watchdog:-}" ] || kill "$watchdog" 2>/dev/null || true
     # -v: the server images declare their data directory a volume, which
     # would otherwise outlive the container.
     for role in "${roles[@]}" tests; do docker rm -f -v "${name}-${role}" >/dev/null 2>&1 || true; done
@@ -180,6 +188,47 @@ if [ "${1:-}" = "--one" ]; then
 
   {
     echo "▶ $spec ($server_image)"
+    # A server version that hangs would hold its slot, and the job, until
+    # GitHub's limit without a line of output: its log is printed when it is
+    # done. After E2E_DB_TIMEOUT seconds the watchdog says so, shows what the
+    # test container is running and the output of the test that is stuck
+    # (where bats keeps it while the test runs), and stops the test container,
+    # which fails the run below with the servers' state and logs.
+    (
+      sleeper=""
+      trap 'kill "$sleeper" 2>/dev/null; exit 0' TERM
+      sleep "$TIMEOUT" & sleeper=$!
+      wait "$sleeper"
+      echo "✗ $spec: no result after ${TIMEOUT}s (E2E_DB_TIMEOUT), stopped"
+      docker ps -a --filter "name=${name}-" --format '── {{.Names}}: {{.Status}}' 2>&1 || true
+      if docker exec "${name}-tests" true 2>/dev/null; then
+        echo "── running in ${name}-tests"
+        docker exec "${name}-tests" sh -c '
+          ps -o pid,ppid,etime,args
+          for out in /tmp/bats-run-*/test/*.out; do
+            [ -e "$out" ] || continue
+            echo "── output so far of: $(cat "${out%.out}.name" 2>/dev/null)"
+            tail -n 60 "$out"
+          done' 2>&1 || true
+        docker kill "${name}-tests" >/dev/null 2>&1 || true
+      else
+        # Stuck in a docker command of its own (a server image that does not
+        # arrive): that command is ended, the run fails there and its EXIT
+        # trap removes what it created. Ending the shell instead would leave
+        # the command to create its container after the cleanup.
+        self=$(exec sh -c 'echo "$PPID"')
+        for pid in $(pgrep -P "$$"); do
+          [ "$pid" = "$self" ] || kill -TERM "$pid" 2>/dev/null || true
+        done
+      fi
+    ) &
+    watchdog=$!
+    # The phases in seconds, for the summary: pulling the server image,
+    # starting the servers, and the tests, which note when the servers
+    # answered (`# servers ready after Ns`, counted from their start).
+    phase=$SECONDS
+    docker image inspect "$server_image" >/dev/null 2>&1 || docker pull -q "$server_image" >/dev/null
+    t_image=$((SECONDS - phase)) phase=$SECONDS
     docker network create "$name" >/dev/null
     for role in "${roles[@]}"; do
       opts=() args=()
@@ -188,6 +237,7 @@ if [ "${1:-}" = "--one" ]; then
       docker run -d -q --name "${name}-${role}" --network "$name" --network-alias "$role" \
         ${server_env[@]+"${server_env[@]}"} ${opts[@]+"${opts[@]}"} "$server_image" ${args[@]+"${args[@]}"} >/dev/null
     done
+    t_servers=$((SECONDS - phase)) phase=$SECONDS
     rc=0
     # ${a[@]+…}: an empty array is "unbound" to set -u in bash 3.2 (macOS).
     # An image from before backup-redis has no valkey-cli: added here, as bats.
@@ -200,6 +250,7 @@ if [ "${1:-}" = "--one" ]; then
       'command -v bats >/dev/null || apk add -q --no-cache bats >/dev/null
        [ "$DB_TESTS" != redis ] || command -v valkey-cli >/dev/null || apk add -q --no-cache valkey-cli >/dev/null
        exec bats --print-output-on-failure "/tests/e2e/db/$DB_TESTS.bats"' || rc=$?
+    t_tests=$((SECONDS - phase))
     # A failed run shows how its servers fared: a server that never became
     # ready leaves nothing in the bats output.
     if [ "$rc" -ne 0 ]; then
@@ -208,6 +259,10 @@ if [ "${1:-}" = "--one" ]; then
         docker logs --tail 25 "${name}-${role}" 2>&1 | cut -c1-400
       done
     fi
+    ready=$(sed -n 's/^# servers ready after \([0-9][0-9]*\)s$/\1/p' "$log" | head -1)
+    echo "${SECONDS}s: image ${t_image}s, servers ${t_servers}s, tests ${t_tests}s (servers ready after ${ready:-?}s)" >"$log.phases"
+    kill "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
     exit "$rc"
   } >"$log" 2>&1
 fi
@@ -232,7 +287,9 @@ printf '%s\n' "${servers[@]}" >"$logs/servers"
 set -m
 xargs -P "$JOBS" -I{} sh -c '
   spec=$1 log="$2/$(echo "$1" | tr ":" "-").log"
-  if "$0" --one "$spec" "$log"; then echo "✓ $spec" >>"$2/results"; else echo "✗ $spec" >>"$2/results"; fi
+  if "$0" --one "$spec" "$log"; then mark="✓"; else mark="✗"; fi
+  phases=$(cat "$log.phases" 2>/dev/null || true)
+  echo "$mark $spec${phases:+ $phases}" >>"$2/results"
   cat "$log"
 ' "$self" {} "$logs" <"$logs/servers" &
 workers=$!
@@ -242,7 +299,7 @@ wait "$workers" || true
 trap - INT TERM HUP
 
 echo
-echo "── database e2e summary ──"
+echo "── database e2e summary: ${SECONDS}s, $JOBS at a time ──"
 sort "$logs/results"
 if grep -q '^✗' "$logs/results"; then
   exit 1
