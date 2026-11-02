@@ -202,8 +202,14 @@ SH
   # It attaches the chart job's own package, the bytes that were signed, not
   # one packaged again.
   ! wf_job "$BUILD_WF" release | grep -q 'helm package' || fail "the release job packages the chart itself"
-  grep -qF 'name: chart' <<<"$(wf_step "$BUILD_WF" 'name: Hand the package to the release job (tags only)')" \
-    && grep -qF 'name: chart' <<<"$(wf_job "$BUILD_WF" release)" || fail "the chart package is not handed over"
+  local handover days
+  handover="$(wf_step "$BUILD_WF" 'name: Hand the package to the release job (tags only)')"
+  grep -qF 'name: chart' <<<"$handover" && grep -qF 'name: chart' <<<"$(wf_job "$BUILD_WF" release)" \
+    || fail "the chart package is not handed over"
+  # A re-run of the failed sign and release jobs is possible for 30 days; the
+  # package has to outlive that.
+  days="$(sed -n 's/^ *retention-days: \([0-9]*\)$/\1/p' <<<"$handover")"
+  [ "${days:-0}" -ge 30 ] || fail "the chart package expires after ${days:-?} days"
   run grep -n 'contents: write' "$BUILD_WF"
   [ "${#lines[@]}" -eq 1 ] && grep -q 'contents: write' <<<"$(wf_job "$BUILD_WF" release)" \
     || fail "another job can write to the repository: $output"

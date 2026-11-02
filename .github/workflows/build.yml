@@ -193,7 +193,9 @@ jobs:
           [ -n "$digest" ] || { echo "✗ helm push reported no digest" >&2; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       # The release job attaches this very file, the bytes of the chart layer
-      # just pushed and then signed.
+      # just pushed and then signed. Kept as long as GitHub lets a run's
+      # failed jobs be re-run, so a sign job that failed on a Friday can still
+      # publish the release on Monday.
       - name: Hand the package to the release job (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v7
@@ -201,7 +203,7 @@ jobs:
           name: chart
           path: ${{ runner.temp }}/chart/k8s-borg-*.tgz
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
 
   # Keyless Sigstore signatures for everything the release pushed to GHCR, each
   # by its digest: a tag can be moved to another manifest, the digest is what
