@@ -7,33 +7,12 @@
 
 setup() {
   load helpers/versions
+  load helpers/workflows
   WF="$REPO_ROOT/.github/workflows"
   BUILD_IMAGE="$WF/build-image.yml"
 }
 
-# job FILE NAME — the lines of one job, up to the next one.
-job() {
-  awk -v head="  $2:" '
-    on && match($0, /[^ ]/) && RSTART <= 3 { exit }
-    on
-    $0 == head { on = 1 }' "$1"
-}
-
-# step FILE HEAD — the lines of the step whose first line is "- HEAD".
-step() {
-  awk -v head="- $2" '
-    on && match($0, /[^ ]/) && RSTART <= col { exit }
-    on
-    !on { line = $0; sub(/^ */, "", line); if (line == head) { on = 1; col = index($0, "-") } }' "$1"
-}
-
-# The jobs of build.yml that build an image with build-image.yml.
-image_jobs() {
-  awk '/^  [a-z][a-z0-9-]*:$/ { j = $1; sub(/:$/, "", j) }
-       $1 == "uses:" && $2 == "./.github/workflows/build-image.yml" { print j }' "$BUILD_WF"
-}
-
-sign_step() { step "$BUILD_WF" 'name: Sign by digest'; }
+sign_step() { wf_step "$BUILD_WF" 'name: Sign by digest'; }
 
 # signed_var PATH JOB — the variable of the sign step that holds
 # ghcr.io/ioanalytica/PATH at the digest JOB outputs.
@@ -43,23 +22,23 @@ signed_var() {
 }
 
 @test "the extractors find what the checks below read" {
-  [ -n "$(step "$BUILD_IMAGE" 'id: build')" ]     || fail "no build step in build-image.yml"
-  [ -n "$(job "$BUILD_IMAGE" merge)" ]            || fail "no merge job in build-image.yml"
-  [ -n "$(job "$BUILD_WF" sign)" ]                || fail "no sign job in build.yml"
+  [ -n "$(wf_step "$BUILD_IMAGE" 'id: build')" ]     || fail "no build step in build-image.yml"
+  [ -n "$(wf_job "$BUILD_IMAGE" merge)" ]            || fail "no merge job in build-image.yml"
+  [ -n "$(wf_job "$BUILD_WF" sign)" ]                || fail "no sign job in build.yml"
   [ -n "$(sign_step)" ]                           || fail "no 'Sign by digest' step in build.yml"
-  [ "$(image_jobs | tr '\n' ' ')" = "agent runtime-base server " ] \
-    || fail "image jobs: $(image_jobs | tr '\n' ' ')"
+  [ "$(wf_image_jobs "$BUILD_WF" | tr '\n' ' ')" = "agent runtime-base server " ] \
+    || fail "image jobs: $(wf_image_jobs "$BUILD_WF" | tr '\n' ' ')"
   [ "$(signed_var k8s-borg agent)" = AGENT ]      || fail "signed_var does not find the agent image"
   # A step ends where the next one starts, a job where the next one starts.
-  [ "$(step "$BUILD_IMAGE" 'id: build' | grep -c 'uses:')" = 1 ] || fail "the build step ran into the next step"
-  [ "$(job "$BUILD_IMAGE" build | grep -c 'runs-on:')" = 1 ]     || fail "the build job ran into the next job"
+  [ "$(wf_step "$BUILD_IMAGE" 'id: build' | grep -c 'uses:')" = 1 ] || fail "the build step ran into the next step"
+  [ "$(wf_job "$BUILD_IMAGE" build | grep -c 'runs-on:')" = 1 ]     || fail "the build job ran into the next job"
 }
 
 # --- SBOM and provenance ------------------------------------------------------
 
 @test "every platform image gets an SBOM and max-mode SLSA v1 provenance" {
   local s
-  s="$(step "$BUILD_IMAGE" 'id: build')"
+  s="$(wf_step "$BUILD_IMAGE" 'id: build')"
   grep -q 'uses: docker/build-push-action@' <<<"$s" || fail "the build step no longer runs build-push-action"
   grep -Eq '^ +sbom: true$' <<<"$s" || fail "the image build no longer attaches an SBOM"
   # Left out, the mode follows the repository's visibility (max for public,
@@ -70,19 +49,19 @@ signed_var() {
 
 @test "no secret goes into a build argument, which max-mode provenance publishes" {
   local s j
-  s="$(step "$BUILD_IMAGE" 'id: build')"
+  s="$(wf_step "$BUILD_IMAGE" 'id: build')"
   [ "$(grep -E '^ +build-args:' <<<"$s")" = '          build-args: ${{ inputs.build-args }}' ] \
     || fail "build-image.yml adds build arguments of its own: $(grep -E '^ +build-args:' <<<"$s")"
   ! grep -q 'secrets' <<<"$s" || fail "the build step references a secret: $(grep 'secrets' <<<"$s")"
-  for j in $(image_jobs); do
-    ! job "$BUILD_WF" "$j" | grep -q 'secrets' \
-      || fail "build.yml job $j hands build-image.yml a secret: $(job "$BUILD_WF" "$j" | grep 'secrets')"
+  for j in $(wf_image_jobs "$BUILD_WF"); do
+    ! wf_job "$BUILD_WF" "$j" | grep -q 'secrets' \
+      || fail "build.yml job $j hands build-image.yml a secret: $(wf_job "$BUILD_WF" "$j" | grep 'secrets')"
   done
 }
 
 @test "the merge fails unless every platform kept its SBOM and provenance" {
   local m
-  m="$(job "$BUILD_IMAGE" merge)"
+  m="$(wf_job "$BUILD_IMAGE" merge)"
   grep -qF 'for att in SBOM:SPDX Provenance:SLSA; do' <<<"$m" \
     || fail "the merge job no longer checks the attestations of the index"
   grep -qF '| jq -e --argjson n "$platforms"' <<<"$m" || fail "the check no longer counts the platforms"
@@ -96,14 +75,14 @@ signed_var() {
 
 @test "every image and the chart are signed by the digest they were pushed under" {
   local needs j path var sign verify
-  needs="$(job "$BUILD_WF" sign | sed -n 's/^    needs: \[\(.*\)\]$/\1/p' | tr -d ' ' | tr ',' '\n')"
+  needs="$(wf_job "$BUILD_WF" sign | sed -n 's/^    needs: \[\(.*\)\]$/\1/p' | tr -d ' ' | tr ',' '\n')"
   sign="$(sign_step | grep -E '^ +cosign sign --yes ')"
   verify="$(sign_step | grep -E '^ +cosign verify ')"
-  for j in $(image_jobs) chart; do
+  for j in $(wf_image_jobs "$BUILD_WF") chart; do
     if [ "$j" = chart ]; then
       path=charts/k8s-borg
     else
-      path="$(job "$BUILD_WF" "$j" | awk '$1 == "image:" { print $2 }')"
+      path="$(wf_job "$BUILD_WF" "$j" | awk '$1 == "image:" { print $2 }')"
     fi
     grep -qx "$j" <<<"$needs" || fail "the sign job does not wait for $j"
     var="$(signed_var "$path" "$j")"
@@ -112,7 +91,7 @@ signed_var() {
     grep -qF "\"\$$var\"" <<<"$verify" || fail "$path (\$$var) is not verified after signing"
   done
   local chart
-  chart="$(job "$BUILD_WF" chart)"
+  chart="$(wf_job "$BUILD_WF" chart)"
   grep -qF 'digest: ${{ steps.push.outputs.digest }}' <<<"$chart" || fail "the chart job does not output a digest"
   grep -qF 'out="$(helm push ' <<<"$chart" && grep -qF "sed -n 's/^Digest: " <<<"$chart" \
     || fail "the chart's digest no longer comes from what helm push reported"

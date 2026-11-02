@@ -87,6 +87,11 @@
   commands. `tests/release-signing.bats` keeps the workflows from dropping any
   of it.
 
+* **Versions with a suffix are prereleases.** A tag such as `1.2.4-beta.1` or
+  the chart revision `1.2.3-1` is published as a GitHub prerelease, never as
+  the repository's Latest release, and no longer moves the images' `latest`
+  tags.
+
 ## 1.2.3
 
 * **Borg UI 2.4.6.** The `borg-ui` submodule moves to the v2.4.6 release
