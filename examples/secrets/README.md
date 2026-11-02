@@ -1,7 +1,12 @@
 # Secrets
 
-The manifests here are **placeholders** — they show which keys each Secret that
-[`../helm/k8s-borg.yaml`](../helm/k8s-borg.yaml) references needs.
+The manifests here are **placeholders** for the two Secrets you create yourself
+for [`../helm/k8s-borg.yaml`](../helm/k8s-borg.yaml), with the keys it reads
+from them. The database credentials need no Secret of yours: the chart reads
+them from the Secrets the database operators create in each database's
+namespace (`databases.*.instances[].secretRef`), and Borg UI's PostgreSQL
+credentials likewise. The Ingress certificate (`borgui-tls`) comes from your
+certificate issuer.
 
 > ⚠️ **Never commit your real secrets.**
 > Store them in a vault, or encrypt them with [SOPS](https://github.com/getsops/sops)

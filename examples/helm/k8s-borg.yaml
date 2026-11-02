@@ -116,6 +116,8 @@ spec:
 
     s3:
       enabled: true
+      # An S3 server in the cluster, reached over its Service in plain HTTP;
+      # use an https:// endpoint for one outside the cluster or with TLS.
       endpoint: "http://s3.storage.svc:3900"
       # S3 servers that check the SigV4 region, such as Garage, need it.
       region: "eu-central-1"
