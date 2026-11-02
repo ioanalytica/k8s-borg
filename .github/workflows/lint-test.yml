@@ -7,7 +7,7 @@ name: Lint & test
 # Tags are deliberately absent here, or a release would run the suite twice.
 on:
   push:
-    branches: [develop, master]
+    branches: [main]
   pull_request:
   workflow_call:
 
@@ -57,8 +57,9 @@ jobs:
         # The suite uses `run --separate-stderr`, so bats must be >= 1.5.
         # The version is printed to make a future runner-image downgrade
         # obvious in the log.
+        # examples-helm.bats reads the example's HelmRelease with PyYAML.
         run: |
-          sudo apt-get update && sudo apt-get install -y bats
+          sudo apt-get update && sudo apt-get install -y bats python3-yaml
           bats --version
       # chart-repo-server.bats renders the chart.
       # Pinned: without a version the action fetches "latest" from the

@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in the chart, the images or their scripts does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A security issue goes to a [private report](https://github.com/ioanalytica/k8s-borg/security/advisories/new) instead, and a problem in the Borg UI web interface itself to [Borg UI](https://github.com/karanhudia/borg-ui/issues).
+  - type: input
+    id: version
+    attributes:
+      label: k8s-borg version
+      description: The chart version (`helm list`) or the `ghcr.io/ioanalytica/k8s-borg` image tag.
+      placeholder: "1.2.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Standalone (no Borg UI)
+        - Borg UI managed agents
+        - Repository server
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: borg
+    attributes:
+      label: Borg major
+      options:
+        - Borg 1
+        - Borg 2
+    validations:
+      required: true
+  - type: input
+    id: kubernetes
+    attributes:
+      label: Kubernetes
+      description: Distribution and version.
+      placeholder: "k3s v1.34.1, kubeadm 1.33, …"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: values
+    attributes:
+      label: Values
+      description: The chart values that matter, with hosts, keys and passwords removed.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The pod's log around the failure (`kubectl logs`), with secrets removed.
+      render: text

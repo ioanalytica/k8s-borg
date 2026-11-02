@@ -1,6 +1,18 @@
 # Flux: install k8s-borg from the public OCI chart repository.
+#
+# Modelled on a production release, with every site-specific value replaced:
+# backups of the nodes and of the cluster's shared data to a Hetzner Storage
+# Box, database dumps with the credentials taken from the operators' Secrets,
+# a Borg UI server with OIDC login and mail notifications that runs the node
+# backups as managed agents, and a repository server for the clients of other
+# clusters.
+#
 # Sensitive values are referenced from Secrets you create separately (SOPS /
-# Sealed Secrets / External Secrets) — nothing secret lives in this file.
+# Sealed Secrets / External Secrets) — nothing secret lives in this file; see
+# ../secrets for the keys each Secret needs.
+#
+# tests/examples-helm.bats renders these values against the chart and fails on
+# a key chart/values.yaml does not know, so this file cannot drift from the chart.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
@@ -19,41 +31,96 @@ metadata:
   namespace: k8s-borg
 spec:
   interval: 1h
+  # The reconcile Job waits up to borgUI.reconcile.waitSeconds for the server.
+  timeout: 15m
   chart:
     spec:
       chart: k8s-borg
-      version: "1.0.4-0"
+      version: "1.2.3"
       sourceRef:
         kind: HelmRepository
         name: ioanalytica-public
         namespace: flux-system
   values:
-    timezone: "UTC"
-
-    # The shared backup source is yours — mount it here (NFS, PVC, …) at /mnt/nfs
-    # and reference it from config.clusterInclude.
-    extraVolumes:
-      - name: nfs
-        nfs:
-          server: nfs.example.com
-          path: /storage/shared
-    extraVolumeMounts:
-      - name: nfs
-        mountPath: /mnt/nfs
+    timezone: "Europe/Berlin"
 
     borg:
       version: 1
-      # ssh:// works for borg 1 and 2; sftp:// is borg-2-only.
+      # The repositories live on a Hetzner Storage Box, whose Borg 1.4 is
+      # called borg-1.4 (BORG_REPO_BASE: ssh://u123456@u123456.your-storagebox.de:23/./mycluster).
+      remotePath: borg-1.4
       repoBase:
         existingSecret: k8s-borg-secret
         existingSecretKey: BORG_REPO_BASE
       passphrase:
         existingSecret: k8s-borg-secret
         existingSecretKey: BORG_PASSPHRASE
+      dbBackupLocation: "/mnt/nfs/db-backup"
+      # Extra flags for the backup plans Borg UI runs (the node agents).
+      planCustomFlags: "--filter AME --list --exclude-caches"
+      retention:
+        daily: 7
+        weekly: 4
+        monthly: 6
+      # Keyed by pod hostname: the node pods are k8s-borg-<node>, the console
+      # pod is cluster.nodeName.
+      checkSchedule:
+        default: "15 2 * * *"                  # every repository daily …
+        perHost:
+          k8s-borg-mycluster: "15 2 * * 0"     # … the large cluster repository weekly
+      # The node agents' backup plans; without a schedule they only run by hand.
+      backupSchedule:
+        default: "45 * * * *"                  # hourly
+
+    # Every node's own file systems, one repository per node, run as a Borg UI
+    # managed agent. The host's root is mounted read-only at /node.
+    node:
+      backupMode: agent
+      include:
+        - "P fm"
+        - "R /node/etc"
+        - "R /node/home"
+        - "R /node/root"
+      exclude:
+        - "/node/srv"
+
+    # The cluster's shared data: a CronJob every 6 hours, and the console pod,
+    # which enrolls as an agent so that Borg UI shows the repository and runs
+    # its checks and restores.
+    cluster:
+      mode: agent
+      backupMode: cronjob
+      nodeName: "k8s-borg-mycluster"
+      # Mount the shared file system where the CronJob and the console run.
+      extraVolumes:
+        - name: nfs
+          persistentVolumeClaim:
+            claimName: shared-nfs
+      extraVolumeMounts:
+        - name: nfs
+          mountPath: /mnt/nfs
+      s3Buckets:
+        - "gitea-backups"
+        - "longhorn-backups"
+        - "media"
+      include:
+        - "P fm"
+        - "R /mnt/s3"
+        - "R /mnt/nfs/users"
+        - "R /mnt/nfs/volumes"
+        - "R /mnt/nfs/db-backup"               # the database dumps (borg.dbBackupLocation)
+      exclude:
+        - "**/__pycache__/"
+        - "*.pyc"
+        - "/mnt/nfs/volumes/*/cache"
 
     s3:
       enabled: true
-      endpoint: "http://minio.minio.svc:9000"
+      # An S3 server in the cluster, reached over its Service in plain HTTP;
+      # use an https:// endpoint for one outside the cluster or with TLS.
+      endpoint: "http://s3.storage.svc:3900"
+      # S3 servers that check the SigV4 region, such as Garage, need it.
+      region: "eu-central-1"
       accessKey:
         existingSecret: k8s-borg-secret
         existingSecretKey: AWS_KEY
@@ -61,59 +128,161 @@ spec:
         existingSecret: k8s-borg-secret
         existingSecretKey: AWS_SECRET_KEY
 
-    config:
-      clusterInclude:
-        - "P fm"
-        - "R /mnt/s3"
-        - "R /mnt/nfs/users"
-      nodeInclude:
-        - "P fm"
-        - "R /node/etc"
-        - "R /node/home"
-        - "R /node/root"
-      s3Buckets:
-        - "my-bucket-1"
-        - "my-bucket-2"
-
+    # Client key, known_hosts, and the repository server's host key and
+    # authorized_keys, all in one Secret.
     ssh:
       existingSecret: k8s-borg-ssh-secret
 
+    # The credentials come from the Secrets the database operators created in
+    # each database's namespace, read at job start; nothing to keep in sync.
     databases:
       mariadb:
         enabled: true
-        existingSecret: k8s-borg-mariadb-secret
+        instances:
+          - name: wordpress
+            host: wordpress-db.wordpress.svc
+            user: root
+            secretRef:
+              namespace: wordpress
+              name: mariadb
+              passwordKey: root-password
       postgres:
         enabled: true
-        existingSecret: k8s-borg-postgres-secret
+        instances:
+          # Zalando postgres-operator: <user>.<cluster>.credentials.postgresql.acid.zalan.do
+          - name: gitea
+            host: gitea-db.gitea.svc
+            secretRef:
+              namespace: gitea
+              name: postgres.gitea-db.credentials.postgresql.acid.zalan.do
+              usernameKey: username
+              passwordKey: password
+          - name: keycloak
+            host: keycloak-db.keycloak.svc
+            secretRef:
+              namespace: keycloak
+              name: postgres.keycloak-db.credentials.postgresql.acid.zalan.do
+              usernameKey: username
+              passwordKey: password
 
-    cluster:
-      nodeName: "k8s-borg-mycluster"
-    app:
-      nodeName: "k8s-borg-mycluster"
+    # Borg 1 repositories for the clients of other clusters, each key bound to
+    # its own directory (the authorized_keys comment names it).
+    repoServer:
+      enabled: true
+      service:
+        type: LoadBalancer
+        port: 22
+        annotations:
+          metallb.io/loadBalancerIPs: "192.0.2.10"
+      persistence:
+        size: 1Ti
+        local:
+          createPV: true
+          nodeName: storage-node-1
+          path: /srv/borg/repositories
+      tolerations:
+        - key: storage
+          operator: Exists
+          effect: NoSchedule
 
-    # Optional Borg UI server + managed-agent enrollment.
-    # borgUI:
-    #   enabled: true
-    #   ingress:
-    #     enabled: true
-    #     host: borgui.example.com
-    #   adminPassword:
-    #     existingSecret: k8s-borg-secret
-    #     existingSecretKey: BORG_UI_ADMIN_PASS
-    #   agent:
-    #     enabled: true
+    borgUI:
+      enabled: true
+      publicBaseUrl: "https://borgui.example.com"
+      adminUser: "admin"
+      adminPassword:
+        existingSecret: k8s-borg-secret
+        existingSecretKey: BORG_UI_ADMIN_PASS
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        host: "borgui.example.com"
+        tls:
+          enabled: true
+          secretName: borgui-tls
 
+      # The server's own errors are reported to Borg UI's ingest by default.
+      errorReporting:
+        enabled: false
+      # A paid Borg UI plan: an instance-independent key, or an offline
+      # entitlement for air-gapped installs (see "Licensing" in chart/README.md).
+      # licensing:
+      #   licenseKey:
+      #     existingSecret: borgui-license-key
+      #     existingSecretKey: license_key
+
+      # Server state in PostgreSQL (Zalando operator) instead of SQLite.
+      postgres:
+        enabled: true
+        host: "borgui-db.k8s-borg.svc"
+        database: borg
+        existingSecret: "borg.borgui-db.credentials.postgresql.acid.zalan.do"
+      # Redis-compatible cache; mode: internal runs one in the release instead.
+      redis:
+        mode: external
+        auth:
+          existingSecret: k8s-borg-secret
+          existingSecretKey: REDIS_PASSWORD
+        cacheTtlMinutes: "720"
+        external:
+          host: "redis.k8s-borg.svc"
+          port: 6379
+
+      oidc:
+        enabled: true
+        discoveryUrl: "https://id.example.com/.well-known/openid-configuration"
+        clientId: "<client-id>"
+        clientSecret:
+          existingSecret: k8s-borg-secret
+          existingSecretKey: OIDC_CLIENT_SECRET
+        providerName: "Example SSO"
+        tokenAuthMethod: "client_secret_basic"
+        groupClaim: "groups"
+        adminGroups: "admin"
+        newUserMode: "viewer"
+        defaultRole: "viewer"
+        defaultAllRepositoriesRole: "viewer"
+        # Only once OIDC login works: without local login, a lost admin token
+        # cannot be minted again.
+        # disableLocalAuth: true
+
+      # Machines outside the cluster that Borg UI reaches over SSH, among them
+      # the Storage Box itself (port 23). Working with remote clients in Borg UI
+      # needs one of its paid plans.
+      remoteMachines:
+        - { host: "u123456.your-storagebox.de", username: "u123456", port: 23 }
+        - { host: "backup-host.example.com", username: "root", port: 22 }
+
+      notifications:
+        - name: "Ops mail"
+          titlePrefix: "[mycluster]"
+          email:
+            smtp:
+              host: smtp.example.com
+              port: 587
+              mode: starttls
+            username: borgui@example.com
+            password:
+              existingSecret: k8s-borg-secret
+              existingSecretKey: SMTP_PASSWORD
+            from: borgui@example.com
+            fromName: "Borg UI mycluster"
+            to:
+              - ops@example.com
+
+    # The Borg client cache and Borg UI's state on static NFS volumes. Without
+    # createPV the chart claims them from a StorageClass (storageClassName), or
+    # takes an existing claim (existingClaim).
     persistence:
       cache:
         createPV: true
         server: "nfs.example.com"
-        path: "/storage/shared/k8s-borg-cache"
+        path: "/export/k8s-borg/cache"
       ui:
         # retain defaults to true — Borg UI /data survives uninstall
         createPV: true
         server: "nfs.example.com"
-        path: "/storage/shared/k8s-borg-ui"
+        path: "/export/k8s-borg/ui"
       uiAgent:
         createPV: true
         server: "nfs.example.com"
-        path: "/storage/shared/k8s-borg-ui-agent"
+        path: "/export/k8s-borg/ui-agent"

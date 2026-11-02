@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+* **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
+  pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
+  which the chart has since moved; it did not render. It is now modelled on a
+  production release with every site-specific value replaced: node and
+  cluster backups to a Hetzner Storage Box, database credentials from the
+  operators' Secrets, Borg UI with OIDC, notifications and node agents, and a
+  repository server for other clusters.
+  `tests/examples-helm.bats` checks every key it sets against
+  `chart/values.yaml`, renders it as is, without Borg UI and with the cluster
+  backup as a Borg UI plan, and fails when it pins another chart version. The
+  example Secrets carry exactly the keys the release references.
+
+* **Plain manifests removed from `examples/`.** The Kustomize manifests showed
+  a 1.0.4 deployment; with a current image their CronJob would have skipped S3
+  without a word (no `S3_ENABLED`). The chart is the maintained way to deploy;
+  `helm template` renders it to plain YAML.
+
+* **Release notes from the changelog.** A release now starts with its
+  `CHANGELOG.md` entry, followed by GitHub's list of pull requests
+  (`scripts/changelog-section.sh`).
+
+* **Project documents.** `CONTRIBUTING.md` (with a DCO sign-off for
+  contributions), `SECURITY.md` (private reporting through GitHub),
+  `CODE_OF_CONDUCT.md`, issue forms and a pull request template. The README
+  explains why to use k8s-borg, how it compares with Velero, K8up and VolSync,
+  what it and the Borg UI server contact, and what costs money.
+
+* **The `borg-ui` submodule is cloned over HTTPS**, so a clone with
+  `--recurse-submodules` needs no GitHub SSH key.
+
+* **`main` is the default branch.** `develop` is renamed to `main`, the one
+  long-lived branch, with releases as tags on it, as in Borg UI; the stale
+  `master` is gone. Lint & test runs on pushes to `main`, the chart is
+  published from tags only, and the chart's icon is read from `main`.
+
 ## 1.2.3
 
 * **Borg UI 2.4.6.** The `borg-ui` submodule moves to the v2.4.6 release

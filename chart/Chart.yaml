@@ -12,7 +12,7 @@ description: >-
   talking to its own Borg repository. Optional Borg UI server with managed
   agents, and an optional Borg 1/Borg 2 repository server.
 home: https://github.com/ioanalytica/k8s-borg
-icon: https://raw.githubusercontent.com/ioanalytica/k8s-borg/master/icon.png
+icon: https://raw.githubusercontent.com/ioanalytica/k8s-borg/main/icon.png
 sources:
   - https://github.com/ioanalytica/k8s-borg
 

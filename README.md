@@ -1,5 +1,10 @@
 # k8s-borg
 
+[![Lint & test](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml/badge.svg?branch=main)](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml)
+[![Daily CVE scan](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml/badge.svg?branch=main)](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml)
+[![Release](https://img.shields.io/github/v/release/ioanalytica/k8s-borg)](https://github.com/ioanalytica/k8s-borg/releases/latest)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
+
 Backup for Kubernetes clusters with [BorgBackup](https://www.borgbackup.org/),
 packaged as one container image and one Helm chart. k8s-borg runs in production
 on Borg 1.
@@ -11,6 +16,44 @@ in the same release and keep an external copy of its repositories. Optionally, a
 drives the backups as managed agents, and the same server takes agents on hosts
 outside the cluster, so one place shows the backups of clusters and machines
 alike.
+
+## Why k8s-borg
+
+- **One release backs up the whole cluster**: the nodes' file systems, the
+  cluster datastore (etcd or k3s), dumps of MariaDB, MySQL, PostgreSQL, MongoDB,
+  Redis and Valkey, S3 buckets and shared file systems.
+- **Borg, in Kubernetes**: deduplication across runs (database dumps stay
+  uncompressed so that it works), encryption on the client, and repositories on
+  any SSH host with Borg, a Hetzner Storage Box included.
+- **A repository server in the same release**, optional: `borg serve` over SSH,
+  unprivileged, every client key bound to its own directory with permissions
+  the server enforces, and a copy of all repositories on S3 or SFTP for when its
+  storage fails. The chart's own backup pods need full access, since they prune
+  and compact, and the copy is a mirror, so it protects against lost storage,
+  not against deletions; see "External copy" in
+  [`chart/README.md`](chart/README.md#external-copy).
+- **One place for clusters and machines**: with Borg UI, the cluster's backups
+  run as managed agents next to those of hosts outside the cluster.
+- **Restores that are tested**: every database engine's dump and restore runs
+  against real servers in CI, on every push.
+
+```mermaid
+flowchart LR
+  subgraph k8s["Kubernetes cluster: one Helm release"]
+    node["Node DaemonSet<br/>file systems, etcd / k3s datastore, SQLite"]
+    cron["Cluster CronJob<br/>shared file systems, S3 buckets, database dumps"]
+    console["Console pod<br/>inspection and restores"]
+    ui["Borg UI server<br/>(optional)"]
+    rs["Repository server<br/>(optional)"]
+  end
+  ext["Hosts outside the cluster"]
+  ssh[("Borg repositories<br/>on an SSH host,<br/>e.g. a Storage Box")]
+  copy[("External copy<br/>S3, SFTP, rclone")]
+  node & cron & console -->|borg| ssh
+  node & cron & console -.->|or| rs
+  rs -->|mirror| copy
+  ui -.->|managed agents| node & console & ext
+```
 
 ## Features
 
@@ -84,6 +127,19 @@ alike.
 > agents) follow Borg 2 development as closely as possible, so that Borg 2 can
 > be used in full as soon as a production-ready release is out.
 
+## How it compares
+
+k8s-borg backs up data (files, databases, the cluster datastore) into Borg
+repositories. It complements the tools that capture the Kubernetes objects
+themselves rather than replacing them, and can run next to them:
+
+| Tool | Engine | What it is for |
+| --- | --- | --- |
+| [Velero](https://velero.io/) | volume snapshots, Kopia | Kubernetes objects and persistent volumes, restored into a cluster by namespace |
+| [K8up](https://k8up.io/) | restic | Persistent volume claims, and application data through pre-backup commands |
+| [VolSync](https://volsync.readthedocs.io/) | rsync, rclone, restic | Asynchronous replication of persistent volumes, between clusters or to object storage |
+| **k8s-borg** | BorgBackup | Node file systems, the cluster datastore, database dumps, S3 buckets and shared file systems, each in its own Borg repository; optionally a repository server and Borg UI |
+
 ## Install
 
 The chart is published as an OCI artifact; the images live on GitHub Container
@@ -106,8 +162,8 @@ ghcr.io/ioanalytica/k8s-borg-ui:<tag>    # Borg UI server image, built from the 
 For anything beyond a smoke test, keep the sensitive values in a pre-created
 Secret (`existingSecret`). The modes, the repository server, Borg 1 vs 2, the
 Borg UI options and every parameter are documented in
-[`chart/README.md`](chart/README.md). Plain manifests and a Kustomization are in
-[`examples/`](examples).
+[`chart/README.md`](chart/README.md). A Flux `HelmRelease` with the Secrets it
+references is in [`examples/`](examples).
 
 ## Two ways to run
 
@@ -130,6 +186,35 @@ then create, schedule and run **backup plans, maintenance jobs and restores**,
 next to any other agents and repositories that server manages. Enrollment is
 idempotent: an existing `config.toml` skips enrollment as long as the server
 still recognises the agent; otherwise the pod enrolls again.
+
+## What it talks to
+
+k8s-borg's own scripts connect only to what you configure: the Borg
+repositories, the backup sources and databases, the Kubernetes API and, in
+agent mode, the Borg UI server. They send no telemetry.
+
+The Borg UI server, when the chart deploys it, contacts Borg UI's own services
+by default:
+
+- `https://license.borgui.com` on startup and every 24 hours, for its license
+  plan. Air-gapped installs turn this off with `borgUI.licensing.startupSync:
+  false` and `borgUI.licensing.activationServiceUrl: ""`.
+- `https://t.borgui.com/e` with the server's error reports (Borg UI 2.4.1 and
+  later). `borgUI.errorReporting.enabled: false` turns them off.
+
+Analytics and error reports in the browser are a per-user setting in Borg UI.
+See [Licensing](chart/README.md#licensing-borguilicensing) and
+[Error reports](chart/README.md#error-reports-borguierrorreporting) in the chart's
+README.
+
+## Cost
+
+k8s-borg has no paid edition and no features held back. Borg UI, which the
+chart can deploy, has a free community plan and paid plans of its own, and
+some of its features need a paid plan; see
+[Borg UI](https://github.com/karanhudia/borg-ui). The chart applies a Borg UI
+license key or offline entitlement if you have one (`borgUI.licensing`).
+Standalone backups need no Borg UI at all.
 
 ## Configuration
 
@@ -218,7 +303,7 @@ pass. See "Upgrading to Borg 2.0.0b25" in [`chart/README.md`](chart/README.md).
 | `docker/Dockerfile` | Backup/agent/repository server image (build context = repo root) |
 | `docker/rootfs/` | Files copied into the image: `run.sh` (mode dispatch), `run-agent.sh` (enroll + agent), `prepare-repo-server.sh`, the `borg-*` / `backup-*` / `restore-*` / `s3-*` tools, `datastore-snapshot`, `sqlite-copy` and `borg-offsite-copy` (the repository server's external copy) |
 | `docker/docker-build.sh`, `docker-build-runtime-base.sh`, `docker-build-server.sh` | Build helpers (`--push` / multi-arch to GHCR). The runtime-base and **server** images build directly from the submodule's `borg-ui/Dockerfile.runtime-base` and `borg-ui/Dockerfile`, with no copy of the recipe, under our own tag/registry via `--build-arg` / `-t` / `--label` |
-| `examples/` | Plain manifests, a Kustomization, Helm values and Secret templates |
+| `examples/` | A Flux `HelmRelease` of the chart and templates of the Secrets it references |
 | `local/` | A Docker Compose test stack: Borg UI, PostgreSQL, Redis, repository server and an agent from any borg-ui source tree |
 | `tests/` | shellcheck, bats unit tests, the end-to-end suite and the database suite (`tests/e2e/db/`) |
 | `.github/workflows/` | Lint and tests on every push; tag-triggered multi-arch image build and chart push to GHCR; daily Trivy scan |
@@ -265,10 +350,21 @@ git -C borg-ui fetch && git -C borg-ui checkout <commit>
 git add borg-ui && git commit -m "Bump borg-ui submodule"
 ```
 
+## Contributing
+
+Issues, questions in [Discussions](https://github.com/ioanalytica/k8s-borg/discussions)
+and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Report
+security issues privately, as [SECURITY.md](SECURITY.md) describes.
+
 ## License
 
 k8s-borg is licensed under the [GNU Affero General Public License v3.0](LICENSE)
 (`AGPL-3.0-only`).
+
+Installing and running k8s-borg for your own backups asks nothing of you. If you
+distribute k8s-borg, or offer a modified version to others over a network, the
+AGPL requires that you offer them the source of your version under the same
+license.
 
 The images also contain third-party software under its own license, among
 others:
