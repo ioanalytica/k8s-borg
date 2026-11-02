@@ -8,7 +8,8 @@ BORG_BACKUP_SCHEDULE_DIR into every agent pod; `register-backup-plan` picks the
 key matching its own $(hostname). Rendered only when the managed agent is enabled
 and at least one schedule is configured.
 */}}
-{{- if and (include "k8s-borg.anyAgent" .) (or .Values.borg.backupSchedule.default .Values.borg.backupSchedule.perHost) }}
+{{- $default := include "k8s-borg.schedules.value" .Values.borg.backupSchedule.default }}
+{{- if and (include "k8s-borg.anyAgent" .) (or $default .Values.borg.backupSchedule.perHost) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,10 +20,10 @@ metadata:
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 data:
-  {{- with .Values.borg.backupSchedule.default }}
+  {{- with $default }}
   default_backup_schedule: {{ . | quote }}
   {{- end }}
   {{- range $host, $cron := .Values.borg.backupSchedule.perHost }}
-  {{ $host }}_backup_schedule: {{ $cron | quote }}
+  {{ $host }}_backup_schedule: {{ include "k8s-borg.schedules.value" $cron | quote }}
   {{- end }}
 {{- end }}

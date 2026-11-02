@@ -11,6 +11,8 @@
 # A node plan carries --one-file-system in its custom flags, a cluster plan
 # does not. A node with no existing root left disables its plan instead of
 # leaving it unchanged; a cluster plan is left unchanged.
+# The plan takes the pod's own cron, else the default; "off" keeps it off the
+# default, without a schedule.
 #
 # curl is a stub that answers the endpoints the script talks to and keeps the
 # plan payload in $TMP/payload. An existing plan (id 1) is $TMP/plan, disabled
@@ -303,4 +305,33 @@ node_patterns() {
   [[ "$output" == *"WARNING: file systems of the node below a root are skipped by --one-file-system"* ]] || fail "$output"
   [[ "$output" == *"$TMP/patterns (ext4 /dev/sdb1)"* ]] || fail "$output"
   [[ "$output" != *"$TMP/schedules"* ]] || fail "$output"
+}
+
+# --- the schedule ----------------------------------------------------------------
+
+# schedule — the plan's "<schedule_enabled> <cron_expression>".
+schedule() {
+  python3 -c 'import json,sys; p = json.load(open(sys.argv[1])); print(p["schedule_enabled"], p["cron_expression"])' "$TMP/payload"
+}
+
+@test "the plan takes the pod's own cron, else the default" {
+  mkdir -p "$TMP/schedules"
+  printf '0 2 * * *' >"$TMP/schedules/default_backup_schedule"
+  run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(schedule)" = "True 0 2 * * *" ] || fail "$(schedule)"
+  printf '0 */4 * * *' >"$TMP/schedules/console_backup_schedule"
+  run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(schedule)" = "True 0 */4 * * *" ] || fail "$(schedule)"
+}
+
+@test "off keeps the plan off the default schedule" {
+  mkdir -p "$TMP/schedules"
+  printf '0 2 * * *' >"$TMP/schedules/default_backup_schedule"
+  printf 'off' >"$TMP/schedules/console_backup_schedule"
+  run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(schedule)" = "False None" ] || fail "$(schedule)"
+  [[ "$output" == *"(no schedule — run manually)"* ]] || fail "$output"
 }

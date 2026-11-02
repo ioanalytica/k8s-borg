@@ -168,17 +168,19 @@ borg:
   ## POD HOSTNAME (`<hostname>_check_schedule`) and falling back to `default`.
   ## Only used by components running as managed agents (node.backupMode=agent or
   ## cluster.mode=agent). Leave both empty to create no schedules. A change rolls
-  ## the agent pods, so that they apply it. `set-check-schedule` only sets a
-  ## schedule: one removed from here stays in Borg UI until turned off there.
+  ## the agent pods, so that they apply it. A schedule removed from here is
+  ## removed from Borg UI too, unless it was given another cron there since; one
+  ## set by hand in Borg UI is left alone. "off" (perHost or default) removes a
+  ## pod's schedule whoever set it, and keeps a pod off `default`.
   ## perHost keys are pod hostnames, not node or release names:
   ##   - the console pod: cluster.nodeName itself (default "k8s-borg-mycluster");
   ##   - a node pod: "k8s-borg-" + its Kubernetes node name (node01 → "k8s-borg-node01").
   ## A pod without a matching key gets `default`. The install notes name keys that
   ## no agent pod applies.
   checkSchedule:
-    ## @param borg.checkSchedule.default Fallback cron for pods without a perHost entry (empty = no default)
+    ## @param borg.checkSchedule.default Fallback cron for pods without a perHost entry (empty = no default, "off" = remove every pod's schedule)
     default: ""
-    ## @param borg.checkSchedule.perHost Cron per pod hostname: cluster.nodeName for the console pod, "k8s-borg-<node name>" for a node pod, e.g. { k8s-borg-mycluster: "0 4 * * 0", k8s-borg-node01: "0 3 * * *" }
+    ## @param borg.checkSchedule.perHost Cron or "off" per pod hostname: cluster.nodeName for the console pod, "k8s-borg-<node name>" for a node pod, e.g. { k8s-borg-mycluster: "0 4 * * 0", k8s-borg-node01: "0 3 * * *", k8s-borg-node02: "off" }
     perHost: {}
   ## Scheduled backups (borg create via a server-side backup plan). Same shape and
   ## POD-HOSTNAME keys as checkSchedule; each agent pod applies its own cron via
@@ -187,11 +189,12 @@ borg:
   ## node.include/exclude and cluster.include/exclude (the /root/.borg pattern
   ## files), not from here. Leave both empty to create plans without a schedule
   ## (they can still be run manually). A change rolls the agent pods, as above;
-  ## a removed schedule turns the plan's schedule off.
+  ## a removed schedule turns the plan's schedule off, and "off" keeps a pod's
+  ## plan off `default`.
   backupSchedule:
     ## @param borg.backupSchedule.default Fallback backup cron for pods without a perHost entry (empty = no default)
     default: ""
-    ## @param borg.backupSchedule.perHost Backup cron per pod hostname: cluster.nodeName for the console pod, "k8s-borg-<node name>" for a node pod, e.g. { k8s-borg-mycluster: "0 2 * * 0", k8s-borg-node01: "0 2 * * *" }
+    ## @param borg.backupSchedule.perHost Backup cron or "off" per pod hostname: cluster.nodeName for the console pod, "k8s-borg-<node name>" for a node pod, e.g. { k8s-borg-mycluster: "0 2 * * 0", k8s-borg-node01: "0 2 * * *", k8s-borg-node02: "off" }
     perHost: {}
 
 ## @section S3 sources (cluster/app jobs)

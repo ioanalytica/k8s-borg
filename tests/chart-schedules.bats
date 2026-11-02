@@ -81,6 +81,26 @@ changed() {
   object ConfigMap rel-k8s-borg-backup-schedules | grep -q 'k8s-borg-node01_backup_schedule: "30 2 \* \* \*"$'
 }
 
+@test "off reaches the pods as off, also unquoted" {
+  # YAML 1.1 reads an unquoted off as false.
+  cat >"$BATS_TEST_TMPDIR/off.yaml" <<'YAML'
+borg:
+  checkSchedule:
+    default: off
+    perHost:
+      k8s-borg-mycluster: off
+      k8s-borg-node01: "off"
+  backupSchedule:
+    perHost:
+      k8s-borg-node01: off
+YAML
+  RENDERED="$(render "${AGENTS[@]}" -f "$BATS_TEST_TMPDIR/off.yaml")"
+  object ConfigMap rel-k8s-borg-check-schedules | grep -q '^  default_check_schedule: "off"$'
+  object ConfigMap rel-k8s-borg-check-schedules | grep -q '^  k8s-borg-mycluster_check_schedule: "off"$'
+  object ConfigMap rel-k8s-borg-check-schedules | grep -q '^  k8s-borg-node01_check_schedule: "off"$'
+  object ConfigMap rel-k8s-borg-backup-schedules | grep -q '^  k8s-borg-node01_backup_schedule: "off"$'
+}
+
 # --- rolling the pods ----------------------------------------------------------
 
 @test "a check-schedule change rolls the console pod and the node pods" {

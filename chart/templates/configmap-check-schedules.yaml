@@ -8,7 +8,8 @@ BORG_CHECK_SCHEDULE_DIR into every agent pod; `set-check-schedule` picks the key
 matching its own $(hostname). Rendered only when the managed agent is enabled and
 at least one schedule is configured.
 */}}
-{{- if and (include "k8s-borg.anyAgent" .) (or .Values.borg.checkSchedule.default .Values.borg.checkSchedule.perHost) }}
+{{- $default := include "k8s-borg.schedules.value" .Values.borg.checkSchedule.default }}
+{{- if and (include "k8s-borg.anyAgent" .) (or $default .Values.borg.checkSchedule.perHost) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,10 +20,10 @@ metadata:
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 data:
-  {{- with .Values.borg.checkSchedule.default }}
+  {{- with $default }}
   default_check_schedule: {{ . | quote }}
   {{- end }}
   {{- range $host, $cron := .Values.borg.checkSchedule.perHost }}
-  {{ $host }}_check_schedule: {{ $cron | quote }}
+  {{ $host }}_check_schedule: {{ include "k8s-borg.schedules.value" $cron | quote }}
   {{- end }}
 {{- end }}
