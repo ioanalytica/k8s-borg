@@ -171,7 +171,10 @@ authentication (a key file), which the tests initiate, and `dst2` is a
 standalone server; the tests reach them with the image's pymongo
 (`helpers/mongodb.py`), as the image has no MongoDB shell. For Redis and
 Valkey, `dst2` is replaced by a cluster of three primaries `c1`–`c3`, TLS
-only, with a certificate `run.sh` makes for their hostnames (`openssl`).
+only, with a certificate `run.sh` makes for their hostnames (`openssl`). The
+tests write to the cluster once every node knows the others by these
+hostnames (before that, a node redirects to one as `?`), and stop a
+`valkey-cli` call that takes longer than 60 s (`RD_TIMEOUT`).
 
 SQLite has no server. Its `src` is the application: two writers under
 constant load, one in WAL mode and one with a rollback journal
