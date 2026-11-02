@@ -29,6 +29,18 @@ Mode:
   a Borg UI server.
 {{- end }}
 
+{{- with include "k8s-borg.schedules.unusedKeys" . | trim }}
+
+WARNING: no agent pod applies these schedules:
+{{- range splitList "\n" . }}
+  • {{ . }}
+{{- end }}
+  The keys are pod hostnames. The console pod is "{{ $.Values.cluster.nodeName }}" (cluster.nodeName)
+  and applies schedules with cluster.mode=agent, its backup schedule with
+  cluster.backupMode=plan only. A node pod is "k8s-borg-<node name>" and applies
+  them with node.backupMode=agent.
+{{- end }}
+
 {{- if .Values.borgUI.enabled }}
 
 Borg UI server:

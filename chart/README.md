@@ -138,6 +138,50 @@ cluster:
       pg_dumpall > /mnt/cluster/db.sql
 ```
 
+### Check and backup schedules
+
+A managed agent takes its `borg check` schedule from `borg.checkSchedule` and
+the schedule of its backup plan from `borg.backupSchedule`. Each pod looks up
+its own hostname in `perHost` and falls back to `default`:
+
+| Pod | Hostname, the `perHost` key |
+| --- | --- |
+| console pod (`cluster.mode=agent`) | `cluster.nodeName` itself (default `k8s-borg-mycluster`) |
+| node pod (`node.backupMode=agent`) | `k8s-borg-<node name>`, e.g. `k8s-borg-node01` on node `node01` |
+
+The console pod applies the backup schedule only with `cluster.backupMode=plan`;
+in `cronjob` mode `cluster.schedule` runs the cluster backup.
+
+```yaml
+cluster:
+  nodeName: k8s-borg-mycluster
+borg:
+  checkSchedule:
+    default: "0 3 * * *"
+    perHost:
+      k8s-borg-mycluster: "0 4 * * 0"   # the console pod: cluster.nodeName
+  backupSchedule:
+    default: "0 2 * * *"
+    perHost:
+      k8s-borg-mycluster: "0 */4 * * *"
+      k8s-borg-node01: "30 2 * * *"     # the node pod on node node01
+```
+
+A key that is no pod's hostname is never read: the pod it was meant for runs
+on `default`. `helm install` and `helm upgrade` list the keys that no agent pod
+applies; a key that starts with `k8s-borg-` counts as a node pod's, as the chart
+does not know the node names.
+
+The agents apply their schedules when they start, so a change rolls the pods
+that apply it: `borg.checkSchedule` the console pod (`cluster.mode=agent`) and
+the node pods (`node.backupMode=agent`), `borg.backupSchedule` the node pods
+and, with `cluster.backupMode=plan`, the console pod. The section counts as a
+whole: a change to one node's key rolls every pod that applies the section.
+
+`set-check-schedule` only sets a check schedule: one removed from the values
+stays in Borg UI until you turn it off there. A removed backup schedule turns
+the plan's schedule off, as `register-backup-plan` rewrites the whole plan.
+
 ## Database dumps
 
 Each cluster backup first dumps every instance of the configured engines
@@ -1306,7 +1350,7 @@ Parameters are grouped and documented inline in [`values.yaml`](values.yaml)
 | Section | Highlights |
 | --- | --- |
 | `image`, `initImage` | agent image (defaults to appVersion) |
-| `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2) |
+| `borg` | `version`, `repoBase`, `passphrase`, `remotePath`, retention, archive naming — see [Borg 1 vs 2](#borg-1-vs-2); `checkSchedule`/`backupSchedule` for managed agents, keyed by pod hostname — see [Check and backup schedules](#check-and-backup-schedules) |
 | `s3` | S3 sources mounted via s3fs: `endpoint`, `region` (SigV4 region; empty = s3fs's `us-east-1`, which servers that check the region, such as Garage, refuse), `mountPath`, credentials, `verifyListing`, `onMountFailure`. A bucket that cannot be listed within 30 seconds after mounting is reported with the bucket, endpoint and region. With `onMountFailure: skip` (default) the start goes on without it and stops only when no bucket can be mounted (a wrong endpoint, region or credentials); each cluster backup then ends with a warning that names the bucket (in plan mode through the pre-backup hook `s3-check-mounts`, as a warning in Borg UI; the hook continues on error, so the other sources are backed up even when no bucket is mounted). With `onMountFailure: fail` one such bucket stops the start. Before each cluster backup, `verifyListing` (default on) compares each mount with the bucket's listing through the S3 API; a mount that misses objects, or that is not mounted, is mounted again, and one that still misses them fails the run. In plan mode the console pod's mounts live as long as the pod, so each plan run first mounts every bucket fresh (pre-backup hook `s3-remount-buckets`, the same mount and policy as at the start), then runs the check as the hook `s3-verify-listing`, ahead of `s3-check-mounts`, and a bucket that still misses objects ends the run with a warning in Borg UI (Borg UI has no way to fail a plan run after its backup) |
 | `ssh`, `databases` | SSH key + MariaDB/MySQL/PostgreSQL/MongoDB logical-dump and Redis/Valkey RDB configs (→ Secrets) |
 | `node` / `cluster` | the two backup scopes. `node` is the DaemonSet; `cluster` is the CronJob **and** the console/agent StatefulSet (they share `cluster.nodeName`/`resources`/`extraVolumes`/`nodeSelector`/`affinity`/`tolerations`, pinned to the storage node). `cluster.mode` (legacy/agent) and `cluster.backupMode` (cronjob/plan) select enrollment and scheduling. Borg include/exclude patterns (+ `cluster.s3Buckets`) live under each scope: `node.include`/`node.exclude`, `cluster.include`/`cluster.exclude`. `node.datastoreSnapshot` adds the cluster datastore — see [Cluster datastore snapshot](#cluster-datastore-snapshot) |

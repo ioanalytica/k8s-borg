@@ -163,27 +163,35 @@ borg:
     ## @param borg.backupMaintenance.checkExtraFlags Extra flags for the post-backup check (e.g. "--verify-data")
     checkExtraFlags: ""
   ## Scheduled repository integrity checks (borg check). Rendered into a ConfigMap
-  ## and mounted at BORG_CHECK_SCHEDULE_DIR; at startup each agent pod applies its
-  ## own schedule via `set-check-schedule`, selecting the key that matches its
+  ## and mounted at BORG_CHECK_SCHEDULE_DIR; when an agent pod starts it applies
+  ## its own schedule via `set-check-schedule`, selecting the key that matches its
   ## POD HOSTNAME (`<hostname>_check_schedule`) and falling back to `default`.
   ## Only used by components running as managed agents (node.backupMode=agent or
-  ## cluster.backupMode=plan). Leave both empty to create no schedules.
-  ## Pod hostnames: DaemonSet nodes are "k8s-borg-<node>", the console/agent pod is
-  ## its cluster.nodeName.
+  ## cluster.mode=agent). Leave both empty to create no schedules. A change rolls
+  ## the agent pods, so that they apply it. `set-check-schedule` only sets a
+  ## schedule: one removed from here stays in Borg UI until turned off there.
+  ## perHost keys are pod hostnames, not node or release names:
+  ##   - the console pod: cluster.nodeName itself (default "k8s-borg-mycluster");
+  ##   - a node pod: "k8s-borg-" + its Kubernetes node name (node01 → "k8s-borg-node01").
+  ## A pod without a matching key gets `default`. The install notes name keys that
+  ## no agent pod applies.
   checkSchedule:
     ## @param borg.checkSchedule.default Fallback cron for pods without a perHost entry (empty = no default)
     default: ""
-    ## @param borg.checkSchedule.perHost Per-pod-hostname cron map, e.g. { k8s-borg-node01: "0 3 * * *", console: "0 4 * * 0" }
+    ## @param borg.checkSchedule.perHost Cron per pod hostname: cluster.nodeName for the console pod, "k8s-borg-<node name>" for a node pod, e.g. { k8s-borg-mycluster: "0 4 * * 0", k8s-borg-node01: "0 3 * * *" }
     perHost: {}
   ## Scheduled backups (borg create via a server-side backup plan). Same shape and
-  ## POD-HOSTNAME keying as checkSchedule; each agent pod applies its own cron via
-  ## `register-backup-plan`, mounted at BORG_BACKUP_SCHEDULE_DIR. Sources/excludes
-  ## come from config.* (the /root/.borg pattern files), not from here. Leave both
-  ## empty to create plans without a schedule (they can still be run manually).
+  ## POD-HOSTNAME keys as checkSchedule; each agent pod applies its own cron via
+  ## `register-backup-plan`, mounted at BORG_BACKUP_SCHEDULE_DIR. The console pod
+  ## registers a plan only with cluster.backupMode=plan. Sources/excludes come from
+  ## node.include/exclude and cluster.include/exclude (the /root/.borg pattern
+  ## files), not from here. Leave both empty to create plans without a schedule
+  ## (they can still be run manually). A change rolls the agent pods, as above;
+  ## a removed schedule turns the plan's schedule off.
   backupSchedule:
     ## @param borg.backupSchedule.default Fallback backup cron for pods without a perHost entry (empty = no default)
     default: ""
-    ## @param borg.backupSchedule.perHost Per-pod-hostname backup cron map, e.g. { k8s-borg-node01: "0 2 * * *", console: "0 2 * * 0" }
+    ## @param borg.backupSchedule.perHost Backup cron per pod hostname: cluster.nodeName for the console pod, "k8s-borg-<node name>" for a node pod, e.g. { k8s-borg-mycluster: "0 2 * * 0", k8s-borg-node01: "0 2 * * *" }
     perHost: {}
 
 ## @section S3 sources (cluster/app jobs)
@@ -540,7 +548,8 @@ cluster:
   ##   and never changes the backup's exit code.
   borgUiResync: true
   ## @param cluster.nodeName Logical NODE_NAME for the cluster repo — used by BOTH the
-  ##   CronJob and the console/agent pod (its Borg UI agent/repo/schedule key)
+  ##   CronJob and the console/agent pod (its hostname: the Borg UI agent/repo name and
+  ##   its key in borg.checkSchedule.perHost / borg.backupSchedule.perHost)
   nodeName: "k8s-borg-mycluster"
   ## @param cluster.concurrencyPolicy CronJob concurrency policy
   concurrencyPolicy: Forbid
