@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+* **A check schedule removed from the values is removed from Borg UI.** The
+  agent pods rolled for it since #89, but `set-check-schedule` left the
+  schedule it had set enabled (#91). It now records the cron it sets on the
+  agent's volume and, once no cron is configured, removes the schedule while
+  Borg UI still has that cron; a check schedule set by hand in Borg UI, or
+  given another cron there, stays, also in releases without
+  `borg.checkSchedule`. An agent that enrols anew (a new or rebuilt Borg UI)
+  drops the record. A schedule set by an older version counts as the chart's
+  after the first start with this one. `off` in `borg.checkSchedule` removes a
+  pod's check schedule whoever set it, and in both schedules keeps a pod off
+  `default` (for a backup plan: no schedule); an unquoted `off`, YAML's
+  `false`, counts too. `tests/set-check-schedule.bats` and
+  `tests/run-agent.bats` cover the scripts.
+
 * **Lint & test is faster.** The Borg end-to-end suite runs Borg 1 and Borg 2
   as jobs side by side instead of one after the other (7 and 14 minutes, 22
   for the job), and Borg 2 in two parts by file, behind the same required

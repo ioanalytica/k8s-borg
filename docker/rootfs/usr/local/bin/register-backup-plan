@@ -80,6 +80,8 @@
 #   2. $BORG_BACKUP_SCHEDULE_DIR/<repo_name>_backup_schedule
 #   3. $BORG_BACKUP_SCHEDULE_DIR/default_backup_schedule
 #   4. none -> plan created but schedule disabled (run manually / schedule later)
+# The value "off" is the same as none, and keeps a pod with that per-repo key
+# off the fallback.
 #
 set -euo pipefail
 
@@ -123,6 +125,7 @@ fi
 
 # --- backup cron (override / ConfigMap; optional) ----------------------------
 cron=$(borgui_resolve_cron "${BORG_BACKUP_CRON:-}" "${BORG_BACKUP_SCHEDULE_DIR}" "_backup_schedule")
+[ "$cron" != "off" ] || cron=""
 
 # --- admin bearer token (PAT-first; reuses BORG_UI_JWT if a parent set it) ----
 jwt=$(borgui_bearer) || borgui_die "could not authenticate to Borg UI"

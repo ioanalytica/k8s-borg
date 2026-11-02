@@ -178,9 +178,33 @@ the node pods (`node.backupMode=agent`), `borg.backupSchedule` the node pods
 and, with `cluster.backupMode=plan`, the console pod. The section counts as a
 whole: a change to one node's key rolls every pod that applies the section.
 
-`set-check-schedule` only sets a check schedule: one removed from the values
-stays in Borg UI until you turn it off there. A removed backup schedule turns
-the plan's schedule off, as `register-backup-plan` rewrites the whole plan.
+A check schedule removed from the values is removed from Borg UI as well:
+`set-check-schedule` records the cron it set on the agent's volume
+(`/etc/borg-ui-agent/check-schedule-owned`) and removes the schedule only
+while Borg UI still has that cron for the repository. A check schedule set by
+hand in Borg UI, or given another cron there, stays, and so does every one in
+a release without `borg.checkSchedule`. The record holds for the Borg UI the
+agent is enrolled at: an agent that enrols anew, at a new or rebuilt server,
+drops it. It is written from this version on: a schedule set by an older
+version counts as the chart's once a pod has started with the new version and
+found it still set. Removed in the same update, it stays in Borg UI; turn it
+off there, or with `off`.
+
+`off` removes a pod's check schedule whoever set it, and keeps the pod off
+`default`; `default: "off"` does so for every pod without a `perHost` entry.
+For a backup schedule `off` means a plan without schedule, also with a
+`default`. An unquoted `off` is read as `false` by YAML and counts as `off`.
+
+```yaml
+borg:
+  checkSchedule:
+    default: "0 3 * * *"
+    perHost:
+      k8s-borg-node02: "off"   # no check schedule on node02, also none set by hand
+```
+
+A removed backup schedule turns the plan's schedule off, as
+`register-backup-plan` rewrites the whole plan.
 
 ## Database dumps
 

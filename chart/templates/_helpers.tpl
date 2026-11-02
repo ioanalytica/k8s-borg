@@ -305,6 +305,19 @@ true
 {{- end -}}
 
 {{/*
+A borg.checkSchedule / borg.backupSchedule value as the agent pods read it.
+Helm reads values as YAML 1.1, which takes an unquoted off for false: that is
+"off" too. Empty for an empty or null value.
+*/}}
+{{- define "k8s-borg.schedules.value" -}}
+{{- if and (kindIs "bool" .) (not .) -}}
+off
+{{- else if not (kindIs "invalid" .) -}}
+{{- . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 perHost schedule keys that no agent pod applies, one values path per line. The
 keys are pod hostnames: the console pod's is cluster.nodeName (it applies the
 check schedule as an agent, the backup schedule in plan mode only), a node

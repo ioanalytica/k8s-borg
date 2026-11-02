@@ -19,9 +19,13 @@
 #
 set -euo pipefail
 
-. /usr/local/lib/borgui-common.sh
+# shellcheck source=usr/local/lib/borgui-common.sh
+. "${BORG_LIB_DIR:-/usr/local/lib}/borgui-common.sh"
 
 : "${BORG_UI_CONFIG:=/etc/borg-ui-agent/config.toml}"   # <- the fix: never empty
+# The check schedule set-check-schedule set itself (see there).
+: "${BORG_CHECK_SCHEDULE_OWNED:=/etc/borg-ui-agent/check-schedule-owned}"
+export BORG_CHECK_SCHEDULE_OWNED
 
 if [ "${BORG_UI_AGENT:-}" = "true" ]; then
   borgui_require_server
@@ -52,6 +56,9 @@ if [ "${BORG_UI_AGENT:-}" = "true" ]; then
       echo "Stale enrolment: config present but the server has no queueable agent '${BORG_UI_AGENT_NAME}' (server re-created?) — re-enrolling." >&2
       rm -f "$BORG_UI_CONFIG"
     fi
+    # A server that does not know this agent got no check schedule from it
+    # either: a matching one there was set by hand.
+    rm -f "$BORG_CHECK_SCHEDULE_OWNED"
     echo "Enrolling '${BORG_UI_AGENT_NAME}' at ${BORG_UI_SERVER} …"
 
     # admin token -> one-time enrollment token
