@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+* **Borg UI's claim only with Borg UI.** The chart created the claim of
+  `persistence.ui`, and with `createPV` its static PV, in every release, also
+  without Borg UI (`borgUI.enabled: false`, the default), where no pod mounts
+  it. On storage that binds a claim only for its first pod
+  (`WaitForFirstConsumer`, such as the local-path class of k3s and kind) it
+  stayed `Pending`, and `helm install --wait` and `helm upgrade --wait` waited
+  for it until they timed out; elsewhere it held an unused volume. Both now
+  come only with Borg UI; `cache` and `uiAgent` are unchanged, and so is a
+  release with `existingClaim`, for which the chart creates neither. When a
+  release has no Borg UI after an upgrade, Helm lets go of the claim and PV:
+  with `persistence.ui.retain: true`, the default, they stay
+  (`helm.sh/resource-policy: keep`), and Helm takes them back when Borg UI is
+  turned on again; with `retain: false` the upgrade deletes them, and a volume
+  the StorageClass provisioned goes with its claim unless its reclaim policy
+  is `Retain`. What counts is the annotation they already carry: a `retain`
+  changed in the same upgrade does not reach them. The claim was mounted only
+  while Borg UI ran: to keep what an earlier Borg UI left in it, annotate it,
+  and with `createPV` its PV, with `helm.sh/resource-policy=keep` before the
+  upgrade. `tests/chart-persistence.bats` covers it.
+
+* **A warning when no root holds the database dumps.** The cluster backup
+  archives the dumps only from its roots in `cluster.include`, and the chart
+  does not add `borg.dbBackupLocation` there: with an engine configured and
+  neither that directory nor one above it as an `R` root, every backup wrote
+  the dumps but did not archive them, in plan and CronJob mode alike, and
+  nothing said so. The notes of `helm install` and `helm upgrade` now end
+  with a `WARNING` that names the `R` line to add. The paths are compared as
+  `register-backup-plan` compares them; a root below the directory does not
+  count. The notes do not look at `cluster.exclude`, whose patterns can still
+  leave the dumps out. A warning, not a render failure: a release may archive
+  the dumps some other way. `tests/chart-db-engines.bats` covers it.
+
 * **The database dumps are in the cluster plan also when their directory is
   new.** With `cluster.backupMode=plan` the plan takes only the roots that
   exist when the console pod starts, and the dumps are written later, by its

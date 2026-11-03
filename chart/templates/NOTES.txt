@@ -41,6 +41,14 @@ WARNING: no agent pod applies these schedules:
   them with node.backupMode=agent.
 {{- end }}
 
+{{- if include "k8s-borg.databases.uncovered" . }}
+
+WARNING: the database dumps are written but not archived: no root of
+  cluster.include is borg.dbBackupLocation ({{ .Values.borg.dbBackupLocation }}) or a directory
+  above it. Add one to cluster.include, such as
+    - "R {{ .Values.borg.dbBackupLocation }}"
+{{- end }}
+
 {{- if .Values.borgUI.enabled }}
 
 Borg UI server:

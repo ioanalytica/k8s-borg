@@ -8,6 +8,10 @@
 # console pod has them in BORG_DB_ENGINES too: in plan mode it creates
 # borg.dbBackupLocation for them before it registers the plan. An
 # enabled engine with nothing configured fails the render, naming the engine.
+# The install notes warn when the cluster backup dumps a configured engine and
+# no "R" root of cluster.include is borg.dbBackupLocation or one above it: the
+# dumps would be written but not archived. A warning, not a failure: a release
+# may archive them some other way.
 #
 # The engines come from the chart's k8s-borg.databases.supported, so a new
 # engine is covered here as soon as it is added there.
@@ -66,6 +70,12 @@ cron_engines() {
 console_engines() {
   plan "$@" | awk '/^kind: /{k=$2} k=="StatefulSet" && /name: BORG_DB_ENGINES$/{getline; print; exit}' \
     | sed 's/^ *value: //' | tr -d '"'
+}
+# notes ARGS… — the install notes, rendered without a cluster; fails when helm does.
+notes() {
+  local out
+  out="$(KUBECONFIG="$TMP/no-cluster" helm install rel "$CHART" -n backup -f "$VALUES" --dry-run=client "$@")" || return
+  sed -n '/^NOTES:/,$p' <<<"$out"
 }
 db_volumes() {
   local kind=$1; shift
@@ -144,4 +154,46 @@ db_volumes() {
         || fail "$engine/$mode: $output"
     done
   done
+}
+
+# --- the install notes: dumps no root archives --------------------------------
+
+@test "the install notes warn when no root of cluster.include holds the dumps" {
+  for mode in plan cronjob; do
+    out="$(notes $(only postgres) --set cluster.mode=agent --set cluster.backupMode=$mode)"
+    [[ "$out" == *"WARNING: the database dumps are written but not archived"* ]] || fail "$mode: $out"
+    [[ "$out" == *"borg.dbBackupLocation (/mnt/nfs/data/db-backup)"* ]] || fail "$mode: $out"
+    [[ "$out" == *'- "R /mnt/nfs/data/db-backup"'* ]] || fail "$mode: $out"
+  done
+}
+
+@test "the install notes do not warn when a root is the dump directory or one above it" {
+  local root
+  for root in /mnt/nfs/data/db-backup /mnt/nfs/data/db-backup/ /mnt/nfs/data /mnt/nfs/ /; do
+    out="$(notes $(only postgres) --set "cluster.include={P fm,R /mnt/s3,R $root}")"
+    [[ "$out" == NOTES:* ]] || fail "$root: no notes: $out"
+    [[ "$out" != *"not archived"* ]] || fail "$root: $out"
+  done
+  # Compared as paths: a location with .. is the directory it names.
+  out="$(notes $(only postgres) --set borg.dbBackupLocation=/mnt/nfs/data/../dumps --set 'cluster.include={R /mnt/nfs/dumps}')"
+  [[ "$out" != *"not archived"* ]] || fail "$out"
+}
+
+@test "the install notes warn when the only root is below the dump directory, or merely starts like it" {
+  local root
+  for root in /mnt/nfs/data/db-backup/postgres /mnt/nfs/data/db; do
+    out="$(notes $(only postgres) --set "cluster.include={P fm,R $root}")"
+    [[ "$out" == *"WARNING: the database dumps are written but not archived"* ]] || fail "$root: $out"
+  done
+}
+
+@test "the install notes do not warn without a configured engine or without the cluster backup" {
+  out="$(notes)"
+  [[ "$out" == NOTES:* ]] || fail "no notes: $out"
+  [[ "$out" != *"not archived"* ]] || fail "no engine: $out"
+  out="$(notes --set databases.postgres.enabled=false --set databases.postgres.existingSecret=postgres-creds)"
+  [[ "$out" != *"not archived"* ]] || fail "engine not enabled: $out"
+  out="$(notes $(only postgres) --set cluster.enabled=false)"
+  [[ "$out" == NOTES:* ]] || fail "no notes: $out"
+  [[ "$out" != *"not archived"* ]] || fail "no cluster backup: $out"
 }

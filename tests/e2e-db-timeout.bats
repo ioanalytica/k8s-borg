@@ -11,6 +11,10 @@
 # that has not arrived yet: like the docker CLI, ended it creates nothing, and
 # left alone it creates its container once the image is there — after run.sh
 # has cleaned up, if run.sh merely gave up on it.
+#
+# Every sleep of a test, run.sh's watchdog's and the fakes', runs as
+# $TMP/bin/sleep, a name of that test alone: a run of the suite in another
+# checkout on the same machine sleeps as long, and must not count.
 
 setup() {
   load helpers/common
@@ -51,15 +55,35 @@ esac
 exit 0
 EOF
   chmod +x "$TMP/bin/docker"
+  REAL_SLEEP="$(command -v sleep)"
+  cat >"$TMP/bin/sleep" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >>"$TMP/sleeps"
+exec -a "$TMP/bin/sleep" "$REAL_SLEEP" "\$@"
+EOF
+  chmod +x "$TMP/bin/sleep"
+  # $TMP as an extended regular expression, for pgrep -f and pkill -f.
+  TMP_RE="$(printf '%s' "$TMP" | sed 's/[][\.^$*+?(){}|]/\\&/g')"
   export PATH="$TMP/bin:$PATH" FAKE_DOCKER="$TMP" E2E_DB_PREFIX="fake-db-$BATS_TEST_NUMBER"
+  STARTED=()
 }
 
-teardown() { common_teardown; }
+teardown() {
+  [ -z "${STARTED[*]:-}" ] || kill "${STARTED[@]}" 2>/dev/null || true
+  pkill -f "$TMP_RE/bin/sleep " || true
+  common_teardown
+}
 
-# no_sleep_left — neither the watchdog's sleep nor a hung fake outlived run.sh.
+# no_sleep_left [LENGTH…] — neither the watchdog's sleep nor a hung fake
+# outlived run.sh: no sleep of this test is left. Each LENGTH is a sleep that
+# must have run, so that the check looks where those sleeps were.
 no_sleep_left() {
-  run pgrep -fx "sleep (317|31|6\.17)"
-  [ "$status" -ne 0 ] || fail "left running: $output"
+  local length
+  for length in "$@"; do
+    grep -qxF "$length" "$TMP/sleeps" || fail "no sleep $length ran: $(cat "$TMP/sleeps")"
+  done
+  run pgrep -f "$TMP_RE/bin/sleep "
+  [ "$status" -ne 0 ] || fail "left running: $(ps -ww -o pid=,args= -p "$(paste -sd, - <<<"$output")")"
 }
 
 @test "a hung test container is stopped: the version fails with what it was running" {
@@ -73,7 +97,7 @@ no_sleep_left() {
   # The run's own cleanup, after the stop.
   sed -n '/^kill fake-db-1-sqlitealpine-tests$/,$p' "$CALLS" | grep -q "^rm -f -v fake-db-1-sqlitealpine-tests$" \
     || fail "nothing removed after the stop: $(cat "$CALLS")"
-  no_sleep_left
+  no_sleep_left 2 317
 }
 
 @test "a server that does not start in time is ended, and nothing is created after the cleanup" {
@@ -84,11 +108,11 @@ no_sleep_left() {
   ! grep -q "^run -q --name fake-db-2-sqlitealpine-tests" "$CALLS" || fail "the tests ran after the hang: $(cat "$CALLS")"
   # A docker that run.sh gave up on would still be running, and create later.
   local i
-  for i in $(seq 20); do pgrep -f "$TMP/bin/docker" >/dev/null || break; sleep 0.5; done
+  for i in $(seq 20); do pgrep -f "$TMP_RE/bin/docker" >/dev/null || break; sleep 0.5; done
   ! grep -q "^created after the cleanup" "$CALLS" || fail "a container was created after the cleanup: $(cat "$CALLS")"
   [ "$(tail -1 "$CALLS")" = "network rm fake-db-2-sqlitealpine" ] \
     || fail "the cleanup is not the last thing run.sh did: $(cat "$CALLS")"
-  no_sleep_left
+  no_sleep_left 2 6.17
 }
 
 @test "a version that finishes in time passes, and the watchdog does not outlive it" {
@@ -124,4 +148,33 @@ no_sleep_left() {
     [[ "$output" =~ "✓ $v "[0-9]+"s: image "[0-9]+"s, servers "[0-9]+"s, tests "[0-9]+"s (servers ready after 3s)" ]] \
       || fail "no phases for $v: $output"
   done
+}
+
+@test "no_sleep_left sees a sleep the test left, and not the sleeps of another run" {
+  # Another run of the suite on this machine: its sleeps run as its own
+  # $TMP/bin/sleep, or as plain `sleep` in a checkout from before.
+  local others=(sleep "$BATS_TEST_TMPDIR/bin/sleep") i j ready
+  for j in 0 1; do
+    (exec -a "${others[$j]}" "$REAL_SLEEP" 317 3>&-) &
+    STARTED+=("$!")
+  done
+  sleep 317 3>&- &
+  local own=$!
+  STARTED+=("$own")
+  # Started once the test's own sleep has recorded itself and the others run
+  # under their names (an emulator such as Rosetta shows itself in front).
+  for i in $(seq 50); do
+    ready=0
+    for j in 0 1; do
+      if [[ "$(ps -ww -o args= -p "${STARTED[$j]}")" == *"${others[$j]} 317" ]]; then ready=$((ready + 1)); fi
+    done
+    if grep -qx 317 "$TMP/sleeps" 2>/dev/null; then ready=$((ready + 1)); fi
+    [ "$ready" -lt 3 ] || break
+    "$REAL_SLEEP" 0.1
+  done
+  [ "$ready" -eq 3 ] || fail "the sleeps did not start: $(ps -ww -o pid=,args= -p "$(IFS=,; echo "${STARTED[*]}")")"
+  ! (no_sleep_left) 2>/dev/null || fail "the test's own sleep 317 was not seen"
+  kill "$own"
+  wait "$own" 2>/dev/null || true
+  no_sleep_left 317
 }

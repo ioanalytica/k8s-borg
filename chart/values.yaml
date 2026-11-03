@@ -142,11 +142,14 @@ borg:
   ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving, one
   ## directory per instance. The dumps are uncompressed (Borg deduplicates and compresses
   ## them): this needs room for several times the size of gzipped dumps. The cluster backup
-  ## archives them when this directory, or one above it, is a root in cluster.include
-  ## ("R <path>"). With cluster.backupMode=plan the plan takes only the roots that exist when
-  ## the console pod starts, before any dump: the pod creates this directory first, and a
-  ## WARNING in its log names one it cannot create or a root on it the plan leaves out. The
-  ## files and the privileges: https://k8s-borg.ioanalytica.com/features/databases;
+  ## archives them only when this directory, or one above it, is a root in cluster.include
+  ## ("R <path>") and cluster.exclude does not leave them out. With cluster.backupMode=plan
+  ## the plan takes only the roots that exist when the console pod starts, before any dump:
+  ## the pod creates this directory first, and a WARNING in its log names one it cannot
+  ## create or a root on it the plan leaves out. With a database engine configured and no
+  ## such root, the notes of helm install and helm upgrade warn that the dumps are written
+  ## but not archived (excludes aside). The files and the privileges:
+  ## https://k8s-borg.ioanalytica.com/features/databases;
   ## restore-postgres / restore-mariadb: https://k8s-borg.ioanalytica.com/operations/restore
   dbBackupLocation: "/mnt/nfs/data/db-backup"
   ## @param borg.retention Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)
@@ -1047,6 +1050,13 @@ borgUI:
 ## first; the data of a bound one has to move to a new claim, named in
 ## existingClaim (ui holds Borg UI's state, uiAgent Borg's key files).
 ##
+## The ui claim, and its static PV, exist only with borgUI.enabled: no other pod
+## mounts it. A release that turns Borg UI off keeps them with `retain: true`,
+## and takes them back when it turns Borg UI on again; with `retain: false` the
+## upgrade deletes them. What counts is the annotation they already carry: a
+## `retain` changed in the same upgrade does not reach them. cache and uiAgent
+## exist in every release.
+##
 persistence:
   cache:
     ## @param persistence.cache.retain Keep the PVC/PV on uninstall (disposable → false)
@@ -1061,7 +1071,7 @@ persistence:
     accessModes:
       - ReadWriteMany
   ui:
-    ## @param persistence.ui.retain Keep the Borg UI /data PVC/PV on uninstall (config survives)
+    ## @param persistence.ui.retain Keep the Borg UI /data PVC/PV on uninstall and when Borg UI is turned off (config survives)
     retain: true
     existingClaim: ""
     createPV: false
