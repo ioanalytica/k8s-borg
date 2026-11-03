@@ -658,6 +658,9 @@ borgUI:
   adminUser: "admin"
   ## Admin password. Drives the server's INITIAL_ADMIN_PASSWORD *and* agent enrollment
   ## login — they must match. Sensitive: value or existingSecret[+existingSecretKey].
+  ## A file read with --set-file (or into a Secret with --from-file) keeps its final
+  ## newline. Borg UI creates the admin without surrounding whitespace, and the
+  ## reconcile Job and the agents log in with the value as it is, then without it.
   adminPassword:
     value: ""
     existingSecret: ""

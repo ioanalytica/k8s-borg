@@ -47,6 +47,20 @@
   uses one by default. The Licence section says so and gives the command for the
   community plan: `LICENSE_SYNC=false AGENT_BORG_VERSION=1 ./stack.sh up`.
 
+* **An admin password with a final newline logs in.** A value read with
+  `--set-file`, or into a Secret with `kubectl create secret --from-file`,
+  keeps the file's final newline. Borg UI (2.3.0 on) creates the admin without
+  surrounding whitespace, but the reconcile Job logged in with the newline and
+  stopped with "cannot log in as 'admin'" (HTTP 401). The reconcile Job and the
+  agents' password fallback now try the password as it is first: an admin that
+  an older Borg UI created with the newline keeps working. Only when that fails
+  do they try it without its surrounding whitespace, as Borg UI strips it. The
+  default password is rotated to the stripped form, which can also be typed in
+  the login form. A configured password that is the default one, also once
+  stripped, is accepted as before, with a warning in the Job's log on every
+  run: change the admin's password in Borg UI, then configure the new one.
+  `tests/admin-login.bats` covers both (#109).
+
 * **Try it locally: the whole chart in a throwaway k3d cluster.** A page of
   the site (`site/guide/try-locally.md`, linked from the README's quick start)
   takes a newcomer from nothing to a first backup and restore on one machine,
