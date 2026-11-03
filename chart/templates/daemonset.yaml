@@ -106,14 +106,24 @@ spec:
         - name: node
           image: {{ include "k8s-borg.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- /* As an agent, /run.sh returns only when the start or the agent
+                 failed: the container ends with its status, and the kubelet
+                 starts it again with its back-off, as it does the console pod.
+                 The exit keeps sh from running /run.sh with exec, so that sh
+                 stays PID 1 and reaps orphaned processes. */}}
           command: ["/bin/sh", "-c"]
           args:
             - |
               hostname "k8s-borg-${NODE_NAME}" 2>/dev/null || printf '%s' "${NODE_NAME}" > /proc/sys/kernel/hostname
+              {{- if eq .Values.node.backupMode "agent" }}
+              /run.sh run
+              exit $?
+              {{- else }}
               while true; do
                 /run.sh run
                 sleep {{ .Values.node.backupIntervalSeconds }}
               done
+              {{- end }}
           securityContext: {{- toYaml .Values.node.containerSecurityContext | nindent 12 }}
           env:
             - name: NODE_NAME
