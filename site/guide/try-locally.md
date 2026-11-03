@@ -4,7 +4,7 @@ The whole chart in a throwaway [k3d](https://k3d.io) cluster on one machine,
 with no host outside it: the release's own repository server as the Borg host,
 a Borg UI server, the node and console pods enrolled at it as managed agents,
 a first backup and a restore. It takes a few minutes, most of them for pulling
-the images (about 550 MB). Tested with k3d 5.9 (k3s 1.36).
+the images (about 550 MB). Tested with k3d 5.9 and k3s 1.36.
 
 ::: warning A cluster to try the chart in
 The repositories live in a directory of the k3d node container and are gone
@@ -29,10 +29,11 @@ Nothing here is a backup to rely on.
 ## 1. A cluster
 
 ```sh
-k3d cluster create k8s-borg
+k3d cluster create k8s-borg --image rancher/k3s:v1.36.5-k3s1
 ```
 
-k3d makes `k3d-k8s-borg` the current `kubectl` context. The cluster has one
+The image is the k3s the page is tested with; without it, the k3s depends on
+how k3d was built. k3d makes `k3d-k8s-borg` the current `kubectl` context. The cluster has one
 node, `k3d-k8s-borg-server-0`, which the values below name. One node is all
 this setup supports: the claims it uses belong to a single node.
 

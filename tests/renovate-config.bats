@@ -104,6 +104,38 @@ sys.exit(1 if problems else 0)
   [ "$status" -eq 0 ] || fail "$output"
 }
 
+@test "the k3s image of the page Try it locally is one a custom manager reads, releases alone" {
+  # The job try-locally.yml runs the page's k3d cluster create, so the page and
+  # the job move together. Docker Hub also has the release candidates and a tag
+  # per architecture; the versioning takes neither.
+  run py '
+import json, re, sys
+root, c = sys.argv[1], json.load(open(sys.argv[2]))
+path = "site/guide/try-locally.md"
+text = open(f"{root}/{path}").read()
+images = re.findall(r"rancher/k3s:\S+", text)
+problems = [] if images else [f"{path} names no rancher/k3s image"]
+managers = [m for m in c["customManagers"]
+            if any(re.search(p.strip("/"), path) for p in m["managerFilePatterns"])]
+if not managers:
+    problems.append(f"{path}: not a file of a custom manager")
+for m in managers:
+    read = [x.group("depName") + ":" + x.group("currentValue")
+            for s in m["matchStrings"] for x in re.finditer(s.replace("(?<", "(?P<"), text)]
+    if sorted(read) != sorted(images):
+        problems.append(f"the page names {images}, the manager reads {read}")
+    if m.get("datasourceTemplate") != "docker":
+        problems.append("the manager looks the image up in %s, not docker" % m.get("datasourceTemplate"))
+    versioning = re.compile(m.get("versioningTemplate", "").removeprefix("regex:").replace("(?<", "(?P<"))
+    for tag, release in (("v1.36.5-k3s1", True), ("v1.36.6-rc2-k3s1", False), ("v1.36.5-k3s1-amd64", False)):
+        if bool(versioning.match(tag)) != release:
+            problems.append(("the versioning rejects " if release else "the versioning takes ") + tag)
+print("\n".join(problems))
+sys.exit(1 if problems else 0)
+'
+  [ "$status" -eq 0 ] || fail "$output"
+}
+
 @test "renovate-config-validator accepts the config" {
   # Renovate is a Node package, not part of the test setup: the bats job skips
   # this, .github/workflows/renovate-config.yml runs it on every change.

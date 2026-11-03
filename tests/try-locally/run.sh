@@ -224,7 +224,7 @@ for b in "${PAGE_BLOCKS[@]}"; do
   block "${b%|*}" "${b#*|}" >/dev/null
 done
 
-CLUSTER="$(block "## 1. " 1 | sed -n 's/^k3d cluster create \([^ ]*\)$/\1/p')"
+CLUSTER="$(block "## 1. " 1 | sed -n 's/^k3d cluster create \([^ ]*\).*/\1/p')"
 [ -n "$CLUSTER" ] || { echo "✗ the page's step 1 creates no k3d cluster" >&2; exit 1; }
 NODE="k3d-$CLUSTER-server-0"
 if k3d cluster get "$CLUSTER" >/dev/null 2>&1; then

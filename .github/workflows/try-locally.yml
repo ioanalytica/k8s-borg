@@ -10,8 +10,8 @@ name: Try it locally
 # published yet (a release, a move of the borg-ui pin) ends green with a
 # notice; the tag's build publishes them. The weekly run and a manual one
 # install the latest release, as the page does, and catch what moves under
-# it: the runner, the k3s of a k3d release, the database image of
-# examples/k3d/.
+# it: the runner and the database image of examples/k3d/. The cluster runs
+# the k3s image the page's step 1 names.
 #
 # Not among the checks the ruleset on main requires: its paths filter skips
 # it for most pull requests, and a skipped required check stays pending.
@@ -59,8 +59,9 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v4.3.1
-      # The k3d the page is tested with; its release decides the k3s the
-      # cluster runs. Checked against the sums the release publishes.
+      # The k3d the page is tested with, checked against the sums the release
+      # publishes. The k3s is the image the page's step 1 names: k3d's own
+      # default depends on how k3d was built.
       - name: Install k3d
         env:
           # renovate: datasource=github-releases depName=k3d-io/k3d

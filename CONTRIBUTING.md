@@ -86,10 +86,12 @@ found and the updates that wait for approval there.
   new etcd minor, every s3fs release (it is built with a patch) and every new
   major wait for approval on the dashboard. A pull request that changes the
   agent image gets its line in `CHANGELOG.md` on the bot's branch.
-- **k3d**, which `.github/workflows/try-locally.yml` installs, comes on its
-  own: its release decides the k3s of the job's cluster, and its pull request
-  runs the job. A new minor fails `tests/try-locally.bats` until the page's
-  "Tested with k3d …" names it, along with the k3s the job's log shows.
+- **k3d**, which `.github/workflows/try-locally.yml` installs, and **the k3s
+  image** the page "Try it locally" creates its cluster with
+  (`k3d cluster create … --image rancher/k3s:…`) come on their own; each pull
+  request runs the job, which runs the page's command. A new minor of either
+  fails `tests/try-locally.bats` until the page's "Tested with k3d … and
+  k3s …" names it.
 - **The local test stack** (`local/`) and **the documentation site's npm
   packages** (`site/`) come once a month, a pull request each, and so does the
   Renovate that `.github/workflows/renovate-config.yml` runs to validate a
