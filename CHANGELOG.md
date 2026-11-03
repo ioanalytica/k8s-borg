@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+* **A node agent whose start fails tries again soon.** With
+  `node.backupMode=agent` the node pods still ran the loop of interval mode:
+  when their start failed (`borg-init` while the repository server is not yet
+  reachable, the login at Borg UI, the enrolment, the repository or the plan)
+  or the agent ended, the pod stayed Running and Ready and slept
+  `node.backupIntervalSeconds`, an hour by default, before it tried again; the
+  node was enrolled an hour late. As an agent the container now ends with the
+  status of the start, and the kubelet starts it again with its back-off (10
+  seconds, doubling up to five minutes), as it does the console pod; the pod
+  shows the failure as `CrashLoopBackOff`. `sh` stays PID 1 and reaps orphaned
+  processes, as before. The node pods roll once in agent mode; interval mode
+  is unchanged. `tests/chart-node-start.bats` runs the start command of both
+  modes.
+
 * **Try it locally: the whole chart in a throwaway k3d cluster.** A page of
   the site (`site/guide/try-locally.md`, linked from the README's quick start)
   takes a newcomer from nothing to a first backup and restore on one machine,
