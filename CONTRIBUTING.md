@@ -85,9 +85,9 @@ found and the updates that wait for approval there.
 
 Left alone on purpose: the `borg-ui` submodule (a pin move is a release, with
 its line in `CHANGELOG.md`), the image tags in `chart/values.yaml` and the
-chart's dependency (they move with the chart's releases), and what Borg UI's
-runtime base pins, `PYTHON_VERSION` included: those move with the `borg-ui`
-pin. Renovate does not look into `tests/` and `examples/`.
+chart's dependency (they move with the chart's releases), and the versions
+that Borg UI's runtime base sets, `PYTHON_VERSION` included: those move with
+the `borg-ui` pin. Renovate does not look into `tests/` and `examples/`.
 
 ## Sign your commits (DCO)
 

@@ -39,6 +39,13 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n *\\w+_VERSION: (?<currentValue>\\S+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Runner labels of a job matrix (build-image.yml): the github-actions manager reads runners in runs-on only.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [" runner: (?<depName>ubuntu)-(?<currentValue>\\d+\\.\\d+(?:-arm)?)\\b"],
+      "datasourceTemplate": "github-runners"
     }
   ],
   "packageRules": [
@@ -67,7 +74,7 @@
       "enabled": false
     },
     {
-      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/**"],
       "semanticCommitType": "ci"
     },
     {
@@ -76,10 +83,16 @@
       "groupName": "GitHub Actions"
     },
     {
-      "description": "Tools the workflows install themselves (renovate-config.yml), once a month: Renovate releases most days.",
+      "description": "The runner labels of a matrix go with the runs-on ones; a new major shares their branch by its name.",
+      "matchDatasources": ["github-runners"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "The Renovate that renovate-config.yml runs, once a month: Renovate releases most days.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": [".github/workflows/**"],
-      "semanticCommitType": "ci",
+      "matchDepNames": ["renovate"],
       "schedule": ["* 0-5 1 * *"]
     },
     {

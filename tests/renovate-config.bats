@@ -40,6 +40,27 @@ sys.exit(1 if problems else 0)
   [ "$status" -eq 1 ] || fail "not pinned to a commit with its release: $output"
 }
 
+@test "every runner label is one Renovate reads: after runs-on, or in a matrix under runner" {
+  # The github-actions manager reads runs-on alone; a custom manager reads the
+  # labels a matrix hands to it, or a runner update would leave them behind.
+  run py '
+import glob, json, os, re, sys
+root, c = sys.argv[1], json.load(open(sys.argv[2]))
+strings = [re.compile(s.replace("(?<", "(?P<")) for m in c["customManagers"]
+           if m.get("datasourceTemplate") == "github-runners" for s in m["matchStrings"]]
+problems = [] if strings else ["no custom manager reads runner labels"]
+for wf in sorted(glob.glob(f"{root}/.github/workflows/*.y*ml")):
+    for n, line in enumerate(open(wf), 1):
+        if not re.search(r"\bubuntu-\d", line) or re.match(r" *runs-on: ubuntu-", line):
+            continue
+        if not any(s.search(line) for s in strings):
+            problems.append(f"{os.path.relpath(wf, root)}:{n}: {line.strip()}")
+print("\n".join(problems))
+sys.exit(1 if problems else 0)
+'
+  [ "$status" -eq 0 ] || fail "runner labels Renovate does not read: $output"
+}
+
 @test "the custom managers find every version pin of the agent image and the workflows, PYTHON_VERSION aside" {
   # PYTHON_VERSION is borg-ui's (tests/python-version.bats). The match strings
   # are JavaScript regular expressions; their named groups are the only syntax
@@ -49,7 +70,7 @@ import glob, json, os, re, sys
 root, c = sys.argv[1], json.load(open(sys.argv[2]))
 managers = [([re.compile(p.strip("/")) for p in m["managerFilePatterns"]],
              [re.compile(s.replace("(?<", "(?P<")) for s in m["matchStrings"]])
-            for m in c["customManagers"]]
+            for m in c["customManagers"] if m.get("datasourceTemplate") != "github-runners"]
 # Where a version pin is written down, and how it reads there.
 pins = {"docker/Dockerfile": r"^ARG (\w+_VERSION)=", "docker/rclone.env": r"^(\w+_VERSION)="}
 for wf in sorted(glob.glob(f"{root}/.github/workflows/*.y*ml")):
