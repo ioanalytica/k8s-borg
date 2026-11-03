@@ -19,7 +19,7 @@ PAGE_CHART="oci://ghcr.io/ioanalytica/charts/k8s-borg"
 # the restore in Borg UI writes, and is left out with it.
 # shellcheck disable=SC2034  # read by run.sh and the tests
 PAGE_BLOCKS=("## 1. |1" "## 1. |2" "## 2. |1" "## 3. |1" "## 3. |2" "## 4. |1"
-             "## 5. |1" "## 6. |2" "## 7. |1" "## 7. |2" "### Starting the server|1")
+             "## 5. |1" "## 6. |2" "## 7. |1" "## 7. |2")
 
 # The plans the page runs in Borg UI.
 # shellcheck disable=SC2034  # read by run.sh and the tests

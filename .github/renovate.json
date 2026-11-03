@@ -42,6 +42,14 @@
     },
     {
       "customType": "regex",
+      "description": "The k3s image the page Try it locally creates its k3d cluster with; try-locally.yml runs the page's command. Only releases: no rc tags, no tags of one architecture.",
+      "managerFilePatterns": ["/^site/guide/try-locally\\.md$/"],
+      "matchStrings": ["--image (?<depName>rancher/k3s):(?<currentValue>v\\S+)"],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-k3s(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
       "description": "Runner labels of a job matrix (build-image.yml): the github-actions manager reads runners in runs-on only.",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
       "matchStrings": [" runner: (?<depName>ubuntu)-(?<currentValue>\\d+\\.\\d+(?:-arm)?)\\b"],
@@ -96,9 +104,15 @@
       "schedule": ["* 0-5 1 * *"]
     },
     {
-      "description": "k3d decides the k3s of the job try-locally.yml; its pull request runs that job.",
+      "description": "The k3d of the job try-locally.yml; its pull request runs that job.",
       "matchDepNames": ["k3d-io/k3d"],
-      "prBodyNotes": ["For a new minor, tests/try-locally.bats fails until \"Tested with k3d …\" in site/guide/try-locally.md names it; set the k3s there to the one `k3d version` prints in the job's log."]
+      "prBodyNotes": ["For a new minor, tests/try-locally.bats fails until \"Tested with k3d …\" in site/guide/try-locally.md names it."]
+    },
+    {
+      "description": "The k3s of the page Try it locally; its pull request runs the job try-locally.yml.",
+      "matchDepNames": ["rancher/k3s"],
+      "semanticCommitType": "docs",
+      "prBodyNotes": ["For a new minor, tests/try-locally.bats fails until \"Tested with k3d … and k3s …\" in site/guide/try-locally.md names it."]
     },
     {
       "description": "A new digest under the same version means a release tag was moved: approve it on the dashboard after a look at the commit.",

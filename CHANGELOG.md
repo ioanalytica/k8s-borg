@@ -99,12 +99,14 @@
   with no host outside it: the release's repository server as the Borg host,
   Borg UI on SQLite without license or error-report traffic, the node and
   console pods as managed agents, the k3s datastore snapshot, and, optionally,
-  a PostgreSQL dump with the credentials from the database's Secret. Its files
-  are in `examples/k3d/`: the values, the `ReadWriteOnce` claims k3s's
-  `local-path` storage offers in place of the chart's `ReadWriteMany` ones, and
-  the demo database. `tests/examples-k3d.bats` checks their keys against the
-  chart, renders them and keeps the names the page and the files share
-  together.
+  a PostgreSQL dump with the credentials from the database's Secret. The
+  cluster runs the k3s image the page is tested with
+  (`k3d cluster create … --image rancher/k3s:…`), which Renovate updates. Its
+  files are in `examples/k3d/`: the values, which set the chart's claims to
+  `ReadWriteOnce` (`persistence.<name>.accessModes`), all that k3s's
+  `local-path` storage offers, and the demo database.
+  `tests/examples-k3d.bats` checks their keys against the chart, renders them
+  and keeps the names the page and the files share together.
 
 * **Try it locally runs in CI.** `.github/workflows/try-locally.yml` runs the
   page's own commands in a k3d cluster (`tests/try-locally/run.sh`), with the
@@ -116,7 +118,7 @@
   `borg extract`: the datastore snapshot and the k3s token, a file of the
   node's `/etc`, the database dump. `tests/try-locally.bats` checks that the
   page's blocks keep the shape the run reads, the workflow's paths, and that
-  the workflow installs the k3d the page names.
+  the workflow installs the k3d, and step 1 the k3s, that the page names.
 
 * **The datastore restores deal with the revision going back.** A restore
   takes the datastore back to the revision of the backup, and the kubelets,

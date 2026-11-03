@@ -100,8 +100,8 @@ EOF
 }
 
 @test "the steps are the shape the run relies on" {
-  page_block "## 1. " sh 1 | grep -qx 'k3d cluster create [a-z0-9-]*' \
-    || fail "step 1 does not create one k3d cluster by name alone: $(page_block "## 1. " sh 1)"
+  page_block "## 1. " sh 1 | grep -qxE 'k3d cluster create [a-z0-9-]+ --image rancher/k3s:v[0-9]+\.[0-9]+\.[0-9]+-k3s[0-9]+' \
+    || fail "step 1 does not create one k3d cluster by its name and k3s image: $(page_block "## 1. " sh 1)"
   # Run in the background with exec, read for its local port.
   page_block "## 4. " sh 1 | grep -qx 'kubectl -n k8s-borg port-forward svc/k8s-borg-ui [0-9]*:8081' \
     || fail "step 4 is no single port-forward to Borg UI: $(page_block "## 4. " sh 1)"
@@ -167,11 +167,16 @@ EOF
     || fail "the step runs something else: $step"
 }
 
-@test "the job has a time limit, and installs the k3d the page is tested with" {
+@test "the job has a time limit, and runs the k3d and the k3s the page is tested with" {
   wf_job "$WF" k3d | grep -qE '^    timeout-minutes: [0-9]+$' || fail "no time limit"
-  local k3d page
+  local k3d k3s page
   k3d="$(sed -n 's/^ *K3D_VERSION: \([0-9]*\.[0-9]*\)\..*/\1/p' "$WF")"
-  page="$(sed -n 's/.*Tested with k3d \([0-9]*\.[0-9]*\).*/\1/p' "$PAGE")"
+  page="$(sed -n 's/.*Tested with k3d \([0-9]*\.[0-9]*\) and k3s \([0-9]*\.[0-9]*\)\..*/\1 \2/p' "$PAGE")"
   [ -n "$k3d" ] || fail "no K3D_VERSION in the workflow"
-  [ "$k3d" = "$page" ] || fail "the workflow installs k3d $k3d, the page is tested with ${page:-nothing}"
+  [ -n "$page" ] || fail "the page says no \"Tested with k3d X.Y and k3s X.Y.\""
+  [ "$k3d" = "${page% *}" ] || fail "the workflow installs k3d $k3d, the page is tested with ${page% *}"
+  # The job runs step 1 as it is, so its k3s is the image step 1 names.
+  k3s="$(page_block "## 1. " sh 1 | sed -n 's/.* --image rancher\/k3s:v\([0-9]*\.[0-9]*\)\..*/\1/p')"
+  [ -n "$k3s" ] || fail "step 1 names no rancher/k3s image"
+  [ "$k3s" = "${page#* }" ] || fail "step 1 runs k3s $k3s, the page is tested with ${page#* }"
 }

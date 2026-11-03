@@ -64,13 +64,12 @@ borgUI:
   errorReporting:
     enabled: false
 
-# The chart's own claims ask for ReadWriteMany, which k3s's local-path
-# storage does not offer; claims.yaml makes ReadWriteOnce ones, enough for
-# pods on one node.
+# The chart's claims ask for ReadWriteMany by default, which k3s's local-path
+# storage does not offer; ReadWriteOnce is enough for pods on one node.
 persistence:
   cache:
-    existingClaim: borg-cache
+    accessModes: [ReadWriteOnce]
   ui:
-    existingClaim: borg-ui
+    accessModes: [ReadWriteOnce]
   uiAgent:
-    existingClaim: borg-ui-agent
+    accessModes: [ReadWriteOnce]
