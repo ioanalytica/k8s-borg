@@ -138,7 +138,8 @@ How to work with them in Borg UI is in the
 Run the node pod's backup plan in Borg UI. It runs in the node pod: the
 datastore snapshot first, as a pre-backup hook, then `borg create` of
 `/node/etc` and the snapshot, `borg prune` and `borg compact`, and the
-snapshot's removal. From the command line:
+snapshot's removal. Once Borg UI shows the run as completed, from the command
+line:
 
 ```sh
 kubectl -n k8s-borg exec daemonset/k8s-borg-node -- borg list
@@ -186,7 +187,8 @@ kubectl -n k8s-borg rollout status statefulset/k8s-borg-app --timeout=10m
 
 The console pod starts again, reads the database's credentials from its
 Secret in `demo`, and registers the plan `backup-k8s-borg-mycluster`, with the
-dump as its pre-backup hook. Run it in Borg UI; the archive holds the dumps:
+dump as its pre-backup hook. Run it in Borg UI; once the run has completed,
+the archive holds the dumps:
 
 ```sh
 kubectl -n k8s-borg exec statefulset/k8s-borg-app -- \
