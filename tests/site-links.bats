@@ -84,6 +84,7 @@ page() {
   page index.html / /guide/install '#features' '?tab=1' '' https://example.com/x mailto:security@example.com
   page operations/restore.html ./disaster-recovery ../reference/parameters#borg . .. .#top '..?q=1'
   page reference/contributing.html "$REPO_URL/blob/main/.github/renovate.json" /reference/changelog#unreleased
+  printf '%s\n' "<a class=x href='/guide/'>x</a>" '<div data-href="not/a/link">x</div>' >"$DIST/raw.html"
   printf 'href="not/a/page"\n' >"$DIST/app.js"
   run --separate-stderr "$CHECK" "$DIST"
   [ "$status" -eq 0 ] || fail "status $status: $stderr"
@@ -94,15 +95,18 @@ page() {
   page index.html /guide/
   page reference/contributing.html .github/renovate.json /reference/changelog ../ok
   page guide/install.html chart/values.yaml examples/ ..github
+  mkdir -p "$DIST/security"
+  printf '%s\n' "<a class=x href='SECURITY.md'>x</a>" >"$DIST/security/index.html"
   run --separate-stderr "$CHECK" "$DIST"
   [ "$status" -eq 1 ] || fail "status $status: $stderr"
-  [ "$stderr" = 'link relative to the repository, leads nowhere on the site: guide/install.html:href="..github"
-link relative to the repository, leads nowhere on the site: guide/install.html:href="chart/values.yaml"
-link relative to the repository, leads nowhere on the site: guide/install.html:href="examples/"
-link relative to the repository, leads nowhere on the site: reference/contributing.html:href=".github/renovate.json"' ] || fail "$stderr"
+  [ "$stderr" = "link relative to the repository, leads nowhere on the site: guide/install.html:href=\"..github\"
+link relative to the repository, leads nowhere on the site: guide/install.html:href=\"chart/values.yaml\"
+link relative to the repository, leads nowhere on the site: guide/install.html:href=\"examples/\"
+link relative to the repository, leads nowhere on the site: reference/contributing.html:href=\".github/renovate.json\"
+link relative to the repository, leads nowhere on the site: security/index.html:href='SECURITY.md'" ] || fail "$stderr"
 }
 
-@test "the built site's link check without a directory of pages is a usage error" {
+@test "the built site's link check without a directory of pages is a usage error, also given a page" {
   run --separate-stderr "$CHECK"
   [ "$status" -eq 2 ] || fail "no argument: status $status"
   mkdir -p "$DIST"
@@ -110,4 +114,7 @@ link relative to the repository, leads nowhere on the site: reference/contributi
   [ "$status" -eq 2 ] || fail "no pages: status $status"
   run --separate-stderr "$CHECK" "$DIST/missing"
   [ "$status" -eq 2 ] || fail "no directory: status $status"
+  page index.html .github/renovate.json
+  run --separate-stderr "$CHECK" "$DIST/index.html"
+  [ "$status" -eq 2 ] || fail "a page, not a directory: status $status"
 }

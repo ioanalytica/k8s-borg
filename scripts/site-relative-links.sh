@@ -16,14 +16,18 @@ set -euo pipefail
 
 dir="${1:-}"
 [ -n "$dir" ] || { echo "usage: site-relative-links.sh DIR" >&2; exit 2; }
-[ -n "$(find "$dir" -name '*.html' 2>/dev/null | head -1)" ] || { echo "no pages in $dir" >&2; exit 2; }
+[ -d "$dir" ] || { echo "no such directory: $dir" >&2; exit 2; }
+cd "$dir"
+[ -n "$(find . -name '*.html' | head -1)" ] || { echo "no pages in $dir" >&2; exit 2; }
 
-# PAGE:href="…" for each link; grep finding none is no error.
-hrefs=$(cd "$dir" && grep -roE --include='*.html' 'href="[^"]*"' .) || [ $? -eq 1 ]
+# PAGE:href="…" for each link, quoted either way; not data-href or the like.
+# grep finding none is no error.
+hrefs=$(grep -roE --include='*.html' "(^|[[:space:]])href=(\"[^\"]*\"|'[^']*')" . \
+  | sed -E 's/^([^:]*):[[:space:]]*/\1:/') || [ $? -eq 1 ]
 # An absolute path, an anchor, a query or an empty link (the page itself), an
 # address with a scheme and a link relative to the page pass.
-links=$({ grep -vE ':href="(/|#|\?|"|[a-zA-Z][a-zA-Z0-9+.-]*:|\.\.?([/#?]|"))' <<<"$hrefs" || true; } \
-  | sed 's|^\./||' | LC_ALL=C sort -u)
+pass=":href=[\"'](/|#|\\?|[\"']|[a-zA-Z][a-zA-Z0-9+.-]*:|\\.\\.?([/#?]|[\"']))"
+links=$({ grep -vE "$pass" <<<"$hrefs" || true; } | sed 's|^\./||' | LC_ALL=C sort -u)
 
 if [ -n "$links" ]; then
   sed 's/^/link relative to the repository, leads nowhere on the site: /' <<<"$links" >&2
