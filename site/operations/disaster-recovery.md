@@ -56,12 +56,14 @@ etcdutl snapshot restore /root/restore/var/lib/k8s-borg/datastore/k3s/etcd-snaps
 cp /root/restore/etcd-bumped/member/snap/db /root/restore/etcd-snapshot-bumped.db &&
 openssl dgst -sha256 -binary /root/restore/etcd-bumped/member/snap/db >>/root/restore/etcd-snapshot-bumped.db &&
 systemctl stop k3s &&
-k3s server --cluster-reset \
+k3s server --cluster-reset --etcd-s3=false \
   --cluster-reset-restore-path=/root/restore/etcd-snapshot-bumped.db \
   --token="$(cat /root/restore/var/lib/k8s-borg/datastore/k3s/token)" &&
 systemctl start k3s
 ```
 
+`--etcd-s3=false` keeps k3s to the local file where its configuration sends
+snapshots to S3: k3s would look for the path in the bucket and fail.
 k3s keeps its certificates in the datastore, encrypted with the token: without
 `--token`, a node without the original token file refuses the restore. With
 more than one server, k3s documents the rest: on each other server stop k3s,
