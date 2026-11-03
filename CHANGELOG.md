@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+* **The datastore restores deal with the revision going back.** A restore
+  takes the datastore back to the revision of the backup, and the kubelets,
+  kube-proxy, CoreDNS and controllers that kept running stayed on the state
+  before it: on kind (kubeadm), the kubelet kept the pods the restore removed
+  and started no new ones; on k3d (k3s), CoreDNS kept a removed Service. Under
+  Disaster recovery, the kubeadm restore now runs `etcdutl snapshot restore`
+  with `--bump-revision 1000000000 --mark-compacted`, and the k3s restore with
+  embedded etcd gives `k3s server --cluster-reset` a copy of the snapshot that
+  `etcdutl` raised the same way (k3s has no option for it); with that, all of
+  them carried on. The SQLite restore, which cannot raise it, restarts CoreDNS
+  and the other controllers in pods afterwards. The k3s restores hand the
+  server token over in `K3S_TOKEN` or as a file instead of on the command
+  line, where other users of the node could read it, and say that a token the
+  node's configuration names has to be the archived one (#98).
+
 * **Dependency updates by Renovate.** Renovate opens weekly pull requests for
   the workflows' actions and the agent image's version pins
   (`.github/renovate.json`); "Dependency updates" in `CONTRIBUTING.md` says
