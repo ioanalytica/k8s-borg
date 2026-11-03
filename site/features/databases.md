@@ -12,6 +12,18 @@ the render. Only configured engines get their credentials mounted, their
 pre-backup hook (plan mode), or run in the cluster CronJob (the chart passes
 them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 
+The cluster backup archives the dumps when `borg.dbBackupLocation`, or a
+directory above it, is one of its roots in `cluster.include` (`R <path>`). In
+plan mode (`cluster.backupMode=plan`) the plan takes only the roots that exist
+when the console pod starts, and the dumps are written later, by its
+pre-backup hooks: the pod creates `borg.dbBackupLocation` first, wherever it
+is, on the pod's scratch volume under `/mnt` or on a volume of
+`extraVolumeMounts`. A root on the dumps that the plan leaves out all the same
+is named in the pod's log with a `WARNING` (the dumps would be written, but
+not archived), and so is a directory the pod cannot create, such as one on a
+read-only volume. In CronJob mode the dumps run first, so the directory exists
+when the backup starts.
+
 | Engine | File | Content |
 | --- | --- | --- |
 | PostgreSQL | `globals.sql` | `pg_dumpall --globals-only`: roles, password hashes, memberships, role settings, tablespaces |

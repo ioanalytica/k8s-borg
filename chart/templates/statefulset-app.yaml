@@ -91,6 +91,11 @@ spec:
           env:
             - name: NODE_NAME
               value: {{ .Values.cluster.nodeName | quote }}
+            # The database engines whose dumps run before the backup. In plan
+            # mode run-agent.sh creates borg.dbBackupLocation for them before
+            # the plan is registered.
+            - name: BORG_DB_ENGINES
+              value: {{ include "k8s-borg.databases.configured" . | quote }}
             {{- include "k8s-borg.env.common" . | nindent 12 }}
             {{- if eq .Values.cluster.mode "agent" }}
             {{- include "k8s-borg.env.agent" . | nindent 12 }}

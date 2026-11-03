@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* **The database dumps are in the cluster plan also when their directory is
+  new.** With `cluster.backupMode=plan` the plan takes only the roots that
+  exist when the console pod starts, and the dumps are written later, by its
+  pre-backup hooks: a `borg.dbBackupLocation` not there yet, such as the
+  default `/mnt/nfs/data/db-backup` without a volume at `/mnt/nfs` or a new
+  directory on one, was left out, and the dumps were written but not archived
+  (#110). The console pod now creates the directory before it registers the
+  plan (`run-agent.sh`, with the engines the release configures in
+  `BORG_DB_ENGINES`); one it cannot create, and a root on the dumps
+  `register-backup-plan` leaves out, are named with a `WARNING`.
+
 * **Access modes for the chart's claims.** The claims of `persistence.cache`,
   `.ui` and `.uiAgent` asked for `ReadWriteMany` only, so on storage that
   offers only `ReadWriteOnce`, such as the local-path class of k3s and kind,
