@@ -2,8 +2,8 @@
 #
 # Redis and Valkey side of the database tests: config files as the chart
 # renders them, the seeded content, the cluster, a fingerprint to compare a
-# restore with its source, and the restore itself as chart/README.md
-# describes it: dump.rdb placed in the data directory of a stopped server,
+# restore with its source, and the restore itself as
+# site/operations/restore.md describes it: dump.rdb placed in the data directory of a stopped server,
 # which then starts on it.
 
 # The backup user's password: '=' in it, which a key=value line must carry
@@ -48,7 +48,7 @@ rd_ready() { [ "$(rd "$1" PING)" = PONG ]; }
 # rd_valkey9 — the server is Valkey 9 or later (hash fields with a TTL).
 rd_valkey9() { [ "$DB_ENGINE" = valkey ] && [ "${DB_VERSION%%.*}" -ge 9 ]; }
 
-# rd_backup_user HOST — the ACL user chart/README.md documents.
+# rd_backup_user HOST — the ACL user site/features/databases.md documents.
 rd_backup_user() {
   rd "$1" ACL SETUSER backup on ">$BACKUP_PASSWORD" +info +sync +replconf '+cluster|nodes' >/dev/null
 }
@@ -138,7 +138,7 @@ rd_cluster_fingerprint() {
   for host in c1 c2 c3; do rd_fingerprint "$host" 0; done | LC_ALL=C sort
 }
 
-# rd_restore FILE — what chart/README.md describes: the server `dst` stopped
+# rd_restore FILE — what site/operations/restore.md describes: the server `dst` stopped
 # without saving, FILE in place as its dump.rdb, the server started on it
 # (`dst` restarts on its own; its data directory is /restore here).
 rd_restore() {

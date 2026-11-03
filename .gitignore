@@ -16,3 +16,9 @@
 entitlement*.json
 # Engineering specs are working notes and stay local.
 /docs/engineering/specs/
+# The documentation site keeps its VitePress config in a dot directory; its
+# dependencies, cache and build output stay local.
+!/site/.vitepress/
+/site/.vitepress/cache/
+/site/.vitepress/dist/
+/site/node_modules/

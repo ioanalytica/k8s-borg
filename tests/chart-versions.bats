@@ -89,8 +89,8 @@ YAML
 # --- agent image --------------------------------------------------------------
 
 @test "the agent image tag is left to the chart appVersion" {
-  # An explicit tag here would be a second place to bump, and the README
-  # documents the default. Empty is the intended state.
+  # An explicit tag here would be a second place to bump, and
+  # site/reference/versioning.md documents the default. Empty is the intended state.
   [ -z "$(values_tag ioanalytica/k8s-borg)" ]
 }
 

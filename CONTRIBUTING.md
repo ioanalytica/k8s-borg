@@ -29,15 +29,27 @@ The tests need `shellcheck`, `bats`, `helm` and Python 3 with PyYAML
 environment); the end-to-end suites need docker.
 [`tests/README.md`](tests/README.md) describes each layer. CI runs all of them
 on every pull request, except the end-to-end suites on one that changes only
-documentation: Markdown at the top level, `LICENSE` or `examples/`.
+documentation: Markdown at the top level, `LICENSE`, `examples/` or the
+documentation site in `site/`.
+
+The documentation site is [VitePress](https://vitepress.dev/) and needs Node.js:
+
+```sh
+npm --prefix site ci
+npm --prefix site run dev     # http://localhost:5173, reloads on every change
+```
+
+Its pages include sections of `README.md` and `chart/README.md` by region
+(`<!-- #region name -->`) instead of copying them, and `CONTRIBUTING.md`,
+`SECURITY.md` and `CHANGELOG.md` whole.
 
 A pull request is easiest to review when it:
 
 - covers one change, with a test that fails without it — chart changes get a
   `tests/chart-*.bats` case, script changes a bats test of the script;
 - documents a new chart parameter with a `## @param` comment in
-  `chart/values.yaml` and, where it needs more than a line, in
-  [`chart/README.md`](chart/README.md);
+  `chart/values.yaml` and, where it needs more than a line, on the page of the
+  documentation site ([`site/`](site)) that covers it;
 - adds an entry under `## Unreleased` in [`CHANGELOG.md`](CHANGELOG.md) for
   anything a user notices;
 - uses the commit style of the history: `feat(chart): …`, `fix: …`,

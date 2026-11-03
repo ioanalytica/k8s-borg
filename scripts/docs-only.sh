@@ -10,6 +10,8 @@
 #   LICENSE
 #   examples/               the Helm example; examples-helm.bats checks it,
 #                           and the unit tests are never skipped
+#   site/                   the documentation site; the Docs site workflow
+#                           builds it, site-includes.bats checks its includes
 #
 # A Markdown file anywhere else is not: chart/README.md ships in the chart,
 # and docker/, chart/, tests/, scripts/ and .github/ hold what the suites test
@@ -23,7 +25,7 @@ while IFS= read -r path; do
   [ -n "$path" ] || continue
   n=$((n + 1))
   case "$path" in
-    LICENSE | examples/*) continue ;;
+    LICENSE | examples/* | site/*) continue ;;
     */*) ;;
     *.md) continue ;;
   esac

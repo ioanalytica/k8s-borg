@@ -535,7 +535,7 @@ Usage: include "k8s-borg.ui.extraEnv" (dict "context" $ "env" $env)
 {{- $seen := dict -}}
 {{- range $i, $e := $extra -}}
 {{- if not (and (kindIs "map" $e) (kindIs "string" $e.name) $e.name) -}}{{- fail (printf "borgUI.extraEnv[%d] must be an EnvVar object with a name" $i) -}}{{- end -}}
-{{- if hasKey $taken $e.name -}}{{- fail (printf "borgUI.extraEnv[%d]: %s is set by the chart; use its chart value instead (see chart/README.md)" $i $e.name) -}}{{- end -}}
+{{- if hasKey $taken $e.name -}}{{- fail (printf "borgUI.extraEnv[%d]: %s is set by the chart; use its chart value instead (see https://k8s-borg.ioanalytica.com/features/borg-ui-server#extra-server-env)" $i $e.name) -}}{{- end -}}
 {{- if hasKey $seen $e.name -}}{{- fail (printf "borgUI.extraEnv: %s is listed twice" $e.name) -}}{{- end -}}
 {{- $_ := set $seen $e.name true -}}
 {{- end -}}

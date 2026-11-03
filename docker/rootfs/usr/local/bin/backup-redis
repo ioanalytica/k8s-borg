@@ -14,8 +14,8 @@
 # replication protocol by redis-rdb-sync (what valkey-cli --rdb does, and
 # Valkey 9's own format, see there). The server forks for it, as for BGSAVE.
 # An RDB file is restored by placing it as the server's dump.rdb and starting
-# the server (see chart/README.md). redis-rdb-sync makes every connection,
-# INFO and CLUSTER NODES included.
+# the server (https://k8s-borg.ioanalytica.com/operations/restore#redis-and-valkey).
+# redis-rdb-sync makes every connection, INFO and CLUSTER NODES included.
 #
 # CONF holds one key=value per line; the value is taken verbatim after the
 # first '=', blank lines and lines starting with '#' are skipped:
@@ -34,8 +34,9 @@
 #
 # An ACL user needs `+info +sync +replconf +cluster|nodes`: INFO tells a cluster
 # from a standalone server, Valkey from Redis and Dragonfly (which has no SYNC,
-# see chart/README.md) from both, SYNC/REPLCONF carry the snapshot, CLUSTER
-# NODES lists the primaries of a cluster.
+# see https://k8s-borg.ioanalytica.com/features/redis-valkey#dragonfly) from
+# both, SYNC/REPLCONF carry the snapshot, CLUSTER NODES lists the primaries of a
+# cluster.
 #
 # The dumps are not compressed any further: the server compresses the values
 # in an RDB file itself (rdbcompression), and Borg compresses on its own.
@@ -142,7 +143,7 @@ info=$(query "$host" "$port" INFO) \
 # Dragonfly speaks the protocol but has no SYNC: it replicates only to other
 # Dragonfly instances. It writes its own snapshots, to S3 among others.
 if [[ $info =~ dragonfly_version:([^[:space:]]*) ]]; then
-  die "${host}:${port} is Dragonfly (${BASH_REMATCH[1]}), which has no SYNC to stream a snapshot over: let it write its snapshots to S3 and back the bucket up (see \"Dragonfly\" in chart/README.md)"
+  die "${host}:${port} is Dragonfly (${BASH_REMATCH[1]}), which has no SYNC to stream a snapshot over: let it write its snapshots to S3 and back the bucket up (see https://k8s-borg.ioanalytica.com/features/redis-valkey#dragonfly)"
 fi
 case "$info" in
   *cluster_enabled:0*) cluster=false ;;

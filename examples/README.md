@@ -9,11 +9,12 @@ The `values:` block of the HelmRelease is an ordinary values file, so the same
 settings work with plain Helm. Every key in it is checked against the chart by
 `tests/examples-helm.bats`, which also renders it without Borg UI, and it pins
 the current chart version. For a first try, the install command in the
-[README](../README.md#install) needs none of this.
+[README](../README.md#quick-start) needs none of this.
 
 > **These are examples, not a turnkey deployment.** Replace the `<...>` /
 > `<CHANGE_ME>` / `*.example.com` placeholders for your cluster; every parameter
-> is documented in [`chart/README.md`](../chart/README.md).
+> is documented in [`chart/values.yaml`](../chart/values.yaml) and on the
+> [documentation site](https://k8s-borg.ioanalytica.com).
 
 ## Plain manifests
 

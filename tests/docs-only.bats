@@ -13,11 +13,12 @@ setup() {
 # docs_only PATH... — the script on these paths, one per line.
 docs_only() { printf '%s\n' "$@" | "$SCRIPT"; }
 
-@test "Markdown at the top level, LICENSE and examples/ are documentation" {
+@test "Markdown at the top level, LICENSE, examples/ and site/ are documentation" {
   run docs_only README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md \
-    LICENSE examples/README.md examples/helm/k8s-borg.yaml
+    LICENSE examples/README.md examples/helm/k8s-borg.yaml \
+    site/index.md site/.vitepress/config.mts site/package-lock.json
   [ "$status" -eq 0 ] || fail "$output"
-  [ "$output" = "documentation only (8 changed)" ] || fail "$output"
+  [ "$output" = "documentation only (11 changed)" ] || fail "$output"
 }
 
 @test "anything below docker/, chart/, tests/, scripts/ or .github/ runs everything" {
@@ -34,7 +35,7 @@ docs_only() { printf '%s\n' "$@" | "$SCRIPT"; }
 @test "the submodule, Markdown below the top level and other files run everything" {
   local p
   for p in borg-ui local/README.md run-tests.sh icon.png .gitmodules .coderabbit.yaml \
-    README.md.orig; do
+    README.md.orig site sites/index.md; do
     run docs_only "$p"
     [ "$status" -eq 1 ] || fail "$p: status $status: $output"
     [ "$output" = "not documentation: $p" ] || fail "$p: $output"

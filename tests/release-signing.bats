@@ -233,14 +233,18 @@ SH
   done
 }
 
-@test "the OIDC token goes to the signing job only" {
+@test "the OIDC token goes to the signing job and the Pages deployment only" {
+  # deploy-pages proves the run to GitHub Pages with the token. A certificate
+  # Sigstore would issue to that job names site.yml, which the identity users
+  # verify against (build.yml, for a tag) does not accept.
   local found
   found="$(awk '
     FNR == 1 { injobs = 0; wf = FILENAME; sub(/.*\//, "", wf) }
     /^jobs:/ { injobs = 1 }
     injobs && /^  [a-z][a-z0-9_-]*:$/ { j = $1; sub(/:$/, "", j) }
     $1 == "id-token:" { print wf ":" (injobs ? j : "(workflow)") ":" $2 }' "$WF"/*.y*ml)"
-  [ "$found" = "build.yml:sign:write" ] || fail "id-token permissions: ${found:-none}"
+  [ "$found" = "$(printf '%s\n' build.yml:sign:write site.yml:deploy:write)" ] \
+    || fail "id-token permissions: ${found:-none}"
 }
 
 @test "the sign job has a time limit" {

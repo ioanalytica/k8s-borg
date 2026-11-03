@@ -5,8 +5,9 @@
 # `src` and the cluster of three primaries c1–c3 (TLS only, the nodes known
 # by the hostnames they announce, which the certificate carries and no IP
 # address) are dumped with config files
-# in the chart's format and the ACL user chart/README.md documents, archived
-# and extracted with Borg, and restored as chart/README.md describes it — the
+# in the chart's format and the ACL user site/features/databases.md documents,
+# archived and extracted with Borg, and restored as site/operations/restore.md
+# describes it — the
 # RDB file as dump.rdb of a server started on it (`dst`). Every restore is
 # compared with a fingerprint of the source taken at dump time.
 

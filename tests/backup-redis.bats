@@ -139,7 +139,7 @@ redis-rdb-sync --user backup --tls --cacert /ca.crt r 6380 $TMP/dumps/cache/cach
   printf '# Server\r\nredis_version:7.4.0\r\ndragonfly_version:df-v2.0.2\r\n\r\n# Cluster\r\ncluster_enabled:0\r\n' >"$TMP/info"
   backup
   [ "$status" -eq 2 ] || fail "status $status: $stderr"
-  [[ $stderr == *"Dragonfly"*"df-v2.0.2"*"S3"*"chart/README.md"* ]] || fail "$stderr"
+  [[ $stderr == *"Dragonfly"*"df-v2.0.2"*"S3"*"k8s-borg.ioanalytica.com/features/redis-valkey#dragonfly"* ]] || fail "$stderr"
   [ "$(grep -c '^Error' <<<"$stderr")" -eq 1 ] || fail "$stderr"
   ! grep -qv -- '--query' "$TMP/calls" || fail "$(cat "$TMP/calls")"
   [ -z "$(files)" ] || fail "$(files)"

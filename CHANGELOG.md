@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+* **A documentation site, https://k8s-borg.ioanalytica.com.** VitePress in
+  `site/`, published on GitHub Pages by `.github/workflows/site.yml` on every
+  push to `main` that changes what it shows; pull requests build it. The guides
+  that filled `chart/README.md` moved there, a page each, and restores have
+  pages of their own (Restore, Disaster recovery). `chart/README.md` keeps the
+  install, the parameters and the security posture, and the README the
+  overview; the site includes those sections, and `CONTRIBUTING.md`,
+  `SECURITY.md` and this changelog whole, instead of copying them. The
+  messages and comments that pointed into `chart/README.md` (`backup-redis` on
+  Dragonfly, the chart's checks of `rest://` and `borgUI.extraEnv`,
+  `values.yaml`) now give the page's address. The README starts with a quick
+  start, and no longer counts Borg UI's own features among k8s-borg's. A pull
+  request that changes only `site/` is documentation only.
+  `tests/site-includes.bats` checks every include and every address of the
+  site in the repository, `tests/site-workflow.bats` the workflow. The
+  parameter table of `chart/README.md` was cut in two by the 1.0.21 upgrade
+  note; the note now follows the table.
+
 * **A check schedule removed from the values is removed from Borg UI.** The
   agent pods rolled for it since #89, but `set-check-schedule` left the
   schedule it had set enabled (#91). It now records the cron it sets on the

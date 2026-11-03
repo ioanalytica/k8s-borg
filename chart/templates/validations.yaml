@@ -42,7 +42,7 @@ A base that comes from an existing Secret is not visible here; the borg2 wrapper
 refuses it at run time.
 */}}
 {{- if and (eq (toString .Values.borg.version) "2") (not .Values.borg.repoBase.existingSecret) (hasPrefix "rest://" (lower (trim (toString .Values.borg.repoBase.value)))) }}
-{{- fail "borg.repoBase.value: rest:// repository URLs were removed in Borg 2.0.0b25, which reads one as a local directory. Use ssh://[user@]host[:port]/path (relative to the login directory; ssh://host//path is absolute) and create the repository anew. See \"Upgrading to Borg 2.0.0b25\" in chart/README.md." }}
+{{- fail "borg.repoBase.value: rest:// repository URLs were removed in Borg 2.0.0b25, which reads one as a local directory. Use ssh://[user@]host[:port]/path (relative to the login directory; ssh://host//path is absolute) and create the repository anew; see https://k8s-borg.ioanalytica.com/operations/upgrading#borg-2-0-0b25" }}
 {{- end }}
 {{- /*
 borg.encryption names a mode the way borg-init reads BORG_ENCRYPTION
