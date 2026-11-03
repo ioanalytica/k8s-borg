@@ -204,7 +204,7 @@ spec:
       errorReporting:
         enabled: false
       # A paid Borg UI plan: an instance-independent key, or an offline
-      # entitlement for air-gapped installs (see "Licensing" in chart/README.md).
+      # entitlement for air-gapped installs (see https://k8s-borg.ioanalytica.com/features/borg-ui-server#licensing).
       # licensing:
       #   licenseKey:
       #     existingSecret: borgui-license-key

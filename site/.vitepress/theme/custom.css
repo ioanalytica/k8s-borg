@@ -1,0 +1,121 @@
+/* Copyright IO ANALYTICA. SPDX-License-Identifier: AGPL-3.0-only */
+/*
+ * The colours of ioanalytica.com: aubergine #4c253d, sand #e6ded1, warm grey
+ * #5e5b55 and near-black #111. Dark mode keeps the hues and lightens the
+ * aubergine for text on a dark ground.
+ */
+
+:root {
+  --k8s-borg-aubergine: #4c253d;
+  --k8s-borg-sand: #e6ded1;
+  --k8s-borg-warm-grey: #5e5b55;
+  --k8s-borg-near-black: #111111;
+
+  --vp-font-family-base: 'Jost', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f7f3ee;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f1ebe3;
+  --vp-c-border: #d8cfc2;
+  --vp-c-divider: #e6ded1;
+  --vp-c-gutter: #e6ded1;
+  --vp-c-text-1: var(--k8s-borg-near-black);
+  --vp-c-text-2: var(--k8s-borg-warm-grey);
+  --vp-c-text-3: #8a857c;
+
+  --vp-c-brand-1: var(--k8s-borg-aubergine);
+  --vp-c-brand-2: #683552;
+  --vp-c-brand-3: var(--k8s-borg-aubergine);
+  --vp-c-brand-soft: rgba(76, 37, 61, 0.1);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --vp-button-brand-bg: var(--k8s-borg-aubergine);
+  --vp-button-brand-hover-bg: #683552;
+  --vp-button-brand-active-bg: #3a1c2f;
+  --vp-button-alt-bg: var(--k8s-borg-sand);
+  --vp-button-alt-text: var(--k8s-borg-near-black);
+  --vp-button-alt-hover-bg: #ddd3c4;
+  --vp-button-alt-hover-text: var(--k8s-borg-near-black);
+
+  --vp-home-hero-name-color: var(--k8s-borg-aubergine);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #e6ded1 50%, #c7a6ba 50%);
+  --vp-home-hero-image-filter: blur(56px);
+
+  --k8s-borg-terminal-bg: #1e171b;
+  --k8s-borg-terminal-text: #ece6dc;
+  --k8s-borg-terminal-comment: #a59c90;
+  --k8s-borg-terminal-prompt: #d9b8cc;
+  --k8s-borg-terminal-dot: #4a3c45;
+}
+
+.dark {
+  --vp-c-bg: #151113;
+  --vp-c-bg-alt: #1b1619;
+  --vp-c-bg-elv: #1f191d;
+  --vp-c-bg-soft: #251e22;
+  --vp-c-border: #4a3c45;
+  --vp-c-divider: #33292f;
+  --vp-c-gutter: #0e0b0d;
+  --vp-c-text-1: #ece6dc;
+  --vp-c-text-2: #b5aea3;
+  --vp-c-text-3: #857e75;
+
+  --vp-c-brand-1: #dcbcd0;
+  --vp-c-brand-2: #e6ded1;
+  --vp-c-brand-3: #7d4268;
+  --vp-c-brand-soft: rgba(220, 188, 208, 0.14);
+
+  --vp-button-brand-bg: #7d4268;
+  --vp-button-brand-hover-bg: #8f4d78;
+  --vp-button-brand-active-bg: #6a3758;
+  --vp-button-alt-bg: #2e252a;
+  --vp-button-alt-text: #ece6dc;
+  --vp-button-alt-hover-bg: #3a2f35;
+  --vp-button-alt-hover-text: #ece6dc;
+
+  --vp-home-hero-name-color: #dcbcd0;
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #4c253d 50%, #5e5b55 50%);
+
+  --k8s-borg-terminal-bg: #0f0c0e;
+  --k8s-borg-terminal-dot: #3a2f35;
+}
+
+/* The wordmark in the nav bar stands in for a logo. */
+.VPNavBarTitle .title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.VPHero .name,
+.VPHero .text {
+  font-weight: 500;
+}
+
+.VPHero .tagline {
+  color: var(--vp-c-text-2);
+}
+
+.VPFeature .icon {
+  background-color: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+}
+
+.dark .hero-terminal {
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* Without the two-column hero there is no room for the terminal next to the
+   text; the quick start further down shows the same install. */
+@media (max-width: 959px) {
+  .VPHero .image {
+    display: none;
+  }
+}

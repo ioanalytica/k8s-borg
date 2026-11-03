@@ -1,0 +1,89 @@
+name: Docs site
+
+# The documentation site (site/, VitePress) on GitHub Pages: pull requests
+# build it, pushes to main build and publish it. The site shows parts of other
+# files, so a change to any of them runs this workflow too; site-workflow.bats
+# keeps the two lists of paths complete and equal.
+#
+# Not among the checks the ruleset on main requires: a workflow its paths
+# filter skips leaves a required check pending.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "chart/README.md"
+      - "chart/Chart.yaml"
+      - "examples/helm/k8s-borg.yaml"
+      - "icon.png"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "chart/README.md"
+      - "chart/Chart.yaml"
+      - "examples/helm/k8s-borg.yaml"
+      - "icon.png"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time, never cut off half-way; a pull request's newer
+# push replaces its build.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('site-{0}', github.ref) || 'site-pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      # No install scripts: esbuild, the only package with one, takes its
+      # binary from a platform package without it.
+      - name: Install
+        working-directory: site
+        run: npm ci --ignore-scripts
+      # Fails on a link to a page that does not exist.
+      - name: Build
+        working-directory: site
+        run: npm run build
+      - name: Upload the site
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: site/.vitepress/dist
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write   # deploy-pages proves the run's identity to Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5.0.1

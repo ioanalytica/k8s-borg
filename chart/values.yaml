@@ -74,7 +74,8 @@ borg:
   ##            keyfile-chacha20-poly1305, authenticated (= authenticated-sha256)
   ## A mode the major does not have fails the render. A repository that exists keeps its mode.
   ## Borg's key files (BORG_KEYS_DIR) live on the uiAgent volume, per node, in every mode: export
-  ## the key of a keyfile repository (`borg key export`), see "Keyfile modes" in the chart README.
+  ## the key of a keyfile repository (`borg key export`), see
+  ## https://k8s-borg.ioanalytica.com/features/borg-versions#keyfile-modes
   encryption: ""
   ## @param borg.treatWarningsAsErrors Propagate borg warnings (rc=1) as failures. Default false: the
   ## borg wrapper downgrades rc=1 (missing path, file changed mid-backup) to success so managed-agent
@@ -140,8 +141,9 @@ borg:
   archiveNameTemplate: ""
   ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving, one
   ## directory per instance. The dumps are uncompressed (Borg deduplicates and compresses
-  ## them): this needs room for several times the size of gzipped dumps. See chart/README.md
-  ## "Database dumps" for the files, restore-postgres / restore-mariadb and the privileges.
+  ## them): this needs room for several times the size of gzipped dumps. The files and
+  ## the privileges: https://k8s-borg.ioanalytica.com/features/databases; restore-postgres /
+  ## restore-mariadb: https://k8s-borg.ioanalytica.com/operations/restore
   dbBackupLocation: "/mnt/nfs/data/db-backup"
   ## @param borg.retention Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)
   retention:
@@ -249,8 +251,8 @@ ssh:
 ## @section Databases (logical dumps; cluster/app workloads)
 ##
 ## An engine is dumped only when it is enabled AND has at least one instance or an
-## existingSecret; enabled with neither fails the render. See chart/README.md,
-## "Database dumps".
+## existingSecret; enabled with neither fails the render. See
+## https://k8s-borg.ioanalytica.com/features/databases
 databases:
   ## An instance is configured EITHER with a static `config` (rendered into a
   ## chart-managed Secret, or brought via existingSecret) OR with a `secretRef`
@@ -302,7 +304,8 @@ databases:
     ## `tls: false` on a secretRef instance writes `ssl-mode=DISABLED` and
     ## `get-server-public-key`. Neither authenticates the server, so both are for a
     ## trusted network; a static config checks it with `ssl-mode=VERIFY_IDENTITY`
-    ## and `ssl-ca` (or `server-public-key-path` without TLS). See chart/README.md.
+    ## and `ssl-ca` (or `server-public-key-path` without TLS). See
+    ## https://k8s-borg.ioanalytica.com/features/databases#mysql-and-percona-server
     instances: []
     #  - name: mysql-example
     #    config: |
@@ -358,7 +361,8 @@ databases:
     ## secretRef takes the whole connection string from one key (uriKey, e.g. the MongoDB
     ## Community operator's connectionString.standard), or builds one from host, port,
     ## options and the user (as for the other engines). The user needs the backup role
-    ## to dump, the restore role to restore (see chart/README.md "MongoDB").
+    ## to dump, the restore role to restore; see
+    ## https://k8s-borg.ioanalytica.com/features/mongodb#privileges
     instances: []
     #  - name: mongodb-example
     #    config: |
@@ -463,7 +467,7 @@ node:
   ## pod detects its datastore itself; a node without one skips the step. The
   ## snapshot holds every Secret of the cluster in clear text: it is written to a
   ## memory-backed volume of the pod only, archived from there, and removed after
-  ## the run. Restore: chart README, "Cluster datastore snapshot".
+  ## the run. Restore: https://k8s-borg.ioanalytica.com/operations/disaster-recovery#cluster-datastore
   datastoreSnapshot:
     ## @param node.datastoreSnapshot.enabled Snapshot the cluster datastore before each node backup
     enabled: false
@@ -486,7 +490,8 @@ node:
   ## disk, any other while the kubelet has it mounted for a pod there) copies it
   ## with SQLite's online backup. The node pods read the claims and volumes
   ## through the API (get only) and see the volumes through /node with
-  ## HostToContainer mount propagation. Restore: chart README, "SQLite databases".
+  ## HostToContainer mount propagation. Restore:
+  ## https://k8s-borg.ioanalytica.com/operations/restore#sqlite
   sqlite:
     ## @param node.sqlite.enabled Copy the listed SQLite databases before each node backup
     enabled: false
@@ -880,7 +885,8 @@ borgUI:
   ## the system SSH key, remote machines and notification channels to match this
   ## HelmRelease every run. It runs once per Helm revision: a changed Secret
   ## referenced via existingSecret takes effect only with the next revision (forced
-  ## upgrade) — see "Changing a referenced Secret" in the chart README.
+  ## upgrade); see
+  ## https://k8s-borg.ioanalytica.com/operations/troubleshooting#changing-a-referenced-secret
   ## Runs the k8s-borg agent image (ships reconcile-borgui).
   reconcile:
     ## @param borgUI.reconcile.enabled Run the reconcile Job (only meaningful with borgUI.enabled)
@@ -1181,8 +1187,8 @@ repoServer:
   ## passphrase: data first, then what refers to it, then the deletions, and
   ## again if a client wrote to the repository meanwhile. A repository that does
   ## not exist locally is never touched on the remote. Schedule it outside the
-  ## backup windows. See chart/README.md, "External copy", for examples and the
-  ## restore.
+  ## backup windows. Examples: https://k8s-borg.ioanalytica.com/features/external-copy;
+  ## the restore: https://k8s-borg.ioanalytica.com/operations/disaster-recovery#repository-server
   ##
   ## The files below are mounted in /etc/borg-offsite; rclone.conf refers to the
   ## others by that path (key_file, known_hosts_file). Each: `value`, or an
