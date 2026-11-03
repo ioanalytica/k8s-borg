@@ -101,9 +101,12 @@ jobs:
         # The version is printed to make a future runner-image downgrade
         # obvious in the log.
         # examples-helm.bats reads the example's HelmRelease with PyYAML.
+        # site-links.bats runs the site's TypeScript with the runner's node,
+        # which strips the types from 22.18 on.
         run: |
           sudo apt-get update && sudo apt-get install -y bats python3-yaml
           bats --version
+          node --version
       # chart-repo-server.bats renders the chart.
       # Pinned: without a version the action fetches "latest" from the
       # GitHub API and silently falls back to an old Helm 3 when that fails.
