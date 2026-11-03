@@ -46,7 +46,8 @@ services:
       SECRET_KEY: local-stack-secret-key-not-for-any-real-use
       # Licensing stays as the image ships it: a fresh instance asks the
       # activation service for the full-access trial on its first start, and
-      # managed agents need that plan. LICENSE_SYNC=false keeps it offline.
+      # Borg 2 repositories need that plan. LICENSE_SYNC=false keeps it offline
+      # (on the community plan, with AGENT_BORG_VERSION=1).
       ENABLE_STARTUP_LICENSE_SYNC: ${LICENSE_SYNC:-true}
       DB_HOST: postgres
       DB_PORT: "5432"
