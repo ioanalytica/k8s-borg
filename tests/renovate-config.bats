@@ -43,6 +43,8 @@ sys.exit(1 if problems else 0)
 @test "every runner label is one Renovate reads: after runs-on, or in a matrix under runner" {
   # The github-actions manager reads runs-on alone; a custom manager reads the
   # labels a matrix hands to it, or a runner update would leave them behind.
+  # It has to capture the whole label: without its -arm, an arm runner would
+  # be looked up, and replaced, as the x64 one.
   run py '
 import glob, json, os, re, sys
 root, c = sys.argv[1], json.load(open(sys.argv[2]))
@@ -51,10 +53,13 @@ strings = [re.compile(s.replace("(?<", "(?P<")) for m in c["customManagers"]
 problems = [] if strings else ["no custom manager reads runner labels"]
 for wf in sorted(glob.glob(f"{root}/.github/workflows/*.y*ml")):
     for n, line in enumerate(open(wf), 1):
-        if not re.search(r"\bubuntu-\d", line) or re.match(r" *runs-on: ubuntu-", line):
+        label = re.search(r"\bubuntu-[\w.-]+", line)
+        if not label or re.match(r" *runs-on: ubuntu-", line):
             continue
-        if not any(s.search(line) for s in strings):
-            problems.append(f"{os.path.relpath(wf, root)}:{n}: {line.strip()}")
+        read = [m.group("depName") + "-" + m.group("currentValue")
+                for m in (s.search(line) for s in strings) if m]
+        if label.group(0) not in read:
+            problems.append(f"{os.path.relpath(wf, root)}:{n}: {label.group(0)}, read as {read or None}")
 print("\n".join(problems))
 sys.exit(1 if problems else 0)
 '
