@@ -39,11 +39,27 @@ older database schema), `reset` first.
 
 ## Licence
 
-Managed agents need a paid plan. The server is left as the image ships it: a
-new instance asks the activation service for the full-access trial on its
-first start. Every `reset` makes a new instance, which asks again.
-`LICENSE_SYNC=false ./stack.sh up` keeps the server offline, on the community
-plan.
+The server is left as the image ships it: a new instance asks the activation
+service for the full-access trial on its first start. Every `reset` makes a new
+instance, which asks again. `LICENSE_SYNC=false ./stack.sh up` keeps the server
+offline, on the community plan.
+
+On the community plan, managed agents, repository registration, backup plans,
+plan runs, browsing and restores work for Borg 1 repositories. What needs a
+paid plan (or the trial) is the Borg 2 repository format, among other features
+Borg UI marks as Pro: multi-repository backup plans, rclone and remote clients
+(`app/core/features.py` in Borg UI lists them). The stack's agent uses a Borg 2
+repository by default, and Borg UI refuses to register one on the community
+plan, so the agent stops. To stay on the community plan, give the agent a
+Borg 1 repository:
+
+```sh
+LICENSE_SYNC=false AGENT_BORG_VERSION=1 ./stack.sh up
+```
+
+Do this on a fresh stack. After a start with the defaults, `./stack.sh reset`
+first: the server keeps the trial it already holds, and the agent's repository
+record keeps its Borg major, so a Borg 1 repository cannot take its place.
 
 ## Testing the installer
 
@@ -89,7 +105,7 @@ server are `ssh://borg@<this-host>:2222/local/<name>` with the key
 | `PUBLIC_BASE_URL` | `http://localhost:8081` | the server's own idea of its URL |
 | `ADMIN_PASSWORD` | `local-admin` | initial admin password (first start only) |
 | `AGENT_NAME` | `agent-1` | name of the stack's agent |
-| `AGENT_BORG_VERSION` | `2` | Borg major of the agent's repository |
+| `AGENT_BORG_VERSION` | `2` | Borg major of the agent's repository (Borg 2 needs a paid plan) |
 | `AGENT_SERVER_URL` | `http://server:8081` | server URL the stack's agent enrolls at |
 | `LICENSE_SYNC` | `true` | contact the activation service |
 | `BASE_IMAGE` | computed | runtime base for the server build |

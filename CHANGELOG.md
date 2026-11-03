@@ -29,6 +29,13 @@
   is unchanged. `tests/chart-node-start.bats` runs the start command of both
   modes.
 
+* **The local stack's README no longer says managed agents need a paid plan.**
+  On Borg UI's community plan, managed agents, repository registration, backup
+  plans, plan runs, browsing and restores work for Borg 1 repositories; the
+  Borg 2 repository format is what needs a paid plan, and the stack's agent
+  uses one by default. The Licence section says so and gives the command for the
+  community plan: `LICENSE_SYNC=false AGENT_BORG_VERSION=1 ./stack.sh up`.
+
 * **Try it locally: the whole chart in a throwaway k3d cluster.** A page of
   the site (`site/guide/try-locally.md`, linked from the README's quick start)
   takes a newcomer from nothing to a first backup and restore on one machine,
