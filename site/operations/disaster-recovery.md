@@ -107,21 +107,24 @@ themselves.
 member name and peer URL from `/etc/kubernetes/manifests/etcd.yaml`:
 
 ```sh
-mkdir -p /etc/kubernetes/manifests.stopped
-mv /etc/kubernetes/manifests/{etcd,kube-apiserver}.yaml /etc/kubernetes/manifests.stopped/
-# wait until crictl ps shows neither etcd nor kube-apiserver
+mkdir -p /etc/kubernetes/manifests.stopped &&
+mv /etc/kubernetes/manifests/{etcd,kube-apiserver}.yaml /etc/kubernetes/manifests.stopped/ &&
+while crictl ps --name '^(etcd|kube-apiserver)$' -q | grep -q .; do sleep 1; done &&
 rm -rf /var/lib/etcd-restored &&
 etcdutl snapshot restore /root/restore/var/lib/k8s-borg/datastore/kubeadm/etcd-snapshot.db \
   --data-dir /var/lib/etcd-restored --name <member> \
   --initial-cluster <member>=https://<node IP>:2380 \
   --initial-advertise-peer-urls https://<node IP>:2380 \
   --bump-revision 1000000000 --mark-compacted &&
-mv /var/lib/etcd /var/lib/etcd.before-restore && mv /var/lib/etcd-restored /var/lib/etcd &&
+mv /var/lib/etcd "/var/lib/etcd.before-restore.$(date +%Y%m%d%H%M%S)" &&
+mv /var/lib/etcd-restored /var/lib/etcd &&
 mv /etc/kubernetes/manifests.stopped/{etcd,kube-apiserver}.yaml /etc/kubernetes/manifests/
 ```
 
-A failure on the way leaves etcd and the API server stopped, so that the
-cluster does not come back on the data from before the restore unnoticed.
+The loop waits until the kubelet has stopped etcd and the API server. A
+failure on the way leaves both stopped, so that the cluster does not come back
+on the data from before the restore unnoticed; the data directory it had is
+kept under its date.
 
 The controller manager and the scheduler lose their lease while the API server
 is down and restart by themselves.
