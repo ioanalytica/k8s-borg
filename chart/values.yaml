@@ -141,9 +141,13 @@ borg:
   archiveNameTemplate: ""
   ## @param borg.dbBackupLocation Where logical DB dumps are written before archiving, one
   ## directory per instance. The dumps are uncompressed (Borg deduplicates and compresses
-  ## them): this needs room for several times the size of gzipped dumps. The files and
-  ## the privileges: https://k8s-borg.ioanalytica.com/features/databases; restore-postgres /
-  ## restore-mariadb: https://k8s-borg.ioanalytica.com/operations/restore
+  ## them): this needs room for several times the size of gzipped dumps. The cluster backup
+  ## archives them when this directory, or one above it, is a root in cluster.include
+  ## ("R <path>"). With cluster.backupMode=plan the plan takes only the roots that exist when
+  ## the console pod starts, before any dump: the pod creates this directory first, and a
+  ## WARNING in its log names one it cannot create or a root on it the plan leaves out. The
+  ## files and the privileges: https://k8s-borg.ioanalytica.com/features/databases;
+  ## restore-postgres / restore-mariadb: https://k8s-borg.ioanalytica.com/operations/restore
   dbBackupLocation: "/mnt/nfs/data/db-backup"
   ## @param borg.retention Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)
   retention:

@@ -4,7 +4,9 @@
 # (databases.<engine>.enabled AND at least one instance or an existingSecret):
 # in plan mode only they are published to the cluster agent and attached as
 # pre-backup hooks, in CronJob mode only they are in BORG_DB_ENGINES, which
-# backup-cluster-databases runs; only they get their credentials volume. An
+# backup-cluster-databases runs; only they get their credentials volume. The
+# console pod has them in BORG_DB_ENGINES too: in plan mode it creates
+# borg.dbBackupLocation for them before it registers the plan. An
 # enabled engine with nothing configured fails the render, naming the engine.
 #
 # The engines come from the chart's k8s-borg.databases.supported, so a new
@@ -46,7 +48,8 @@ plan() { render --set cluster.mode=agent --set cluster.backupMode=plan "$@"; }
 cron() { render --set cluster.backupMode=cronjob "$@"; }
 
 # The plan's pre-backup hooks; the scripts published to the cluster agent;
-# BORG_DB_ENGINES of the CronJob; the credentials volumes of a workload kind.
+# BORG_DB_ENGINES of the CronJob and of the console pod; the credentials
+# volumes of a workload kind.
 plan_hooks() {
   plan "$@" | awk '/^kind: /{k=$2} k=="StatefulSet" && /name: BORG_PLAN_PRE_AGENT_SCRIPTS$/{getline; print; exit}' \
     | sed 's/^ *value: //' | tr -d '"'
@@ -58,6 +61,10 @@ agent_scripts() {
 }
 cron_engines() {
   cron "$@" | awk '/^kind: /{k=$2} k=="CronJob" && /name: BORG_DB_ENGINES$/{getline; print; exit}' \
+    | sed 's/^ *value: //' | tr -d '"'
+}
+console_engines() {
+  plan "$@" | awk '/^kind: /{k=$2} k=="StatefulSet" && /name: BORG_DB_ENGINES$/{getline; print; exit}' \
     | sed 's/^ *value: //' | tr -d '"'
 }
 db_volumes() {
@@ -100,6 +107,8 @@ db_volumes() {
   [ -z "$(agent_scripts)" ] || fail "scripts '$(agent_scripts)'"
   cron | grep -q 'name: BORG_DB_ENGINES$' || fail "BORG_DB_ENGINES is not rendered"
   [ -z "$(cron_engines)" ] || fail "engines '$(cron_engines)'"
+  plan | grep -q 'name: BORG_DB_ENGINES$' || fail "BORG_DB_ENGINES is not rendered on the console pod"
+  [ -z "$(console_engines)" ] || fail "console engines '$(console_engines)'"
   [ -z "$(db_volumes CronJob)" ] || fail "mounts '$(db_volumes CronJob)'"
 }
 
@@ -112,6 +121,7 @@ db_volumes() {
   done
   [ "$(cron_engines "${args[@]}")" = "${ENGINES[*]}" ] || fail "'$(cron_engines "${args[@]}")'"
   [ "$(plan_hooks "${args[@]}")" = "${hooks[*]}" ] || fail "'$(plan_hooks "${args[@]}")'"
+  [ "$(console_engines "${args[@]}")" = "${ENGINES[*]}" ] || fail "'$(console_engines "${args[@]}")'"
 }
 
 @test "an instance configures an engine as an existingSecret does" {

@@ -31,6 +31,8 @@
 #                               (borg-native {utcnow:FMT}/{now:FMT} pass through for borg1;
 #                                borg-ui placeholders {date}/{time}/{timestamp} also work)
 #   BORG_PLAN_SKIP_MISSING_SOURCES  optional; default 1 = drop non-existent roots
+#   DB_BACKUP_LOCATION / BORG_DB_ENGINES  optional; with engines, a dropped root
+#                             that holds the database dumps gets a WARNING
 #   NODE_MOUNTINFO / NODE_FS_TYPES  optional; see node-skipped-mounts (node mode)
 #   KEEP_DAILY/WEEKLY/MONTHLY prune retention (default 7/4/6)
 #   BORG_PLAN_RUN_PRUNE       optional; run prune after backup (default true)
@@ -191,6 +193,7 @@ if payload=$(INC_FILE="$inc" EXC_FILE="$exc" PLAN_NAME="$plan_name" MODE="$BORG_
              CHECK_MAX_DURATION="${BORG_PLAN_CHECK_MAX_DURATION:-3600}" \
              CHECK_EXTRA_FLAGS="${BORG_PLAN_CHECK_EXTRA_FLAGS:-}" \
              PLAN_CUSTOM_FLAGS="$plan_custom_flags" \
+             DUMPS="${DB_BACKUP_LOCATION:-}" DB_ENGINES="${BORG_DB_ENGINES:-}" \
              PRE_AGENT_SCRIPTS="${BORG_PLAN_PRE_AGENT_SCRIPTS:-}" \
              PRE_AGENT_SCRIPTS_CONTINUE="${BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE:-}" \
              POST_AGENT_SCRIPTS="${BORG_PLAN_POST_AGENT_SCRIPTS:-}" \
@@ -228,6 +231,23 @@ if os.environ.get("SKIP_MISSING", "1") == "1":
     missing = [p for p in sources if not os.path.isdir(p)]
     if missing:
         sys.stderr.write("dropping source roots that do not exist on this node: %r\n" % missing)
+    # The database dumps are written later, by the pre-backup hooks of the
+    # plan: a root on them dropped now, and below no root that is kept, leaves
+    # them written but never archived. The paths are compared as written: a
+    # symlink on the way, which Borg does not follow, is not looked for.
+    dumps = os.environ.get("DUMPS") or ""
+    if dumps and (os.environ.get("DB_ENGINES") or "").strip():
+        dumps = os.path.normpath(dumps)
+        kept = [os.path.normpath(p) for p in sources if os.path.isdir(p)]
+        def below(path, top):
+            return path == top or path.startswith(top.rstrip("/") + "/")
+        on_dumps = [p for p in missing
+                    if (below(dumps, os.path.normpath(p)) or below(os.path.normpath(p), dumps))
+                    and not any(below(os.path.normpath(p), k) for k in kept)]
+        if on_dumps:
+            sys.stderr.write("WARNING: the plan leaves out %r, which holds the database dumps "
+                             "(%s, borg.dbBackupLocation): they are not archived. The directory "
+                             "must exist when the pod starts.\n" % (on_dumps, dumps))
     sources = [p for p in sources if os.path.isdir(p)]
 # A node plan needs one existing root, also when missing ones are kept
 # (BORG_PLAN_SKIP_MISSING_SOURCES=0).

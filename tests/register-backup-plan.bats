@@ -13,6 +13,10 @@
 # leaving it unchanged; a cluster plan is left unchanged.
 # The plan takes the pod's own cron, else the default; "off" keeps it off the
 # default, without a schedule.
+# A missing root is dropped; one that holds the database dumps of a pod that
+# dumps databases (DB_BACKUP_LOCATION, BORG_DB_ENGINES) is named with a WARNING,
+# since the dumps would be written but not archived, unless a root that is
+# kept covers it.
 #
 # curl is a stub that answers the endpoints the script talks to and keeps the
 # plan payload in $TMP/payload. An existing plan (id 1) is $TMP/plan, disabled
@@ -25,7 +29,7 @@ setup() {
   common_setup
   unset BORG_UI_JWT BORG_UI_ADMIN_USER BORG_UI_ADMIN_PASS BORG_BACKUP_CRON \
         BORG_PLAN_PRE_AGENT_SCRIPTS BORG_PLAN_PRE_AGENT_SCRIPTS_CONTINUE BORG_PLAN_CUSTOM_FLAGS \
-        BORG_PLAN_POST_AGENT_SCRIPTS BORG_PLAN_OWNED_AGENT_SCRIPTS
+        BORG_PLAN_POST_AGENT_SCRIPTS BORG_PLAN_OWNED_AGENT_SCRIPTS DB_BACKUP_LOCATION BORG_DB_ENGINES
   export BORG_UI_SERVER=http://ui BORG_UI_ADMIN_PAT=borgui_x BORG_UI_AGENT_NAME=console \
          BORG_REPO="ssh://borg@host/./repos/console" BORG_MODE=cluster \
          BORG_PATTERNS_DIR="$TMP/patterns" BORG_BACKUP_SCHEDULE_DIR="$TMP/schedules"
@@ -305,6 +309,74 @@ node_patterns() {
   [[ "$output" == *"WARNING: file systems of the node below a root are skipped by --one-file-system"* ]] || fail "$output"
   [[ "$output" == *"$TMP/patterns (ext4 /dev/sdb1)"* ]] || fail "$output"
   [[ "$output" != *"$TMP/schedules"* ]] || fail "$output"
+}
+
+# --- the database dumps' root -------------------------------------------------
+
+# sources — the plan's source directories, one per line.
+sources() {
+  python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["source_directories"]))' "$TMP/payload"
+}
+
+@test "a dropped root on the database dumps is named with a WARNING" {
+  local root
+  for root in "$TMP/dumps" "$TMP/dumps/" "$TMP/data" "$TMP/dumps/shop"; do
+    rm -f "$TMP/payload"
+    printf 'R %s\nR %s\n' "$TMP/patterns" "$root" >"$TMP/patterns/cluster-include.patterns"
+    DB_BACKUP_LOCATION="$TMP/data/../dumps" BORG_DB_ENGINES="postgres" run "$BIN/register-backup-plan"
+    [ "$status" -eq 0 ] || fail "$root: status $status: $output"
+    [ "$(sources)" = "$TMP/patterns" ] || fail "$root: $(sources)"
+    if [ "$root" = "$TMP/data" ]; then
+      [[ "$output" != *WARNING* ]] || fail "$root: $output"
+    else
+      [[ "$output" == *"WARNING: the plan leaves out ['$root'], which holds the database dumps ($TMP/dumps, borg.dbBackupLocation)"* ]] \
+        || fail "$root: $output"
+    fi
+  done
+  printf 'R %s\nR %s\n' "$TMP/patterns" "$TMP/gone" >"$TMP/patterns/cluster-include.patterns"
+  DB_BACKUP_LOCATION="$TMP/gone/db-backup" BORG_DB_ENGINES="postgres" run "$BIN/register-backup-plan"
+  [[ "$output" == *"WARNING: the plan leaves out ['$TMP/gone'], which holds the database dumps"* ]] || fail "$output"
+}
+
+@test "a pod without database engines gets no WARNING for a dropped root on the dump directory" {
+  printf 'R %s\nR %s\n' "$TMP/patterns" "$TMP/dumps" >"$TMP/patterns/cluster-include.patterns"
+  DB_BACKUP_LOCATION="$TMP/dumps" BORG_DB_ENGINES="" run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"dropping source roots that do not exist on this node: ['$TMP/dumps']"* ]] || fail "$output"
+  [[ "$output" != *WARNING* ]] || fail "$output"
+}
+
+@test "a cluster plan whose only root is the missing dump directory names it, and stays unchanged" {
+  existing_plan
+  echo "R $TMP/dumps" >"$TMP/patterns/cluster-include.patterns"
+  DB_BACKUP_LOCATION="$TMP/dumps" BORG_DB_ENGINES="mariadb postgres" run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" == *"WARNING: the plan leaves out ['$TMP/dumps'], which holds the database dumps"* ]] || fail "$output"
+  [[ "$output" == *"leaving backup plan unchanged"* ]] || fail "$output"
+  [ ! -e "$TMP/payload" ] || fail "plan touched"
+}
+
+@test "a dropped root on the dumps below a root that is kept gets no WARNING" {
+  mkdir -p "$TMP/dumps"
+  printf 'R %s\nR %s\n' "$TMP/dumps" "$TMP/dumps/shop" >"$TMP/patterns/cluster-include.patterns"
+  DB_BACKUP_LOCATION="$TMP/dumps" BORG_DB_ENGINES="postgres" run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(sources)" = "$TMP/dumps" ] || fail "$(sources)"
+  [[ "$output" != *WARNING* ]] || fail "$output"
+  printf 'R %s\nR %s\n' "$TMP" "$TMP/gone/db-backup" >"$TMP/patterns/cluster-include.patterns"
+  DB_BACKUP_LOCATION="$TMP/gone/db-backup" BORG_DB_ENGINES="postgres" run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [[ "$output" != *WARNING* ]] || fail "$output"
+}
+
+@test "a dump directory that exists is a root like any other" {
+  mkdir -p "$TMP/dumps"
+  printf 'R %s\nR %s\n' "$TMP/patterns" "$TMP/dumps" >"$TMP/patterns/cluster-include.patterns"
+  DB_BACKUP_LOCATION="$TMP/dumps" BORG_DB_ENGINES="postgres" run "$BIN/register-backup-plan"
+  [ "$status" -eq 0 ] || fail "status $status: $output"
+  [ "$(sources)" = "$TMP/patterns
+$TMP/dumps" ] || fail "$(sources)"
+  [[ "$output" != *WARNING* ]] || fail "$output"
 }
 
 # --- the schedule ----------------------------------------------------------------

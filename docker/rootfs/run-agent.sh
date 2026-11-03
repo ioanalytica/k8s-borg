@@ -93,6 +93,13 @@ if [ "${BORG_UI_AGENT:-}" = "true" ]; then
   register-repo || borgui_die "repo registration failed — cannot configure schedule/plan"
   set-check-schedule || echo "WARN: check-schedule setup failed — continuing (auxiliary)." >&2
   if [ "${BORG_REGISTER_PLAN:-true}" = "true" ]; then
+    # The plan takes the roots that exist now; the database dumps are written
+    # later, by its pre-backup hooks. Their directory is created first, so that
+    # a root on it is not left out (register-backup-plan names one it drops).
+    if [ -n "${BORG_DB_ENGINES:-}" ] && [ -n "${DB_BACKUP_LOCATION:-}" ]; then
+      mkdir -p "$DB_BACKUP_LOCATION" \
+        || echo "WARNING: could not create ${DB_BACKUP_LOCATION} (borg.dbBackupLocation) for the database dumps." >&2
+    fi
     register-backup-plan || borgui_die "backup-plan registration failed"
   else
     echo "BORG_REGISTER_PLAN=${BORG_REGISTER_PLAN} — skipping backup-plan registration (backups managed elsewhere)."
