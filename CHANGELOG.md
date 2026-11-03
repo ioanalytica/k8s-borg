@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* **Dependency updates by Renovate.** Renovate opens weekly pull requests for
+  the workflows' actions and the agent image's version pins
+  (`.github/renovate.json`); "Dependency updates" in `CONTRIBUTING.md` says
+  what it updates and what stays manual. Every action is now pinned to a
+  commit, with its release in a comment, so a moved tag no longer changes a
+  workflow. `tests/renovate-config.bats` keeps the pins and the exclusions.
+
 * **A documentation site, https://k8s-borg.ioanalytica.com.** VitePress in
   `site/`, published on GitHub Pages by `.github/workflows/site.yml` on every
   push to `main` that changes what it shows; pull requests build it. The guides

@@ -257,7 +257,7 @@ SH
   local installs releases
   installs="$(grep -hE '^ +- uses: sigstore/cosign-installer@' "$WF"/*.y*ml)"
   [ -n "$installs" ] || fail "no workflow installs cosign"
-  ! grep -vE '@v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$installs" || fail "cosign-installer not pinned to a release: $installs"
+  ! grep -vE '@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$installs" || fail "cosign-installer not pinned to a release: $installs"
   # Without cosign-release the installer brings its own default, which moves
   # with the installer.
   releases="$(grep -hE '^ +cosign-release:' "$WF"/*.y*ml)"

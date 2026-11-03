@@ -1,0 +1,33 @@
+name: Renovate config
+
+# Validates .github/renovate.json whenever a change touches it: a config that
+# Renovate cannot read stops every update until someone notices the issue
+# Renovate opens about it. Not a required check, so the paths filter cannot
+# leave one pending (see lint-test.yml).
+on:
+  push:
+    branches: [main]
+    paths: [.github/renovate.json, .github/workflows/renovate-config.yml]
+  pull_request:
+    paths: [.github/renovate.json, .github/workflows/renovate-config.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The runner's Node.js runs it; Renovate bumps the version once a month.
+      # --no-global: a file named on the command line is otherwise checked as
+      # a self-hosted global config, which accepts options a repository's
+      # config cannot set.
+      - name: renovate-config-validator
+        env:
+          # renovate: datasource=npm depName=renovate
+          RENOVATE_VERSION: 44.206.2
+        run: npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict --no-global .github/renovate.json
