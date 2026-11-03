@@ -248,6 +248,22 @@ until request "GET /health" "${BORG_UI_SERVER}/health" --connect-timeout 5 --max
 done
 echo "Server healthy."
 
+# The configured admin password as Borg UI strips it (Python's strip): Borg UI
+# creates the first admin from INITIAL_ADMIN_PASSWORD without its surrounding
+# whitespace (2.3.0 on), and a value read with --set-file or --from-file keeps
+# its final newline. One that is the default password stays accepted, as it
+# always was (refusing it would break such installs), but it is said on every
+# run, also when a valid PAT skips the admin login.
+admin_pass_stripped=""
+if [ -n "${BORG_UI_ADMIN_PASS:-}" ]; then
+  admin_pass_stripped=$(BORG_UI_ADMIN_PASS="$BORG_UI_ADMIN_PASS" python3 -c '
+import os, sys
+sys.stdout.buffer.write(os.fsencode(os.environ["BORG_UI_ADMIN_PASS"].strip()))')
+  [ -n "$admin_pass_stripped" ] || admin_pass_stripped=$BORG_UI_ADMIN_PASS
+  [ "$admin_pass_stripped" != "$BORG_UI_ADMIN_DEFAULT_PASS" ] \
+    || warn "the configured admin password is the default one (surrounding whitespace aside) — change the admin's password in Borg UI, then configure the new one"
+fi
+
 # --- 2) reuse the existing PAT if it still works -----------------------------
 pat="${BORG_UI_ADMIN_PAT:-}"
 if pat_authenticates "$pat"; then
@@ -258,16 +274,9 @@ else
   [ -n "${BORG_UI_ADMIN_PASS:-}" ] || fatal "set BORG_UI_ADMIN_PASS to mint a PAT"
 
   # admin login (configured password, else fresh-install default + rotate).
-  # Borg UI creates the first admin from INITIAL_ADMIN_PASSWORD without its
-  # surrounding whitespace (2.3.0 on) but compares a login as sent, and a value
-  # read with --set-file or --from-file keeps its final newline. An admin an
-  # older Borg UI created, or an earlier run rotated, has the value as it is:
-  # so that comes first, the stripped form (Python's strip, as Borg UI does it)
-  # only after it failed.
-  admin_pass_stripped=$(BORG_UI_ADMIN_PASS="$BORG_UI_ADMIN_PASS" python3 -c '
-import os, sys
-sys.stdout.buffer.write(os.fsencode(os.environ["BORG_UI_ADMIN_PASS"].strip()))')
-  [ -n "$admin_pass_stripped" ] || admin_pass_stripped=$BORG_UI_ADMIN_PASS
+  # Borg UI compares a login as sent. An admin an older Borg UI created, or an
+  # earlier run rotated, has the configured value as it is: so that comes
+  # first, the stripped form (as Borg UI created the admin) only after it failed.
   if jwt=$(login_as "$BORG_UI_ADMIN_USER" "$BORG_UI_ADMIN_PASS"); then
     rotate=0; echo "Admin login OK (configured password)."
   elif [ "$admin_pass_stripped" != "$BORG_UI_ADMIN_PASS" ] \
@@ -278,10 +287,6 @@ sys.stdout.buffer.write(os.fsencode(os.environ["BORG_UI_ADMIN_PASS"].strip()))')
   else
     fatal "cannot log in as '${BORG_UI_ADMIN_USER}' with the configured or default password"
   fi
-  # A configured password that is the default one stays accepted, as it always
-  # was (refusing it would break such installs), but it is said.
-  [ "$admin_pass_stripped" != "$BORG_UI_ADMIN_DEFAULT_PASS" ] \
-    || warn "the configured admin password is the default one (surrounding whitespace aside) — set another"
   jauth=(-H "Authorization: Bearer ${jwt}")
 
   # clear forced password change / rotate to the configured value, stripped like

@@ -121,10 +121,19 @@ bearer() {
     : >"$TMP/requests"
     BORG_UI_ADMIN_PASS="$pass" reconcile
     [ "$status" -eq 0 ] || fail "status $status: $output $stderr"
-    [[ "$stderr" == *"WARNING: the configured admin password is the default one (surrounding whitespace aside) — set another"* ]] \
+    [[ "$stderr" == *"WARNING: the configured admin password is the default one (surrounding whitespace aside) — change the admin's password in Borg UI, then configure the new one"* ]] \
       || fail "$stderr"
     [ -z "$(changes)" ] || fail "the password was changed: $(changes)"
   done
+}
+
+@test "reconcile: the default password is warned about also when the PAT is reused" {
+  start_server
+  BORG_UI_ADMIN_PAT=good-pat BORG_UI_ADMIN_PASS=admin123 reconcile
+  [ "$status" -eq 0 ] || fail "status $status: $output $stderr"
+  [[ "$output" == *"Existing PAT still valid"* ]] || fail "$output"
+  [[ "$stderr" == *"WARNING: the configured admin password is the default one"* ]] || fail "$stderr"
+  [ -z "$(logins)" ] || fail "logins: $(logins)"
 }
 
 @test "reconcile: the stripped password is masked in what the server said" {

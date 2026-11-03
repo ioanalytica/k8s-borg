@@ -57,7 +57,8 @@
   do they try it without its surrounding whitespace, as Borg UI strips it. The
   default password is rotated to the stripped form, which can also be typed in
   the login form. A configured password that is the default one, also once
-  stripped, is accepted as before, with a warning in the Job's log.
+  stripped, is accepted as before, with a warning in the Job's log on every
+  run: change the admin's password in Borg UI, then configure the new one.
   `tests/admin-login.bats` covers both (#109).
 
 * **Try it locally: the whole chart in a throwaway k3d cluster.** A page of

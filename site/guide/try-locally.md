@@ -77,8 +77,9 @@ helm install k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg -n k8s-borg \
 Without `--version`, Helm installs the latest release. The passwords go in
 with `--set`, as `--set-file` would keep the file's final newline: the
 passphrase would end in it, and chart 1.2.3 and older cannot log in to Borg UI
-with such an admin password. `claims.yaml` replaces the chart's own claims, which ask for
-`ReadWriteMany`; k3s's `local-path` storage only offers `ReadWriteOnce`.
+with such an admin password. `claims.yaml` replaces the chart's own claims,
+which ask for `ReadWriteMany`; k3s's `local-path` storage only offers
+`ReadWriteOnce`.
 
 ::: details The values: examples/k3d/values.yaml
 <<< @/../examples/k3d/values.yaml
