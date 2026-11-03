@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* **Try it locally: the whole chart in a throwaway k3d cluster.** A page of
+  the site (`site/guide/try-locally.md`, linked from the README's quick start)
+  takes a newcomer from nothing to a first backup and restore on one machine,
+  with no host outside it: the release's repository server as the Borg host,
+  Borg UI on SQLite without license or error-report traffic, the node and
+  console pods as managed agents, the k3s datastore snapshot, and, optionally,
+  a PostgreSQL dump with the credentials from the database's Secret. Its files
+  are in `examples/k3d/`: the values, the `ReadWriteOnce` claims k3s's
+  `local-path` storage offers in place of the chart's `ReadWriteMany` ones, and
+  the demo database. `tests/examples-k3d.bats` checks their keys against the
+  chart, renders them and keeps the names the page and the files share
+  together.
+
 * **The datastore restores deal with the revision going back.** A restore
   takes the datastore back to the revision of the backup, and the kubelets,
   kube-proxy, CoreDNS and controllers that kept running stayed on the state

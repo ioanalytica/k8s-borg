@@ -1,0 +1,29 @@
+# On top of values.yaml: the cluster backup dumps the PostgreSQL of
+# demo-db.yaml and archives the dump. The console pod reads the credentials
+# from the database's own Secret when it starts.
+
+databases:
+  postgres:
+    enabled: true
+    instances:
+      - name: shop
+        host: demo-db.demo.svc
+        secretRef:
+          namespace: demo
+          name: demo-db
+          usernameKey: username
+          passwordKey: password
+
+borg:
+  # The dumps, one directory per instance, in the pods' scratch volume.
+  dbBackupLocation: /mnt/db-backup
+
+cluster:
+  include:
+    - "P fm"
+    - "R /mnt/db-backup"
+
+# The console pod registers its plan with the roots that exist when it starts;
+# the first dump is written later, by the plan's own pre-backup hook.
+mountPoints:
+  - /mnt/db-backup

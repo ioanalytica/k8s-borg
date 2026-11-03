@@ -26,6 +26,11 @@ runs the backups as its managed agents.
 ## Quick start
 
 <!-- #region quick-start -->
+To see it work first, on a laptop and without a host of your own,
+[Try it locally](https://k8s-borg.ioanalytica.com/guide/try-locally) runs the
+whole chart in a throwaway k3d cluster, with Borg UI and managed agents, up to
+a first backup and restore.
+
 The chart is published as an OCI artifact; the images live on GitHub Container
 Registry. A first install needs an SSH host with Borg and a directory there for
 the repositories (`mycluster` below, which Borg 1 does not create), a

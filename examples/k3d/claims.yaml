@@ -1,0 +1,33 @@
+# The claims values.yaml names in persistence.*.existingClaim, from k3s's
+# default StorageClass (local-path, ReadWriteOnce). Apply them in the release's
+# namespace before the install.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: borg-cache
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: borg-ui
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: borg-ui-agent
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 64Mi

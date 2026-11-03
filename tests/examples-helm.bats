@@ -10,6 +10,7 @@
 setup() {
   load helpers/common
   load helpers/versions
+  load helpers/examples
   common_setup
   command -v helm >/dev/null || fail "helm is required for the chart tests"
   python3 -c 'import yaml' 2>/dev/null \
@@ -37,19 +38,7 @@ PY
 }
 
 @test "every key the example sets is one the chart knows" {
-  # A map the chart leaves empty ({}) takes any key; below it nothing is checked.
-  run python3 - "$EX_VALUES" "$CHART_DIR/values.yaml" <<'PY'
-import sys, yaml
-ex, known = (yaml.safe_load(open(p)) for p in sys.argv[1:3])
-def walk(e, k, path):
-    for key, val in e.items():
-        p = f"{path}.{key}" if path else key
-        if not isinstance(k, dict) or key not in k:
-            print(p)
-        elif isinstance(val, dict) and isinstance(k[key], dict) and k[key]:
-            walk(val, k[key], p)
-walk(ex, known, "")
-PY
+  run unknown_keys "$EX_VALUES"
   [ "$status" -eq 0 ] || fail "$output"
   [ -z "$output" ] || fail "keys chart/values.yaml does not know: $output"
 }
