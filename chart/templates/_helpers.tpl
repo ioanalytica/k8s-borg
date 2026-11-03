@@ -1033,6 +1033,29 @@ neither fails the render (k8s-borg.validateDatabases).
 {{- join " " $engines -}}
 {{- end -}}
 
+{{/*
+"true" when the cluster backup dumps databases and no "R <root>" of
+cluster.include is borg.dbBackupLocation or a directory above it: the dumps
+are written but not archived. The paths are compared as written, cleaned, as
+register-backup-plan does; a root below the directory does not cover it.
+*/}}
+{{- define "k8s-borg.databases.uncovered" -}}
+{{- if and .Values.cluster.enabled (include "k8s-borg.databases.configured" .) -}}
+{{- $dumps := clean .Values.borg.dbBackupLocation -}}
+{{- $covered := false -}}
+{{- range .Values.cluster.include -}}
+{{- $line := regexSplit "\\s+" (trim (toString .)) 2 -}}
+{{- if and (eq (len $line) 2) (has (first $line) (list "R" "r")) -}}
+{{- $root := clean (last $line) -}}
+{{- if or (eq $dumps $root) (hasPrefix (printf "%s/" (trimSuffix "/" $root)) $dumps) -}}
+{{- $covered = true -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $covered }}true{{ end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Validate database instances before rendering volumes or credentials.
 A MongoDB secretRef either names the key of a whole connection string (uriKey,
 e.g. the Community operator's connectionString.standard) or, like the other

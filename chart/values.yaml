@@ -145,7 +145,9 @@ borg:
   ## archives them when this directory, or one above it, is a root in cluster.include
   ## ("R <path>"). With cluster.backupMode=plan the plan takes only the roots that exist when
   ## the console pod starts, before any dump: the pod creates this directory first, and a
-  ## WARNING in its log names one it cannot create or a root on it the plan leaves out. The
+  ## WARNING in its log names one it cannot create or a root on it the plan leaves out.
+  ## With a database engine configured and no such root, the notes of helm install and
+  ## helm upgrade warn that the dumps are written but not archived. The
   ## files and the privileges: https://k8s-borg.ioanalytica.com/features/databases;
   ## restore-postgres / restore-mariadb: https://k8s-borg.ioanalytica.com/operations/restore
   dbBackupLocation: "/mnt/nfs/data/db-backup"

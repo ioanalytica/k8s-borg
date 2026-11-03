@@ -22,6 +22,17 @@
   with `helm.sh/resource-policy=keep` before the upgrade.
   `tests/chart-persistence.bats` covers it.
 
+* **A warning when no root holds the database dumps.** The cluster backup
+  archives the dumps only from its roots in `cluster.include`, and the chart
+  does not add `borg.dbBackupLocation` there: with an engine configured and
+  neither that directory nor one above it as an `R` root, every backup wrote
+  the dumps but did not archive them, in plan and CronJob mode alike, and
+  nothing said so. The notes of `helm install` and `helm upgrade` now end
+  with a `WARNING` that names the `R` line to add. The paths are compared as
+  `register-backup-plan` compares them; a root below the directory does not
+  count. A warning, not a render failure: a release may archive the dumps
+  some other way. `tests/chart-db-engines.bats` covers it.
+
 * **The database dumps are in the cluster plan also when their directory is
   new.** With `cluster.backupMode=plan` the plan takes only the roots that
   exist when the console pod starts, and the dumps are written later, by its
