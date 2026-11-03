@@ -94,17 +94,33 @@ PY
   grep -qx "  name: $release-repo-server" <<<"$output" || fail "$output"
 }
 
-@test "the claims the values name are the ones claims.yaml makes" {
-  run python3 - "$K3D/values.yaml" "$K3D/claims.yaml" <<'PY'
-import sys, yaml
-values = yaml.safe_load(open(sys.argv[1]))
-made = {d["metadata"]["name"]: d for d in yaml.safe_load_all(open(sys.argv[2])) if d}
-for key, p in values["persistence"].items():
-    claim = p.get("existingClaim")
+@test "the pods mount the release's own claims, which ask for ReadWriteOnce alone" {
+  read -r release ns < <(release_and_namespace)
+  helm template "$release" "$REPO_ROOT/chart" -n "$ns" "${ARGS[@]}" >"$BATS_TEST_TMPDIR/release.yaml"
+  run python3 - "$PAGE" "$BATS_TEST_TMPDIR/release.yaml" <<'PY'
+import re, sys, yaml
+page = open(sys.argv[1]).read()
+docs = [d for d in yaml.safe_load_all(open(sys.argv[2])) if d]
+made = {d["metadata"]["name"]: d for d in docs if d["kind"] == "PersistentVolumeClaim"}
+def mounted(node):
+    if isinstance(node, dict):
+        if "persistentVolumeClaim" in node:
+            yield node["persistentVolumeClaim"]["claimName"]
+        for v in node.values():
+            yield from mounted(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from mounted(v)
+errors = []
+for claim in sorted({c for d in docs for c in mounted(d)}):
     if claim not in made:
-        print(f"persistence.{key}.existingClaim {claim!r} is not in claims.yaml")
+        errors.append(f"a pod mounts {claim}, a claim the release does not make")
     elif made[claim]["spec"]["accessModes"] != ["ReadWriteOnce"]:
-        print(f"{claim}: not ReadWriteOnce, which is all local-path offers")
+        errors.append(f"{claim} asks for {made[claim]['spec']['accessModes']}, k3s's local-path offers ReadWriteOnce alone")
+for claim in re.findall(r"on the claim `([^`]+)`", page):
+    if claim not in made:
+        errors.append(f"the page names the claim {claim}, which the release does not make")
+print("\n".join(errors))
 PY
   [ "$status" -eq 0 ] || fail "$output"
   [ -z "$output" ] || fail "$output"
@@ -131,8 +147,6 @@ if not svc or inst["host"] != f"{svc['metadata']['name']}.{svc['metadata']['name
 loc = values["borg"]["dbBackupLocation"]
 if f"R {loc}" not in values["cluster"]["include"]:
     errors.append(f"cluster.include has no root for borg.dbBackupLocation {loc}")
-if loc not in values.get("mountPoints", []):
-    errors.append(f"{loc} is not in mountPoints: the plan leaves out a root that does not exist when the pod starts")
 print("\n".join(errors))
 PY
   [ "$status" -eq 0 ] || fail "$output"

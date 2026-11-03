@@ -100,11 +100,11 @@
   Borg UI on SQLite without license or error-report traffic, the node and
   console pods as managed agents, the k3s datastore snapshot, and, optionally,
   a PostgreSQL dump with the credentials from the database's Secret. Its files
-  are in `examples/k3d/`: the values, the `ReadWriteOnce` claims k3s's
-  `local-path` storage offers in place of the chart's `ReadWriteMany` ones, and
-  the demo database. `tests/examples-k3d.bats` checks their keys against the
-  chart, renders them and keeps the names the page and the files share
-  together.
+  are in `examples/k3d/`: the values, which set the chart's claims to
+  `ReadWriteOnce` (`persistence.<name>.accessModes`), all that k3s's
+  `local-path` storage offers, and the demo database.
+  `tests/examples-k3d.bats` checks their keys against the chart, renders them
+  and keeps the names the page and the files share together.
 
 * **Try it locally runs in CI.** `.github/workflows/try-locally.yml` runs the
   page's own commands in a k3d cluster (`tests/try-locally/run.sh`), with the

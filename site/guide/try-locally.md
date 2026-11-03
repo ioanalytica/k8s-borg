@@ -62,7 +62,6 @@ openssl rand -hex 12 > admin-password
 ```sh
 url=https://raw.githubusercontent.com/ioanalytica/k8s-borg/main/examples/k3d
 kubectl create namespace k8s-borg
-kubectl -n k8s-borg apply -f $url/claims.yaml
 helm install k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg -n k8s-borg \
   -f $url/values.yaml \
   --set borg.passphrase.value="$(cat passphrase)" \
@@ -77,9 +76,9 @@ helm install k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg -n k8s-borg \
 Without `--version`, Helm installs the latest release. The passwords go in
 with `--set`, as `--set-file` would keep the file's final newline: the
 passphrase would end in it, and chart 1.2.3 and older cannot log in to Borg UI
-with such an admin password. `claims.yaml` replaces the chart's own claims,
-which ask for `ReadWriteMany`; k3s's `local-path` storage only offers
-`ReadWriteOnce`.
+with such an admin password. The values ask for `ReadWriteOnce` claims
+(`persistence.<name>.accessModes`): k3s's `local-path` storage offers no other,
+and the chart's own default is `ReadWriteMany`.
 
 ::: details The values: examples/k3d/values.yaml
 <<< @/../examples/k3d/values.yaml
@@ -101,10 +100,11 @@ Repository 'k8s-borg-k3d-k8s-borg-server-0' registered (agent id 1).
 Backup plan 'backup-k8s-borg-k3d-k8s-borg-server-0' created for repo id 1 (no schedule — run manually).
 ```
 
-The ids can differ. A log that ends with `Repository cannot be accessed!`
-instead means the node pod started before the repository server could take
-it: [start them again](#start-again). The node pod's log also warns that
-`/node/etc/hostname`, `/node/etc/hosts` and `/node/etc/resolv.conf` are
+The ids can differ. A node pod that starts before the repository server can
+take it ends with `Repository cannot be accessed!`, and the kubelet starts it
+again after a pause that doubles each time, up to five minutes: run the
+`logs` command again until the plan is there. The node pod's log also warns
+that `/node/etc/hostname`, `/node/etc/hosts` and `/node/etc/resolv.conf` are
 skipped as other file systems: Docker mounts these three files into the k3d
 node, and the node backup does not cross into another file system (see
 [Node backups](/features/node-backups)).
@@ -214,25 +214,13 @@ Borg UI's database and the pulled images included, and the `kubectl` context.
 
 | What you see | Why, and what to do |
 | --- | --- |
-| Pods and claims `Pending`, the claim events say `NodePath only supports ReadWriteOnce` | the chart made its own claims: `claims.yaml` or `values.yaml` is missing from the install |
-| `k8s-borg-repo-server-0` stays in `Init` with the event `path "/srv/borg" does not exist`, or its init container `prepare` fails with `data directory /repos belongs to uid 0`; the node pod's log ends with `Repository cannot be accessed!` | `/srv/borg` is missing on the node, or not the server's. Run the `docker exec` of step 1, then start the server and the backup pods again ([below](#start-again)): the node pod would try again only after an hour (`node.backupIntervalSeconds`) |
-| The node and console pods stay in `Init`, the reconcile Job's log says `cannot log in as 'admin'` | a second install with new passwords: Borg UI keeps the admin password of its first start on the claim `borg-ui`, and the repositories keep their passphrase. Start over: [clean up](#clean-up) and begin at step 1 |
+| `k8s-borg-repo-server-0` stays in `Init` with the event `path "/srv/borg" does not exist`, or its init container `prepare` fails with `data directory /repos belongs to uid 0`; the node and console pods end with `Repository cannot be accessed!` and wait in `CrashLoopBackOff` | `/srv/borg` is missing on the node, or not the server's. Run the `docker exec` of step 1: the server starts on its own, and the node and console pods after it. The kubelet starts a failed container again after a pause it doubles each time, up to five minutes |
+| The node and console pods stay in `Init`, the reconcile Job's log says `cannot log in as 'admin'` | a second install with new passwords: Borg UI keeps the admin password of its first start on the claim `k8s-borg-ui`, and the repositories keep their passphrase. Start over: [clean up](#clean-up) and begin at step 1 |
 | A second k3d node: its node pod stays `Pending`, `didn't match PersistentVolume's node affinity` | the claims belong to the first node: one node only |
 
 The reconcile Job's log is `kubectl -n k8s-borg logs job/k8s-borg-reconcile-1`
 (the number is the release's revision). More under
 [Troubleshooting](/operations/troubleshooting).
-
-### Starting the server and the pods again {#start-again}
-
-Once `/srv/borg` is right, start the repository server, wait for it, and then
-start the node and console pods:
-
-```sh
-kubectl -n k8s-borg delete pod k8s-borg-repo-server-0
-kubectl -n k8s-borg rollout status statefulset/k8s-borg-repo-server --timeout=5m
-kubectl -n k8s-borg rollout restart daemonset/k8s-borg-node statefulset/k8s-borg-app
-```
 
 ## From here to a real cluster
 

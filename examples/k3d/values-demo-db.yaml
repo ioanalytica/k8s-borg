@@ -22,9 +22,3 @@ cluster:
   include:
     - "P fm"
     - "R /mnt/db-backup"
-
-# The page installs the latest release. Up to 1.2.3 the console pod registers
-# its plan with the roots that exist when it starts, before the first dump is
-# written by the plan's own pre-backup hook; later charts create the directory.
-mountPoints:
-  - /mnt/db-backup

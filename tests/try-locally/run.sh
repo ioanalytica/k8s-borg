@@ -274,8 +274,9 @@ page "## 3. " 1
 # come a few seconds later: the waits run once, and fail the run when the
 # page's own time limit ends them, the rest of the block until the plan is
 # registered, for up to five minutes. A node pod that started before the
-# repository server could take it says so in its log (the page's grep leaves
-# that line out), and is started again the way the page says.
+# repository server could take it ends, and the kubelet starts it again; its
+# rollout may have finished before it ended, as the pod has no readiness
+# probe, so the rest of the block is what waits for it.
 code="$(block "## 3. " 2)"
 waits="$(grep ' rollout status ' <<<"$code" || true)"
 rest="$(grep -v ' rollout status ' <<<"$code" || true)"
@@ -285,26 +286,15 @@ show "## 3. " 2 "$code"
 bash -euo pipefail -c "$waits"
 norm() { sed -E 's/[0-9]+/N/g'; }
 deadline=$((SECONDS + 300))
-restarted=""
 until out="$(bash -euo pipefail -c "$rest" 2>&1)" && grep -q "^Backup plan '$NODE_PLAN' " <<<"$out"; do
-  if [ -z "$restarted" ] \
-     && kubectl -n k8s-borg logs daemonset/k8s-borg-node 2>/dev/null | grep -q 'Repository cannot be accessed!'; then
-    echo "::warning::the node pod could not reach the repository server; both start again as the page says"
-    page "### Starting the server" 1
-    restarted=1
-    bash -euo pipefail -c "$waits"
-    deadline=$((SECONDS + 300))
-  fi
   [ "$SECONDS" -lt "$deadline" ] || { echo "$out"; echo "✗ the node pod registered no plan $NODE_PLAN" >&2; exit 1; }
   sleep 5
 done
 echo "$out"
-if [ -z "$restarted" ]; then
-  # The lines the page shows, ids aside.
-  missing="$(page_block "## 3. " "" 1 | norm | grep -vxF -f <(norm <<<"$out") || true)"
-  [ -z "$missing" ] || { echo "✗ the node pod's log lacks lines the page shows:" >&2; echo "$missing" >&2; exit 1; }
-  echo "✓ the node pod's log has the lines the page shows"
-fi
+# The lines the page shows, ids aside.
+missing="$(page_block "## 3. " "" 1 | norm | grep -vxF -f <(norm <<<"$out") || true)"
+[ -z "$missing" ] || { echo "✗ the node pod's log lacks lines the page shows:" >&2; echo "$missing" >&2; exit 1; }
+echo "✓ the node pod's log has the lines the page shows"
 
 PAT="$(kubectl -n k8s-borg get secret k8s-borg-ui-pat -o jsonpath='{.data.BORG_UI_ADMIN_PAT}' | base64 -d)"
 [ -n "$PAT" ] || { echo "✗ Secret k8s-borg-ui-pat holds no token" >&2; exit 1; }
