@@ -57,9 +57,11 @@ Borg 1 repository:
 LICENSE_SYNC=false AGENT_BORG_VERSION=1 ./stack.sh up
 ```
 
-Do this on a fresh stack. After a start with the defaults, `./stack.sh reset`
-first: the server keeps the trial it already holds, and the agent's repository
-record keeps its Borg major, so a Borg 1 repository cannot take its place.
+Do this on a fresh stack. If the stack has already started with the defaults,
+run `./stack.sh reset` first, which clears the server's database and the
+agent's enrollment and repositories. Without it, the server keeps the trial it
+already holds and the agent's repository record keeps its Borg major, so a
+Borg 1 repository cannot take its place.
 
 ## Testing the installer
 
