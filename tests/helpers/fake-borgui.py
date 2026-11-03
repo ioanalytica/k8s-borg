@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """A stand-in for the parts of the Borg UI API that reconcile-borgui talks to.
 
-Serves /health, GET /api/auth/me (200 for the PAT in FAKE_PAT), the admin login
-and PAT routes, the notification CRUD routes and, for the tests that point
-K8S_API here, merge-patch and get of the reconcile-status ConfigMap and the PAT
-Secret. Channels and k8s objects are kept in memory.
+Serves /health, GET /api/auth/me (200 for the PAT in FAKE_PAT), the admin login,
+password change and PAT routes, the notification CRUD routes and, for the tests
+that point K8S_API here, merge-patch and get of the reconcile-status ConfigMap
+and the PAT Secret. Channels and k8s objects are kept in memory.
 
   FAKE_DIR            directory for the port file, the request log and the
                       final channel state
@@ -16,9 +16,10 @@ Secret. Channels and k8s objects are kept in memory.
   FAKE_FAIL_CODE      status of those answers instead of 422
   FAKE_FAIL_BODY      raw body of those answers instead of the echo
   FAKE_HEALTH         status /health answers (default 200)
-  FAKE_ADMIN_PASS     the admin password the login accepts (default "admin-pw");
-                      a login hands out the bearer token "jwt-1", and a minted
-                      PAT is "new-pat"
+  FAKE_ADMIN_PASS     the admin password the login accepts (default "admin-pw"),
+                      compared as sent; a login hands out the bearer token
+                      "jwt-1", a password change with it as current_password
+                      replaces it, and a minted PAT is "new-pat"
   FAKE_SA_TOKEN       the bearer token the k8s routes accept (default "sa-token")
 
 Every request is appended to FAKE_DIR/requests as one JSON line
@@ -37,7 +38,7 @@ FAIL = {r.strip() for r in os.environ.get("FAKE_FAIL", "").split(",") if r.strip
 FAIL_CODE = int(os.environ.get("FAKE_FAIL_CODE") or 422)
 FAIL_BODY = os.environ.get("FAKE_FAIL_BODY")
 HEALTH = int(os.environ.get("FAKE_HEALTH") or 200)
-ADMIN_PASS = os.environ.get("FAKE_ADMIN_PASS", "admin-pw")
+admin = {"password": os.environ.get("FAKE_ADMIN_PASS", "admin-pw")}
 SA_TOKEN = os.environ.get("FAKE_SA_TOKEN", "sa-token")
 K8S = re.compile(r"^/api/v1/namespaces/[^/]+/(configmaps|secrets)/([^/]+)$")
 k8s = {}
@@ -135,7 +136,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/login" and method == "POST":
             if (method + " " + path) in FAIL:
                 return self.fail(body)
-            if body.get("password") == ADMIN_PASS:
+            if body.get("password") == admin["password"]:
                 return self.reply(200, {"access_token": "jwt-1"})
             return self.reply(401, {"detail": {"key": "backend.errors.auth.invalidCredentials"}})
         if self.headers.get("Authorization") not in ("Bearer " + PAT, "Bearer jwt-1"):
@@ -148,6 +149,11 @@ class Handler(BaseHTTPRequestHandler):
         if route in FAIL or (method + " " + path) in FAIL:
             return self.fail(body)
 
+        if route == "POST /api/auth/change-password":
+            if body.get("current_password") != admin["password"]:
+                return self.reply(400, {"detail": "backend.errors.auth.currentPasswordIncorrect"})
+            admin["password"] = body["new_password"]
+            return self.reply(200, {"message": "Password changed successfully"})
         if route == "GET /api/settings/tokens":
             return self.reply(200, [])
         if route == "POST /api/settings/tokens":

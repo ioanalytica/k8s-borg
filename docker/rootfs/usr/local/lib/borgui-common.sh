@@ -36,12 +36,26 @@ borgui_pat_ok() {  # 0 if the PAT authenticates as a user
   [ "$code" = "200" ]
 }
 
-borgui_jwt_login() {  # echoes an access_token (admin user/password fallback)
-  [ -n "${BORG_UI_ADMIN_USER:-}" ] && [ -n "${BORG_UI_ADMIN_PASS:-}" ] || return 1
+borgui_login_as() {  # $1=password → echoes an access_token for BORG_UI_ADMIN_USER
   curl -fsS -X POST "${BORG_UI_SERVER}/api/auth/login" \
     --data-urlencode "username=${BORG_UI_ADMIN_USER}" \
-    --data-urlencode "password=${BORG_UI_ADMIN_PASS}" 2>/dev/null \
+    --data-urlencode "password=$1" 2>/dev/null \
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])' 2>/dev/null
+}
+
+# The password as it is, then without its surrounding whitespace (Python's
+# strip): Borg UI 2.3.0 on creates the first admin from INITIAL_ADMIN_PASSWORD
+# stripped, and a value read with --set-file or --from-file keeps its final
+# newline. reconcile-borgui logs in the same way.
+borgui_jwt_login() {  # echoes an access_token (admin user/password fallback)
+  [ -n "${BORG_UI_ADMIN_USER:-}" ] && [ -n "${BORG_UI_ADMIN_PASS:-}" ] || return 1
+  borgui_login_as "$BORG_UI_ADMIN_PASS" && return 0
+  local stripped
+  stripped=$(BORG_UI_ADMIN_PASS="$BORG_UI_ADMIN_PASS" python3 -c '
+import os, sys
+sys.stdout.buffer.write(os.fsencode(os.environ["BORG_UI_ADMIN_PASS"].strip()))') || return 1
+  [ -n "$stripped" ] && [ "$stripped" != "$BORG_UI_ADMIN_PASS" ] || return 1
+  borgui_login_as "$stripped"
 }
 
 borgui_bearer() {
