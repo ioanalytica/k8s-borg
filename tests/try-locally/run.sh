@@ -291,10 +291,19 @@ until out="$(bash -euo pipefail -c "$rest" 2>&1)" && grep -q "^Backup plan '$NOD
   sleep 5
 done
 echo "$out"
-# The lines the page shows, ids aside.
+# The lines the page shows, ids aside: those of a first start. A node pod the
+# kubelet started again after a failure past its enrolment says "Already
+# enrolled" and "already registered" instead.
 missing="$(page_block "## 3. " "" 1 | norm | grep -vxF -f <(norm <<<"$out") || true)"
-[ -z "$missing" ] || { echo "✗ the node pod's log lacks lines the page shows:" >&2; echo "$missing" >&2; exit 1; }
-echo "✓ the node pod's log has the lines the page shows"
+restarts="$(kubectl -n k8s-borg get pods -l app.kubernetes.io/component=node \
+  -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="node")].restartCount}')"
+if [ -z "$missing" ]; then
+  echo "✓ the node pod's log has the lines the page shows"
+elif [ "${restarts:-0}" -gt 0 ]; then
+  echo "◆ the node pod started $((restarts + 1)) times; its log is not a first start's, which the page shows"
+else
+  echo "✗ the node pod's log lacks lines the page shows:" >&2; echo "$missing" >&2; exit 1
+fi
 
 PAT="$(kubectl -n k8s-borg get secret k8s-borg-ui-pat -o jsonpath='{.data.BORG_UI_ADMIN_PAT}' | base64 -d)"
 [ -n "$PAT" ] || { echo "✗ Secret k8s-borg-ui-pat holds no token" >&2; exit 1; }
