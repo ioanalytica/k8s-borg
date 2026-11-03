@@ -66,7 +66,7 @@ kubectl create namespace k8s-borg
 helm install k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg -n k8s-borg \
   -f $url/values.yaml \
   --set borg.passphrase.value="$(cat passphrase)" \
-  --set borgUI.adminPassword.value="$(cat admin-password)" \
+  --set-file borgUI.adminPassword.value=admin-password \
   --set-file ssh.privateKey=id_ed25519 \
   --set-file ssh.publicKey=id_ed25519.pub \
   --set-file ssh.knownHosts=known_hosts \
@@ -74,12 +74,13 @@ helm install k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg -n k8s-borg \
   --set-file ssh.authorizedKeys=id_ed25519.pub
 ```
 
-Without `--version`, Helm installs the latest release. The passwords go in
-with `--set`, as `--set-file` would keep the file's final newline: the
-passphrase would end in it, and chart 1.2.3 and older cannot log in to Borg UI
-with such an admin password. The values ask for `ReadWriteOnce` claims
-(`persistence.<name>.accessModes`): k3s's `local-path` storage offers no other,
-and the chart's own default is `ReadWriteMany`.
+Without `--version`, Helm installs the latest release. The passphrase goes in
+with `--set`: `--set-file` would keep the file's final newline, and the
+passphrase would end in it. The admin password may keep it: Borg UI strips it
+when it creates the admin, and the chart logs in either way. The values ask
+for `ReadWriteOnce` claims (`persistence.<name>.accessModes`):
+k3s's `local-path` storage offers no other, and the chart's own default is
+`ReadWriteMany`.
 
 ::: details The values: examples/k3d/values.yaml
 <<< @/../examples/k3d/values.yaml

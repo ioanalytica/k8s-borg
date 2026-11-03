@@ -17,9 +17,12 @@ setup() {
   K3D="$REPO_ROOT/examples/k3d"
   PAGE="$REPO_ROOT/site/guide/try-locally.md"
   KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPSu1DAFv3rL+0eX65tyDpi0hwnDcsWJqgSLMp0O49HD"
-  # What the page passes on the command line, with stand-ins.
+  # What the page passes on the command line, with stand-ins: the admin
+  # password from a file, with its final newline.
+  printf 'test\n' >"$BATS_TEST_TMPDIR/admin-password"
   ARGS=(-f "$K3D/values.yaml"
-        --set borg.passphrase.value=test --set borgUI.adminPassword.value=test
+        --set borg.passphrase.value=test
+        --set-file borgUI.adminPassword.value="$BATS_TEST_TMPDIR/admin-password"
         --set ssh.privateKey=test --set ssh.publicKey=test --set ssh.knownHosts=test
         --set ssh.hostKey=test --set "ssh.authorizedKeys=$KEY quickstart")
 }
