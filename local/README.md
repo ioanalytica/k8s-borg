@@ -107,7 +107,7 @@ server are `ssh://borg@<this-host>:2222/local/<name>` with the key
 | `PUBLIC_BASE_URL` | `http://localhost:8081` | the server's own idea of its URL |
 | `ADMIN_PASSWORD` | `local-admin` | initial admin password (first start only) |
 | `AGENT_NAME` | `agent-1` | name of the stack's agent |
-| `AGENT_BORG_VERSION` | `2` | Borg major of the agent's repository (Borg 2 needs a paid plan) |
+| `AGENT_BORG_VERSION` | `2` | Borg major of the agent's repository (Borg 2 needs a paid plan or the trial) |
 | `AGENT_SERVER_URL` | `http://server:8081` | server URL the stack's agent enrolls at |
 | `LICENSE_SYNC` | `true` | contact the activation service |
 | `BASE_IMAGE` | computed | runtime base for the server build |
