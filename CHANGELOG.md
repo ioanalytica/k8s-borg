@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* **Access modes for the chart's claims.** The claims of `persistence.cache`,
+  `.ui` and `.uiAgent` asked for `ReadWriteMany` only, so on storage that
+  offers only `ReadWriteOnce`, such as the local-path class of k3s and kind,
+  they never bound. `persistence.<name>.accessModes` now sets what a claim
+  asks for, and with `createPV` what its static PV offers; every pod that
+  mounts a `ReadWriteOnce` claim has to run on one node. The default stays
+  `[ReadWriteMany]`, so a release renders as before, also one upgraded with
+  `--reuse-values` from an older chart. Kubernetes does not change the modes
+  of an existing claim: set them before the install. A claim that never bound
+  can be deleted first; the data of a bound one has to move to a new claim,
+  named in `existingClaim`.
+  `tests/chart-persistence.bats` covers it.
+
 * **A node agent whose start fails tries again soon.** With
   `node.backupMode=agent` the node pods still ran the loop of interval mode:
   when their start failed (`borg-init` while the repository server is not yet

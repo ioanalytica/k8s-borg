@@ -1028,6 +1028,18 @@ borgUI:
 ## re-install over the top picks them back up. `retain: false` lets uninstall
 ## remove the volume (fine for the disposable cache).
 ##
+## `accessModes` is what the chart's claim asks for, and what its static PV
+## offers with createPV. The default, ReadWriteMany, lets the node DaemonSet
+## mount the cache and uiAgent volumes on every node, next to the console pod or
+## the CronJob and, for the cache, the Borg UI server. Storage that offers only
+## ReadWriteOnce, such as the local-path class of k3s and kind, needs
+## [ReadWriteOnce]; every pod that mounts the claim then has to run on one node.
+## Not used with existingClaim. Kubernetes does not change the access modes of
+## an existing claim, so an upgrade that changes them fails: set them before
+## the install. A claim that never bound holds nothing and can be deleted
+## first; the data of a bound one has to move to a new claim, named in
+## existingClaim (ui holds Borg UI's state, uiAgent Borg's key files).
+##
 persistence:
   cache:
     ## @param persistence.cache.retain Keep the PVC/PV on uninstall (disposable → false)
@@ -1038,6 +1050,9 @@ persistence:
     path: "/storage/shared/cluster/static/k8s-borg-cache"
     size: 5Gi
     storageClassName: ""
+    ## @param persistence.cache.accessModes Access modes of the claim (and of the static PV with createPV)
+    accessModes:
+      - ReadWriteMany
   ui:
     ## @param persistence.ui.retain Keep the Borg UI /data PVC/PV on uninstall (config survives)
     retain: true
@@ -1047,6 +1062,9 @@ persistence:
     path: "/storage/shared/cluster/static/k8s-borg-ui"
     size: 5Gi
     storageClassName: ""
+    ## @param persistence.ui.accessModes Access modes of the claim (and of the static PV with createPV)
+    accessModes:
+      - ReadWriteMany
   uiAgent:
     ## @param persistence.uiAgent.retain Keep the agent config PVC/PV on uninstall (avoids re-enrollment).
     ## Holds, per node, the agent's config.toml and Borg's key files (borg-keys/).
@@ -1057,6 +1075,9 @@ persistence:
     path: "/storage/shared/cluster/static/k8s-borg-ui-agent"
     size: 10Mi
     storageClassName: ""
+    ## @param persistence.uiAgent.accessModes Access modes of the claim (and of the static PV with createPV)
+    accessModes:
+      - ReadWriteMany
 
 ## @section Repository server (optional; Borg 2 over ssh)
 ## A Borg 2 repository server inside the release: sshd as the unprivileged user
