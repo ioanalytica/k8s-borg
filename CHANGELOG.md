@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
+
+* **Borg UI 2.4.6, as in 1.2.3.** The `borg-ui` submodule stays at the
+  v2.4.6 release (agent 0.1.22, no database change).
+
+### Chart and images
+
+* **Signed images and chart, with SBOMs.** A release signs the agent, Borg UI
+  and runtime base images and the chart with Sigstore cosign, keyless and by
+  digest; the certificate names `build.yml` at the release tag. Every platform
+  image now carries an SPDX SBOM next to its SLSA provenance, both covered by
+  the signature of the image index. The GitHub Release is published only once
+  the signatures verified. "Verify the images" in the README has the commands.
+  `tests/release-signing.bats` keeps the workflows from dropping any of it.
+
+* **Versions with a suffix are prereleases.** A tag such as `1.2.4-beta.1` or
+  the chart revision `1.2.3-1` is published as a GitHub prerelease, never as
+  the repository's Latest release, and no longer moves the images' `latest`
+  tags.
+
+* **Access modes for the chart's claims.** The claims of `persistence.cache`,
+  `.ui` and `.uiAgent` asked for `ReadWriteMany` only, so on storage that
+  offers only `ReadWriteOnce`, such as the local-path class of k3s and kind,
+  they never bound. `persistence.<name>.accessModes` now sets what a claim
+  asks for, and with `createPV` what its static PV offers; every pod that
+  mounts a `ReadWriteOnce` claim has to run on one node. The default stays
+  `[ReadWriteMany]`, so a release renders as before, also one upgraded with
+  `--reuse-values` from an older chart. Kubernetes does not change the modes
+  of an existing claim: set them before the install. A claim that never bound
+  can be deleted first; the data of a bound one has to move to a new claim,
+  named in `existingClaim`.
+  `tests/chart-persistence.bats` covers it.
 
 * **Borg UI's claim only with Borg UI.** The chart created the claim of
   `persistence.ui`, and with `createPV` its static PV, in every release, also
@@ -22,18 +53,6 @@
   and with `createPV` its PV, with `helm.sh/resource-policy=keep` before the
   upgrade. `tests/chart-persistence.bats` covers it.
 
-* **A warning when no root holds the database dumps.** The cluster backup
-  archives the dumps only from its roots in `cluster.include`, and the chart
-  does not add `borg.dbBackupLocation` there: with an engine configured and
-  neither that directory nor one above it as an `R` root, every backup wrote
-  the dumps but did not archive them, in plan and CronJob mode alike, and
-  nothing said so. The notes of `helm install` and `helm upgrade` now end
-  with a `WARNING` that names the `R` line to add. The paths are compared as
-  `register-backup-plan` compares them; a root below the directory does not
-  count. The notes do not look at `cluster.exclude`, whose patterns can still
-  leave the dumps out. A warning, not a render failure: a release may archive
-  the dumps some other way. `tests/chart-db-engines.bats` covers it.
-
 * **The database dumps are in the cluster plan also when their directory is
   new.** With `cluster.backupMode=plan` the plan takes only the roots that
   exist when the console pod starts, and the dumps are written later, by its
@@ -45,18 +64,17 @@
   `BORG_DB_ENGINES`); one it cannot create, and a root on the dumps
   `register-backup-plan` leaves out, are named with a `WARNING`.
 
-* **Access modes for the chart's claims.** The claims of `persistence.cache`,
-  `.ui` and `.uiAgent` asked for `ReadWriteMany` only, so on storage that
-  offers only `ReadWriteOnce`, such as the local-path class of k3s and kind,
-  they never bound. `persistence.<name>.accessModes` now sets what a claim
-  asks for, and with `createPV` what its static PV offers; every pod that
-  mounts a `ReadWriteOnce` claim has to run on one node. The default stays
-  `[ReadWriteMany]`, so a release renders as before, also one upgraded with
-  `--reuse-values` from an older chart. Kubernetes does not change the modes
-  of an existing claim: set them before the install. A claim that never bound
-  can be deleted first; the data of a bound one has to move to a new claim,
-  named in `existingClaim`.
-  `tests/chart-persistence.bats` covers it.
+* **A warning when no root holds the database dumps.** The cluster backup
+  archives the dumps only from its roots in `cluster.include`, and the chart
+  does not add `borg.dbBackupLocation` there: with an engine configured and
+  neither that directory nor one above it as an `R` root, every backup wrote
+  the dumps but did not archive them, in plan and CronJob mode alike, and
+  nothing said so. The notes of `helm install` and `helm upgrade` now end
+  with a `WARNING` that names the `R` line to add. The paths are compared as
+  `register-backup-plan` compares them; a root below the directory does not
+  count. The notes do not look at `cluster.exclude`, whose patterns can still
+  leave the dumps out. A warning, not a render failure: a release may archive
+  the dumps some other way. `tests/chart-db-engines.bats` covers it.
 
 * **A node agent whose start fails tries again soon.** With
   `node.backupMode=agent` the node pods still ran the loop of interval mode:
@@ -72,13 +90,6 @@
   is unchanged. `tests/chart-node-start.bats` runs the start command of both
   modes.
 
-* **The local stack's README no longer says managed agents need a paid plan.**
-  On Borg UI's community plan, managed agents, repository registration, backup
-  plans, plan runs, browsing and restores work for Borg 1 repositories; the
-  Borg 2 repository format is what needs a paid plan, and the stack's agent
-  uses one by default. The Licence section says so and gives the command for the
-  community plan: `LICENSE_SYNC=false AGENT_BORG_VERSION=1 ./stack.sh up`.
-
 * **An admin password with a final newline logs in.** A value read with
   `--set-file`, or into a Secret with `kubectl create secret --from-file`,
   keeps the file's final newline. Borg UI (2.3.0 on) creates the admin without
@@ -93,54 +104,35 @@
   run: change the admin's password in Borg UI, then configure the new one.
   `tests/admin-login.bats` covers both (#109).
 
-* **Try it locally: the whole chart in a throwaway k3d cluster.** A page of
-  the site (`site/guide/try-locally.md`, linked from the README's quick start)
-  takes a newcomer from nothing to a first backup and restore on one machine,
-  with no host outside it: the release's repository server as the Borg host,
-  Borg UI on SQLite without license or error-report traffic, the node and
-  console pods as managed agents, the k3s datastore snapshot, and, optionally,
-  a PostgreSQL dump with the credentials from the database's Secret. The
-  cluster runs the k3s image the page is tested with
-  (`k3d cluster create … --image rancher/k3s:…`), which Renovate updates. Its
-  files are in `examples/k3d/`: the values, which set the chart's claims to
-  `ReadWriteOnce` (`persistence.<name>.accessModes`), all that k3s's
-  `local-path` storage offers, and the demo database.
-  `tests/examples-k3d.bats` checks their keys against the chart, renders them
-  and keeps the names the page and the files share together.
+* **A check schedule removed from the values is removed from Borg UI.** The
+  agent pods rolled for it since #89, but `set-check-schedule` left the
+  schedule it had set enabled (#91). It now records the cron it sets on the
+  agent's volume and, once no cron is configured, removes the schedule while
+  Borg UI still has that cron; a check schedule set by hand in Borg UI, or
+  given another cron there, stays, also in releases without
+  `borg.checkSchedule`. An agent that enrols anew (a new or rebuilt Borg UI)
+  drops the record. A schedule set by an older version counts as the chart's
+  after the first start with this one. `off` in `borg.checkSchedule` removes a
+  pod's check schedule whoever set it, and in both schedules keeps a pod off
+  `default` (for a backup plan: no schedule); an unquoted `off`, YAML's
+  `false`, counts too. `tests/set-check-schedule.bats` and
+  `tests/run-agent.bats` cover the scripts.
 
-* **Try it locally runs in CI.** `.github/workflows/try-locally.yml` runs the
-  page's own commands in a k3d cluster (`tests/try-locally/run.sh`), with the
-  files of the checkout: on a pull request that changes the chart,
-  `examples/k3d/` or the page, with the pull request's chart, and every Monday
-  with the latest release. Where the page clicks in Borg UI, the job runs the
-  node plan and the cluster plan through Borg UI's API with the reconcile
-  Job's admin token, then checks the archives with `borg list` and
-  `borg extract`: the datastore snapshot and the k3s token, a file of the
-  node's `/etc`, the database dump. `tests/try-locally.bats` checks that the
-  page's blocks keep the shape the run reads, the workflow's paths, and that
-  the workflow installs the k3d, and step 1 the k3s, that the page names.
+* **Per-host schedules: the right keys, and applied on change.** The keys of
+  `borg.checkSchedule.perHost` and `borg.backupSchedule.perHost` are pod
+  hostnames: `cluster.nodeName` itself for the console pod (default
+  `k8s-borg-mycluster`), `k8s-borg-<node name>` for a node pod. values.yaml
+  gave `console` as an example key, which no pod has; values.yaml and
+  chart/README.md ("Check and backup schedules") now say which key is whose.
+  The agents apply their schedules only when they start, and a changed
+  schedule did not restart them: the console StatefulSet and the node
+  DaemonSet now carry checksums of the schedule ConfigMaps, so a change rolls
+  the pods that apply it (the console pod for its backup schedule in
+  `cluster.backupMode=plan` only). The install notes name the perHost keys
+  that no agent pod applies; a `k8s-borg-…` key counts as a node pod's, as
+  the chart does not know the node names.
 
-* **The datastore restores deal with the revision going back.** A restore
-  takes the datastore back to the revision of the backup, and the kubelets,
-  kube-proxy, CoreDNS and controllers that kept running stayed on the state
-  before it: on kind (kubeadm), the kubelet kept the pods the restore removed
-  and started no new ones; on k3d (k3s), CoreDNS kept a removed Service. Under
-  Disaster recovery, the kubeadm restore now runs `etcdutl snapshot restore`
-  with `--bump-revision 1000000000 --mark-compacted`, and the k3s restore with
-  embedded etcd gives `k3s server --cluster-reset` a copy of the snapshot that
-  `etcdutl` raised the same way (k3s has no option for it); with that, all of
-  them carried on. The SQLite restore, which cannot raise it, restarts CoreDNS
-  and the other controllers in pods afterwards. The k3s restores hand the
-  server token over in `K3S_TOKEN` or as a file instead of on the command
-  line, where other users of the node could read it, and say that a token the
-  node's configuration names has to be the archived one (#98).
-
-* **Dependency updates by Renovate.** Renovate opens weekly pull requests for
-  the workflows' actions and the agent image's version pins
-  (`.github/renovate.json`); "Dependency updates" in `CONTRIBUTING.md` says
-  what it updates and what stays manual. Every action is now pinned to a
-  commit, with its release in a comment, so a moved tag no longer changes a
-  workflow. `tests/renovate-config.bats` keeps the pins and the exclusions.
+### Documentation
 
 * **A documentation site, https://k8s-borg.ioanalytica.com.** VitePress in
   `site/`, published on GitHub Pages by `.github/workflows/site.yml` on every
@@ -167,19 +159,97 @@
   host; the rebuild of the repository server from its external copy waits
   for a running copy Job and resumes the copy only after `borg check`.
 
-* **A check schedule removed from the values is removed from Borg UI.** The
-  agent pods rolled for it since #89, but `set-check-schedule` left the
-  schedule it had set enabled (#91). It now records the cron it sets on the
-  agent's volume and, once no cron is configured, removes the schedule while
-  Borg UI still has that cron; a check schedule set by hand in Borg UI, or
-  given another cron there, stays, also in releases without
-  `borg.checkSchedule`. An agent that enrols anew (a new or rebuilt Borg UI)
-  drops the record. A schedule set by an older version counts as the chart's
-  after the first start with this one. `off` in `borg.checkSchedule` removes a
-  pod's check schedule whoever set it, and in both schedules keeps a pod off
-  `default` (for a backup plan: no schedule); an unquoted `off`, YAML's
-  `false`, counts too. `tests/set-check-schedule.bats` and
-  `tests/run-agent.bats` cover the scripts.
+* **Try it locally: the whole chart in a throwaway k3d cluster.** A page of
+  the site (`site/guide/try-locally.md`, linked from the README's quick start)
+  takes a newcomer from nothing to a first backup and restore on one machine,
+  with no host outside it: the release's repository server as the Borg host,
+  Borg UI on SQLite without license or error-report traffic, the node and
+  console pods as managed agents, the k3s datastore snapshot, and, optionally,
+  a PostgreSQL dump with the credentials from the database's Secret. The
+  cluster runs the k3s image the page is tested with
+  (`k3d cluster create … --image rancher/k3s:…`), which Renovate updates. Its
+  files are in `examples/k3d/`: the values, which set the chart's claims to
+  `ReadWriteOnce` (`persistence.<name>.accessModes`), all that k3s's
+  `local-path` storage offers, and the demo database.
+  `tests/examples-k3d.bats` checks their keys against the chart, renders them
+  and keeps the names the page and the files share together.
+
+* **The datastore restores deal with the revision going back.** A restore
+  takes the datastore back to the revision of the backup, and the kubelets,
+  kube-proxy, CoreDNS and controllers that kept running stayed on the state
+  before it: on kind (kubeadm), the kubelet kept the pods the restore removed
+  and started no new ones; on k3d (k3s), CoreDNS kept a removed Service. Under
+  Disaster recovery, the kubeadm restore now runs `etcdutl snapshot restore`
+  with `--bump-revision 1000000000 --mark-compacted`, and the k3s restore with
+  embedded etcd gives `k3s server --cluster-reset` a copy of the snapshot that
+  `etcdutl` raised the same way (k3s has no option for it); with that, all of
+  them carried on. The SQLite restore, which cannot raise it, restarts CoreDNS
+  and the other controllers in pods afterwards. The k3s restores hand the
+  server token over in `K3S_TOKEN` or as a file instead of on the command
+  line, where other users of the node could read it, and say that a token the
+  node's configuration names has to be the archived one (#98).
+
+* **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
+  pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
+  which the chart has since moved; it did not render. It is now modelled on a
+  production release with every site-specific value replaced: node and
+  cluster backups to a Hetzner Storage Box, database credentials from the
+  operators' Secrets, Borg UI with OIDC, notifications and node agents, and a
+  repository server for other clusters.
+  `tests/examples-helm.bats` checks every key it sets against
+  `chart/values.yaml`, renders it as is, without Borg UI and with the cluster
+  backup as a Borg UI plan, and fails when it pins another chart version. The
+  example Secrets carry exactly the keys the release references.
+
+* **Plain manifests removed from `examples/`.** The Kustomize manifests showed
+  a 1.0.4 deployment; with a current image their CronJob would have skipped S3
+  without a word (no `S3_ENABLED`). The chart is the maintained way to deploy;
+  `helm template` renders it to plain YAML.
+
+* **The local stack's README no longer says managed agents need a paid plan.**
+  On Borg UI's community plan, managed agents, repository registration, backup
+  plans, plan runs, browsing and restores work for Borg 1 repositories; the
+  Borg 2 repository format is what needs a paid plan, and the stack's agent
+  uses one by default. The Licence section says so and gives the command for the
+  community plan: `LICENSE_SYNC=false AGENT_BORG_VERSION=1 ./stack.sh up`.
+
+* **Project documents.** `CONTRIBUTING.md` (with a DCO sign-off for
+  contributions), `SECURITY.md` (private reporting through GitHub),
+  `CODE_OF_CONDUCT.md`, issue forms and a pull request template. The README
+  explains why to use k8s-borg, how it compares with Velero, K8up and VolSync,
+  what it and the Borg UI server contact, and what costs money.
+
+### Project and CI
+
+* **`main` is the default branch.** `develop` is renamed to `main`, the one
+  long-lived branch, with releases as tags on it, as in Borg UI; the stale
+  `master` is gone. Lint & test runs on pushes to `main`, the chart is
+  published from tags only, and the chart's icon is read from `main`.
+
+* **Release notes from the changelog.** A release now starts with its
+  `CHANGELOG.md` entry, followed by GitHub's list of pull requests
+  (`scripts/changelog-section.sh`).
+
+* **Dependency updates by Renovate.** Renovate opens weekly pull requests for
+  the workflows' actions and the agent image's version pins
+  (`.github/renovate.json`); "Dependency updates" in `CONTRIBUTING.md` says
+  what it updates and what stays manual. Every action is now pinned to a
+  commit, with its release in a comment, so a moved tag no longer changes a
+  workflow. `tests/renovate-config.bats` keeps the pins and the exclusions.
+
+* **Try it locally runs in CI.** `.github/workflows/try-locally.yml` runs the
+  page's own commands in a k3d cluster (`tests/try-locally/run.sh`), with the
+  files of the checkout: on a pull request that changes the chart,
+  `examples/k3d/` or the page, with the pull request's chart, and every Monday
+  with the latest release. A pull request whose chart names images not
+  published yet, such as a release's, ends green with a notice and runs no
+  cluster: the tag's build publishes them. Where the page clicks in Borg UI,
+  the job runs the node plan and the cluster plan through Borg UI's API with
+  the reconcile Job's admin token, then checks the archives with `borg list`
+  and `borg extract`: the datastore snapshot and the k3s token, a file of the
+  node's `/etc`, the database dump. `tests/try-locally.bats` checks that the
+  page's blocks keep the shape the run reads, the workflow's paths, and that
+  the workflow installs the k3d, and step 1 the k3s, that the page names.
 
 * **Lint & test is faster.** The Borg end-to-end suite runs Borg 1 and Borg 2
   as jobs side by side instead of one after the other (7 and 14 minutes, 22
@@ -208,68 +278,8 @@
   tests themselves take the time, and the suite is bound by CPU; 3 versions at
   a time stays the default.
 
-* **The Helm example matches the chart again.** `examples/helm/k8s-borg.yaml`
-  pinned chart 1.0.4 and still set `config.*`, `app.*` and `borgUI.agent`,
-  which the chart has since moved; it did not render. It is now modelled on a
-  production release with every site-specific value replaced: node and
-  cluster backups to a Hetzner Storage Box, database credentials from the
-  operators' Secrets, Borg UI with OIDC, notifications and node agents, and a
-  repository server for other clusters.
-  `tests/examples-helm.bats` checks every key it sets against
-  `chart/values.yaml`, renders it as is, without Borg UI and with the cluster
-  backup as a Borg UI plan, and fails when it pins another chart version. The
-  example Secrets carry exactly the keys the release references.
-
-* **Plain manifests removed from `examples/`.** The Kustomize manifests showed
-  a 1.0.4 deployment; with a current image their CronJob would have skipped S3
-  without a word (no `S3_ENABLED`). The chart is the maintained way to deploy;
-  `helm template` renders it to plain YAML.
-
-* **Release notes from the changelog.** A release now starts with its
-  `CHANGELOG.md` entry, followed by GitHub's list of pull requests
-  (`scripts/changelog-section.sh`).
-
-* **Project documents.** `CONTRIBUTING.md` (with a DCO sign-off for
-  contributions), `SECURITY.md` (private reporting through GitHub),
-  `CODE_OF_CONDUCT.md`, issue forms and a pull request template. The README
-  explains why to use k8s-borg, how it compares with Velero, K8up and VolSync,
-  what it and the Borg UI server contact, and what costs money.
-
 * **The `borg-ui` submodule is cloned over HTTPS**, so a clone with
   `--recurse-submodules` needs no GitHub SSH key.
-
-* **`main` is the default branch.** `develop` is renamed to `main`, the one
-  long-lived branch, with releases as tags on it, as in Borg UI; the stale
-  `master` is gone. Lint & test runs on pushes to `main`, the chart is
-  published from tags only, and the chart's icon is read from `main`.
-
-* **Per-host schedules: the right keys, and applied on change.** The keys of
-  `borg.checkSchedule.perHost` and `borg.backupSchedule.perHost` are pod
-  hostnames: `cluster.nodeName` itself for the console pod (default
-  `k8s-borg-mycluster`), `k8s-borg-<node name>` for a node pod. values.yaml
-  gave `console` as an example key, which no pod has; values.yaml and
-  chart/README.md ("Check and backup schedules") now say which key is whose.
-  The agents apply their schedules only when they start, and a changed
-  schedule did not restart them: the console StatefulSet and the node
-  DaemonSet now carry checksums of the schedule ConfigMaps, so a change rolls
-  the pods that apply it (the console pod for its backup schedule in
-  `cluster.backupMode=plan` only). A check schedule removed from the values
-  stays in Borg UI until it is turned off there. The install notes name the
-  perHost keys that no agent pod applies; a `k8s-borg-…` key counts as a node
-  pod's, as the chart does not know the node names.
-
-* **Signed images and chart, with SBOMs.** A release signs the agent, Borg UI
-  and runtime base images and the chart with Sigstore cosign, keyless and by
-  digest; the certificate names `build.yml` at the release tag. Every platform
-  image now carries an SPDX SBOM next to its SLSA provenance, both covered by
-  the signature of the image index. The GitHub Release is published only once
-  the signatures verified. "Verify the images" in the README has the commands.
-  `tests/release-signing.bats` keeps the workflows from dropping any of it.
-
-* **Versions with a suffix are prereleases.** A tag such as `1.2.4-beta.1` or
-  the chart revision `1.2.3-1` is published as a GitHub prerelease, never as
-  the repository's Latest release, and no longer moves the images' `latest`
-  tags.
 
 ## 1.2.3
 
