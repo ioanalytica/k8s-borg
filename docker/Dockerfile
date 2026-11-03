@@ -25,6 +25,10 @@
 # Compiling buys back what those binaries cost: the image is ~100 MB smaller and
 # Borg starts in about a third of the time, because a single-file binary unpacks
 # itself on every invocation. The build toolchain never reaches the final image.
+#
+# A `# renovate: datasource=… depName=…` line above a version ARG is where
+# Renovate looks the pin up (.github/renovate.json); a digest ARG right below
+# the version moves with it. Checksums next to a version are updated by hand.
 
 # --- Borg: compiled in a stage of its own -------------------------------------
 # The venvs are built at the exact paths they will occupy in the final image: a
@@ -49,6 +53,7 @@
 ARG PYTHON_VERSION=3.12
 # The MySQL client of databases.mysql (see the mysql-client stage), pinned to
 # the official image's multi-arch index digest: a bump changes both lines.
+# renovate: datasource=docker depName=mysql
 ARG MYSQL_VERSION=8.4.11
 ARG MYSQL_IMAGE_DIGEST=sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
 
@@ -84,6 +89,7 @@ RUN set -eu; \
 # and go back to the package once a release carries the fix.
 FROM python:${PYTHON_VERSION}-alpine AS s3fs-builder
 
+# renovate: datasource=github-releases depName=s3fs-fuse/s3fs-fuse
 ARG S3FS_VERSION=1.97
 ARG S3FS_SHA512=24b70877a5c162252f08e55176a9e9fa2fd380ed3bbe8f51306f0e1489038a80cbd2a07699689431e3294661fa8d0f2434e7fc94cd14e6c9b4b8fa8be2e1f8a7
 
@@ -116,6 +122,7 @@ RUN set -eu; \
 FROM python:${PYTHON_VERSION}-alpine AS etcd-fetch
 
 ARG TARGETARCH
+# renovate: datasource=github-releases depName=etcd-io/etcd
 ARG ETCD_VERSION=3.6.15
 ARG ETCD_SHA256_AMD64=b51d86e6bff2168de5ba8cd631c0fe6c785c7a1b32b083079f5677d6b7e2772c
 ARG ETCD_SHA256_ARM64=567d9b8fa9e75b349600d2b64ef9bf6bc6d512cea75a2ce1c39b1b3046131244
@@ -145,6 +152,7 @@ RUN set -eu; \
 FROM python:${PYTHON_VERSION}-alpine AS rclone-fetch
 
 ARG TARGETARCH
+# renovate: datasource=github-releases depName=rclone/rclone
 ARG RCLONE_VERSION=1.75.2
 ARG RCLONE_SHA256_AMD64=349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702
 ARG RCLONE_SHA256_ARM64=7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10
@@ -299,8 +307,11 @@ RUN python -m venv "${BORG_UI_AGENT_VENV}" \
 # of pymongo, so it is installed without its optional C extensions (NO_EXT),
 # which only speed up BSON for large volumes. PyYAML reads the credentials
 # file. Pinned, dnspython (pymongo's only dependency) included.
+# renovate: datasource=pypi depName=pymongo
 ARG PYMONGO_VERSION=4.18.3
+# renovate: datasource=pypi depName=dnspython
 ARG DNSPYTHON_VERSION=2.9.0
+# renovate: datasource=pypi depName=PyYAML
 ARG PYYAML_VERSION=6.0.3
 RUN python -m venv /opt/mongodb-admin/venv \
     && NO_EXT=1 /opt/mongodb-admin/venv/bin/pip install --no-cache-dir \

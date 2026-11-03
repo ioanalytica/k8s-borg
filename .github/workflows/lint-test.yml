@@ -37,7 +37,7 @@ jobs:
     outputs:
       docs-only: ${{ steps.diff.outputs.docs-only }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'pull_request' && !startsWith(github.ref, 'refs/tags/')
         with:
           fetch-depth: 2   # the merge commit and both its parents
@@ -61,12 +61,12 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # Pinned: without a version the action fetches "latest" from the
       # GitHub API and silently falls back to an old Helm 3 when that fails.
-      - uses: azure/setup-helm@v5
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v4.3.0
       - run: helm lint ./chart
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # No job pushes anything back, so the token has no business staying
           # behind in .git/config afterwards.
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive   # chart-versions.bats describes the borg-ui pin
           persist-credentials: false
@@ -107,7 +107,7 @@ jobs:
       # chart-repo-server.bats renders the chart.
       # Pinned: without a version the action fetches "latest" from the
       # GitHub API and silently falls back to an old Helm 3 when that fails.
-      - uses: azure/setup-helm@v5
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v4.3.0
       - run: bats --print-output-on-failure tests/
@@ -142,16 +142,16 @@ jobs:
             part: 2
             files: repo-server-offsite.bats lifecycle.bats repo-server.bats
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive   # the agent Dockerfile builds from borg-ui/
           persist-credentials: false
-      - uses: docker/setup-buildx-action@v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       # Every job builds from the same cache, and Borg 1 alone writes it back:
       # two writers of one scope race, and the Borg 1 job still ends well
       # before e2e-db, so the export does not lengthen the run.
       - name: Build the agent image
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./docker/Dockerfile
@@ -203,13 +203,13 @@ jobs:
     # limit leaves room for that to happen first.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive   # the agent Dockerfile builds from borg-ui/
           persist-credentials: false
-      - uses: docker/setup-buildx-action@v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Build the agent image
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./docker/Dockerfile

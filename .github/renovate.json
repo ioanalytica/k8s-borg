@@ -1,0 +1,148 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Dependency update pull requests for k8s-borg. CONTRIBUTING.md says what the bot updates and what stays manual; tests/renovate-config.bats guards both.",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigestsToSemver"],
+  "timezone": "Europe/Berlin",
+  "schedule": ["* 0-5 * * 1"],
+  "prConcurrentLimit": 5,
+  "rebaseWhen": "conflicted",
+  "minimumReleaseAge": "3 days",
+  "semanticCommits": "enabled",
+  "commitBody": "Signed-off-by: {{{gitAuthor}}}",
+  "configMigration": true,
+  "ignorePaths": ["borg-ui/**", "examples/**", "tests/**"],
+  "git-submodules": {
+    "description": "The borg-ui pin moves by hand: each move is a release with its CHANGELOG line.",
+    "enabled": false
+  },
+  "helm-values": {
+    "description": "The chart's image tags move with the chart's releases.",
+    "enabled": false
+  },
+  "helmv3": {
+    "description": "The common chart dependency moves with the chart's releases.",
+    "enabled": false
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Version pins under a '# renovate: datasource=... depName=...' line; a *_DIGEST ARG right below the version is that image's digest.",
+      "managerFilePatterns": ["/^docker/Dockerfile$/", "/^docker/rclone\\.env$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n(?:ARG )?\\w+_VERSION=(?<currentValue>\\S+)(?:\\nARG \\w+_DIGEST=(?<currentDigest>sha256:[0-9a-f]{64}))?"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Tool versions of the workflows, an env *_VERSION under a '# renovate: datasource=... depName=...' line.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n *\\w+_VERSION: (?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Release tags of the pinned downloads carry a v prefix, the pins do not.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["github-releases"],
+      "extractVersion": "^v(?<version>.+)$"
+    },
+    {
+      "description": "PYTHON_VERSION follows borg-ui's runtime base (tests/python-version.bats) and moves with the borg-ui pin.",
+      "matchManagers": ["dockerfile"],
+      "matchDepNames": ["python"],
+      "enabled": false
+    },
+    {
+      "description": "The custom manager bumps the MySQL image, version and digest together.",
+      "matchManagers": ["dockerfile"],
+      "matchDepNames": ["mysql"],
+      "enabled": false
+    },
+    {
+      "description": "Images the local test stack builds itself.",
+      "matchManagers": ["docker-compose"],
+      "matchDepNames": ["k8s-borg", "k8s-borg-ui", "borg-local-target"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "semanticCommitType": "ci"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Tools the workflows install themselves (renovate-config.yml), once a month: Renovate releases most days.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [".github/workflows/**"],
+      "semanticCommitType": "ci",
+      "schedule": ["* 0-5 1 * *"]
+    },
+    {
+      "description": "A new digest under the same version means a release tag was moved: approve it on the dashboard after a look at the commit.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchFileNames": ["docker/Dockerfile", "docker/rclone.env"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "images",
+      "prBodyNotes": ["This changes the agent image: add a line under `## Unreleased` in CHANGELOG.md before merging."]
+    },
+    {
+      "matchFileNames": ["docker/Dockerfile"],
+      "matchDepNames": ["mysql", "pymongo", "dnspython", "PyYAML"],
+      "groupName": "agent image"
+    },
+    {
+      "matchDepNames": ["etcd-io/etcd"],
+      "separateMinorPatch": true,
+      "prBodyNotes": ["The build fails until `ETCD_SHA256_AMD64` and `ETCD_SHA256_ARM64` in docker/Dockerfile are the sums of https://github.com/etcd-io/etcd/releases/download/v{{{newVersion}}}/SHA256SUMS."]
+    },
+    {
+      "description": "The etcd client is tested against the etcd of k3s and of kubeadm: a new minor is a deliberate move.",
+      "matchDepNames": ["etcd-io/etcd"],
+      "matchUpdateTypes": ["minor"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchDepNames": ["rclone/rclone"],
+      "prBodyNotes": ["The build fails until `RCLONE_SHA256_AMD64` and `RCLONE_SHA256_ARM64` in docker/rclone.env and docker/Dockerfile are the sums of https://downloads.rclone.org/v{{{newVersion}}}/SHA256SUMS, after its PGP signature checks out against the rclone release key FBF737ECE9F8AB18604BD2AC93935E02FF3B54FA."]
+    },
+    {
+      "description": "s3fs is built from the release with a patch (docker/s3fs/): every release is a deliberate move.",
+      "matchDepNames": ["s3fs-fuse/s3fs-fuse"],
+      "dependencyDashboardApproval": true,
+      "prBodyNotes": ["The s3fs-builder stage in docker/Dockerfile says when the patch and the stage go. Otherwise check that the patch still applies, and set `S3FS_SHA512` to the sum of https://github.com/s3fs-fuse/s3fs-fuse/archive/v{{{newVersion}}}.tar.gz; the build fails until it matches."]
+    },
+    {
+      "description": "A new major of an image pin or a base image waits for approval on the dashboard.",
+      "matchManagers": ["custom.regex", "dockerfile", "docker-compose"],
+      "matchFileNames": ["docker/**", "local/**"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "The documentation site's npm packages (site/), once a month; its pull requests build the site.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["site/**"],
+      "groupName": "documentation site",
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "site",
+      "schedule": ["* 0-5 1 * *"]
+    },
+    {
+      "description": "The local test stack (local/), once a month.",
+      "matchFileNames": ["local/**"],
+      "groupName": "local test stack",
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "local",
+      "schedule": ["* 0-5 1 * *"]
+    }
+  ]
+}
