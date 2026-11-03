@@ -71,11 +71,11 @@ console_engines() {
   plan "$@" | awk '/^kind: /{k=$2} k=="StatefulSet" && /name: BORG_DB_ENGINES$/{getline; print; exit}' \
     | sed 's/^ *value: //' | tr -d '"'
 }
-# notes ARGS… — the install notes, rendered without a cluster.
+# notes ARGS… — the install notes, rendered without a cluster; fails when helm does.
 notes() {
-  KUBECONFIG="$TMP/no-cluster" \
-    helm install rel "$CHART" -n backup -f "$VALUES" --dry-run=client "$@" \
-    | sed -n '/^NOTES:/,$p'
+  local out
+  out="$(KUBECONFIG="$TMP/no-cluster" helm install rel "$CHART" -n backup -f "$VALUES" --dry-run=client "$@")" || return
+  sed -n '/^NOTES:/,$p' <<<"$out"
 }
 db_volumes() {
   local kind=$1; shift

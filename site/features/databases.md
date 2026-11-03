@@ -12,13 +12,14 @@ the render. Only configured engines get their credentials mounted, their
 pre-backup hook (plan mode), or run in the cluster CronJob (the chart passes
 them as `BORG_DB_ENGINES` to `backup-cluster-databases`).
 
-The cluster backup archives the dumps when `borg.dbBackupLocation`, or a
-directory above it, is one of its roots in `cluster.include` (`R <path>`); the
-chart does not add one. When a configured engine has no such root, the notes
-of `helm install` and `helm upgrade` end with a `WARNING` that names the `R`
-line to add (a root below the directory does not count): the dumps would be
-written, but not archived. It is a warning, not an error, since a release may
-archive them some other way. In
+The cluster backup archives the dumps only when `borg.dbBackupLocation`, or a
+directory above it, is one of its roots in `cluster.include` (`R <path>`), and
+no pattern of `cluster.exclude` leaves them out; the chart adds no root. When a
+configured engine has no such root, the notes of `helm install` and
+`helm upgrade` end with a `WARNING` that names the `R` line to add (a root
+below the directory does not count; the notes do not look at
+`cluster.exclude`): the dumps would be written, but not archived. It is a
+warning, not an error, since a release may archive them some other way. In
 plan mode (`cluster.backupMode=plan`) the plan takes only the roots that exist
 when the console pod starts, and the dumps are written later, by its
 pre-backup hooks: the pod creates `borg.dbBackupLocation` first, wherever it

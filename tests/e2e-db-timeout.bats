@@ -62,13 +62,15 @@ echo "\$*" >>"$TMP/sleeps"
 exec -a "$TMP/bin/sleep" "$REAL_SLEEP" "\$@"
 EOF
   chmod +x "$TMP/bin/sleep"
+  # $TMP as an extended regular expression, for pgrep -f and pkill -f.
+  TMP_RE="$(printf '%s' "$TMP" | sed 's/[][\.^$*+?(){}|]/\\&/g')"
   export PATH="$TMP/bin:$PATH" FAKE_DOCKER="$TMP" E2E_DB_PREFIX="fake-db-$BATS_TEST_NUMBER"
   STARTED=()
 }
 
 teardown() {
   [ -z "${STARTED[*]:-}" ] || kill "${STARTED[@]}" 2>/dev/null || true
-  pkill -f "$TMP/bin/sleep " || true
+  pkill -f "$TMP_RE/bin/sleep " || true
   common_teardown
 }
 
@@ -80,7 +82,7 @@ no_sleep_left() {
   for length in "$@"; do
     grep -qxF "$length" "$TMP/sleeps" || fail "no sleep $length ran: $(cat "$TMP/sleeps")"
   done
-  run pgrep -f "$TMP/bin/sleep "
+  run pgrep -f "$TMP_RE/bin/sleep "
   [ "$status" -ne 0 ] || fail "left running: $(ps -ww -o pid=,args= -p "$(paste -sd, - <<<"$output")")"
 }
 
@@ -106,7 +108,7 @@ no_sleep_left() {
   ! grep -q "^run -q --name fake-db-2-sqlitealpine-tests" "$CALLS" || fail "the tests ran after the hang: $(cat "$CALLS")"
   # A docker that run.sh gave up on would still be running, and create later.
   local i
-  for i in $(seq 20); do pgrep -f "$TMP/bin/docker" >/dev/null || break; sleep 0.5; done
+  for i in $(seq 20); do pgrep -f "$TMP_RE/bin/docker" >/dev/null || break; sleep 0.5; done
   ! grep -q "^created after the cleanup" "$CALLS" || fail "a container was created after the cleanup: $(cat "$CALLS")"
   [ "$(tail -1 "$CALLS")" = "network rm fake-db-2-sqlitealpine" ] \
     || fail "the cleanup is not the last thing run.sh did: $(cat "$CALLS")"

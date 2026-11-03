@@ -18,9 +18,9 @@
   the StorageClass provisioned goes with its claim unless its reclaim policy
   is `Retain`. What counts is the annotation they already carry: a `retain`
   changed in the same upgrade does not reach them. The claim was mounted only
-  while Borg UI ran: to keep what an earlier Borg UI left in it, annotate it
-  with `helm.sh/resource-policy=keep` before the upgrade.
-  `tests/chart-persistence.bats` covers it.
+  while Borg UI ran: to keep what an earlier Borg UI left in it, annotate it,
+  and with `createPV` its PV, with `helm.sh/resource-policy=keep` before the
+  upgrade. `tests/chart-persistence.bats` covers it.
 
 * **A warning when no root holds the database dumps.** The cluster backup
   archives the dumps only from its roots in `cluster.include`, and the chart
@@ -30,8 +30,9 @@
   nothing said so. The notes of `helm install` and `helm upgrade` now end
   with a `WARNING` that names the `R` line to add. The paths are compared as
   `register-backup-plan` compares them; a root below the directory does not
-  count. A warning, not a render failure: a release may archive the dumps
-  some other way. `tests/chart-db-engines.bats` covers it.
+  count. The notes do not look at `cluster.exclude`, whose patterns can still
+  leave the dumps out. A warning, not a render failure: a release may archive
+  the dumps some other way. `tests/chart-db-engines.bats` covers it.
 
 * **The database dumps are in the cluster plan also when their directory is
   new.** With `cluster.backupMode=plan` the plan takes only the roots that
