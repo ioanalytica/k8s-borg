@@ -36,12 +36,24 @@ trigger_paths() {
     || fail "push: $(trigger_paths push | tr '\n' ' ') pull_request: $(trigger_paths pull_request | tr '\n' ' ')"
 }
 
-@test "every file the site shows or reads triggers the workflow, and so do site/ and the workflow" {
-  local paths file
+@test "every file the site shows or reads triggers the workflow, and so do site/, the workflow and its scripts" {
+  local paths file scripts
   paths=$(trigger_paths push)
-  for file in 'site/**' .github/workflows/site.yml $(site_sources); do
+  scripts=$(wf_job "$WF" build | sed -nE 's/^ +run: (scripts\/[^ ]+).*/\1/p')
+  [ -n "$scripts" ] || fail "the build job runs no script of scripts/"
+  for file in 'site/**' .github/workflows/site.yml $scripts $(site_sources); do
     grep -qxF "$file" <<<"$paths" || fail "$file is in no paths filter of site.yml"
   done
+}
+
+@test "the build checks the links of what it built, before anything is uploaded" {
+  local steps
+  steps=$(wf_job "$WF" build | sed -nE 's/^      - name: //p')
+  [ "$(grep -A1 -x Build <<<"$steps" | tail -1)" = "Check the links" ] || fail "$steps"
+  [ "$(grep -A1 -x 'Check the links' <<<"$steps" | tail -1)" = "Upload the site" ] || fail "$steps"
+  wf_step "$WF" 'name: Check the links' | grep -qxF '        run: scripts/site-relative-links.sh site/.vitepress/dist' \
+    || fail "$(wf_step "$WF" 'name: Check the links')"
+  ! wf_step "$WF" 'name: Check the links' | grep -q 'if:' || fail "the check does not run on every build"
 }
 
 @test "only main publishes, and only the deploy job may write to Pages" {

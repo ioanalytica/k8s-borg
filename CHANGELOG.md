@@ -26,7 +26,8 @@
   site in the repository, `tests/site-workflow.bats` the workflow, and
   `tests/site-links.bats` where a link of the included files leads: a
   repository path, also one that starts with a dot (#99), to GitHub or to the
-  page that shows the file. The
+  page that shows the file. The build fails on a link it leaves relative to
+  the repository, which would lead nowhere on the site. The
   parameter table of `chart/README.md` was cut in two by the 1.0.21 upgrade
   note; the note now follows the table. The quick start names a path to back
   up (the defaults name none) and the base directory Borg 1 needs on the

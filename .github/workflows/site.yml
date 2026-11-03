@@ -2,8 +2,9 @@ name: Docs site
 
 # The documentation site (site/, VitePress) on GitHub Pages: pull requests
 # build it, pushes to main build and publish it. The site shows parts of other
-# files, so a change to any of them runs this workflow too; site-workflow.bats
-# keeps the two lists of paths complete and equal.
+# files, so a change to any of them, or to the link check the build runs, runs
+# this workflow too; site-workflow.bats keeps the two lists of paths complete
+# and equal.
 #
 # Not among the checks the ruleset on main requires: a workflow its paths
 # filter skips leaves a required check pending.
@@ -20,6 +21,7 @@ on:
       - "chart/Chart.yaml"
       - "examples/helm/k8s-borg.yaml"
       - "icon.png"
+      - "scripts/site-relative-links.sh"
       - ".github/workflows/site.yml"
   pull_request:
     paths:
@@ -32,6 +34,7 @@ on:
       - "chart/Chart.yaml"
       - "examples/helm/k8s-borg.yaml"
       - "icon.png"
+      - "scripts/site-relative-links.sh"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -66,6 +69,11 @@ jobs:
       - name: Build
         working-directory: site
         run: npm run build
+      # Fails on a link left relative to the repository, which leads nowhere
+      # on the site: an included file's link that siteHref did not rewrite
+      # (#99).
+      - name: Check the links
+        run: scripts/site-relative-links.sh site/.vitepress/dist
       - name: Upload the site
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
