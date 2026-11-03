@@ -7,6 +7,8 @@ servers. All run in `.github/workflows/lint-test.yml` on every push and pull
 request; a pull request that changes documentation alone (`scripts/docs-only.sh`:
 Markdown at the top level, `LICENSE`, `examples/`, `site/`) skips the two
 end-to-end layers.
+The site's page "Try it locally" runs as written in a k3d cluster, in a
+workflow of its own (see "Try it locally" below).
 
 ```sh
 brew install shellcheck bats-core helm node   # or: apt-get install shellcheck bats python3-yaml, plus helm and node >= 22.18
@@ -30,6 +32,8 @@ bats tests/borg-rc.bats               # a single file
 ./tests/e2e/run.sh 2 prune.bats       # only these files of tests/e2e, Borg 2
 ./tests/e2e/db/run.sh                 # database dumps, every server version (needs docker)
 ./tests/e2e/db/run.sh postgres:17     # a single server version
+./tests/try-locally/run.sh ./chart    # the page Try it locally in k3d, this chart (needs docker, k3d)
+./tests/try-locally/run.sh            # the same with the latest release
 ```
 
 ## Unit tests — what is covered
@@ -70,6 +74,7 @@ bats tests/borg-rc.bats               # a single file
 | `site-links.bats` | where a link of the site's pages and of the files they include leads (`siteHref` of `site/.vitepress/links.ts`, run by node): a repository path, also one that starts with a dot (`.github/`), to its file or directory on GitHub with its anchor, or to the page that shows the file; an address of the site to a path on it; a link relative to the page, an anchor, an absolute path, an address with a scheme and a path the repository does not have stay as written; and `scripts/site-relative-links.sh`, which the site build runs on what it built: absolute paths, anchors, a query or an empty link, addresses with a scheme and links relative to the page pass, a link relative to the repository fails, named with its page (`href` quoted either way; `data-href` is no link), and a directory without pages or a page given instead is a usage error |
 | `site-workflow.bats` | `.github/workflows/site.yml`: pushes and pull requests run on the same paths, which cover `site/`, the workflow, the scripts its build runs and every file the site includes, imports or its config reads; the build checks the links of what it built before anything is uploaded; only a push to `main` uploads and deploys, and only the deploy job may write to Pages; every job has a time limit |
 | `lint-test-workflow.bats` | `.github/workflows/lint-test.yml`: every check the ruleset on `main` requires is a job under its own name; the Borg suites run side by side to the end, Borg 1 alone writing the image cache back; each major runs every file of `tests/e2e` exactly once, so a new file in no part of Borg 2 fails it, and the matrix is `include` alone, with no two jobs of one name; `e2e` waits for every Borg job with `always()` and, run on every combination of results, passes only when they all passed or a documentation-only pull request skipped them; only the end-to-end jobs skip, on the verdict `true` alone, which only a pull request writes, never a tag build; no `paths` filter; every job has a time limit, `e2e-db`'s beyond `run.sh`'s own per-version limit plus the slowest suite; the decision run on real merges: a documentation change passes whatever `main` did since, a script renamed to Markdown does not, and a `HEAD` that is not the merge fails it |
+| `try-locally.bats` | `tests/try-locally/` and `.github/workflows/try-locally.yml`: every block of the page the run takes is there, a section ends at the next heading and not at a comment in a block, the page's URL and released chart are replaced everywhere (the checkout's `examples/k3d`, the chart of the command line, or the release without one), the steps have the shape the run reads (one cluster by name, a single port-forward, the plans the page names); an image the registry does not know counts as unpublished, an unreachable registry fails; a chart directory's images are its appVersion and Borg UI tag; pull requests run on the chart, `examples/k3d/`, the page, the run and the workflow and install the checkout's chart, the weekly and manual runs the release; a time limit, and the k3d the page says it is tested with |
 | `e2e-run.bats` | `tests/e2e/run.sh` against a fake docker: without arguments every file of `tests/e2e` runs once per major, with arguments only the files and majors given; a major other than 1 and 2, a file `tests/e2e` does not have and a path are refused before docker runs |
 | `e2e-db-timeout.bats` | `tests/e2e/db/run.sh` against a fake docker: a test container that hangs past `E2E_DB_TIMEOUT` is stopped, and the version fails with its name, the tests' output so far and what the container was running; a server start that hangs is ended, so nothing is created after the cleanup; a version that finishes in time passes without waiting for the watchdog, which does not outlive it, nor that of a version that fails before its tests; the summary gives the run's time and each version's phases |
 | `chart-console-reaper.bats` | the console pod shares its process namespace (the pause container is PID 1 and reaps orphaned processes such as an s3fs that ended after its unmount), also as a managed agent in plan mode |
@@ -243,6 +248,28 @@ container, the output so far of the test that is stuck, and the servers' state
 and logs. Stuck before its tests started (a server image that does not
 arrive), it ends the docker command it was waiting for, so that nothing is
 created after its cleanup.
+
+## Try it locally (`tests/try-locally/`)
+
+`run.sh` runs the page `site/guide/try-locally.md` by its own shell blocks,
+read from the page (`lib.bash`): it creates the page's k3d cluster, takes the
+files from the checkout's `examples/k3d/` instead of the page's raw URLs and,
+given a chart directory, installs that instead of the release. Where the page
+clicks in Borg UI, the run takes the admin token from Secret `k8s-borg-ui-pat`
+and, through the page's port-forward, starts the node plan and, after the
+database step, the cluster plan, and waits for each run. `borg list` and
+`borg extract` in the pods then check the datastore snapshot (`state.db`), the
+k3s token, `node/etc/os-release` against the node's own and the dump
+`shop.dump`. The page's restore in Borg UI is left out. A failed run prints
+the pods, events and logs before the cluster goes.
+
+`.github/workflows/try-locally.yml` runs it, not among the checks the ruleset
+requires: on pull requests that change the chart, `examples/k3d/`, the page or
+the run, with the pull request's chart, and on Mondays and by hand with the
+latest release. A chart that names images not published yet is not run: the
+job ends with a notice. The run takes two to three minutes on a laptop with
+the images pulled fresh. Locally it needs a free port 8081 and no k3d cluster named
+`k8s-borg`; its kubeconfig is its own, `KEEP_CLUSTER=1` keeps the cluster.
 
 ## Deliberately not covered here
 

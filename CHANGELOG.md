@@ -15,6 +15,18 @@
   chart, renders them and keeps the names the page and the files share
   together.
 
+* **Try it locally runs in CI.** `.github/workflows/try-locally.yml` runs the
+  page's own commands in a k3d cluster (`tests/try-locally/run.sh`), with the
+  files of the checkout: on a pull request that changes the chart,
+  `examples/k3d/` or the page, with the pull request's chart, and every Monday
+  with the latest release. Where the page clicks in Borg UI, the job runs the
+  node plan and the cluster plan through Borg UI's API with the reconcile
+  Job's admin token, then checks the archives with `borg list` and
+  `borg extract`: the datastore snapshot and the k3s token, a file of the
+  node's `/etc`, the database dump. `tests/try-locally.bats` checks that the
+  page's blocks keep the shape the run reads, the workflow's paths, and that
+  the workflow installs the k3d the page names.
+
 * **The datastore restores deal with the revision going back.** A restore
   takes the datastore back to the revision of the backup, and the kubelets,
   kube-proxy, CoreDNS and controllers that kept running stayed on the state

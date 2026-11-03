@@ -33,6 +33,13 @@ on every pull request, except the end-to-end suites on one that changes only
 documentation: Markdown at the top level, `LICENSE`, `examples/` or the
 documentation site in `site/`.
 
+The site's page "Try it locally" runs as written in a k3d cluster:
+`tests/try-locally/run.sh` (docker, k3d, kubectl, helm, jq). CI runs it with
+`.github/workflows/try-locally.yml`, on a pull request that changes the chart,
+`examples/k3d/` or the page, with the pull request's chart, and every Monday
+with the latest release. A pull request whose chart names images not
+published yet, a release for one, gets a notice instead of a run.
+
 The documentation site is [VitePress](https://vitepress.dev/) and needs Node.js:
 
 ```sh
@@ -79,6 +86,10 @@ found and the updates that wait for approval there.
   new etcd minor, every s3fs release (it is built with a patch) and every new
   major wait for approval on the dashboard. A pull request that changes the
   agent image gets its line in `CHANGELOG.md` on the bot's branch.
+- **k3d**, which `.github/workflows/try-locally.yml` installs, comes on its
+  own: its release decides the k3s of the job's cluster, and its pull request
+  runs the job. A new minor fails `tests/try-locally.bats` until the page's
+  "Tested with k3d …" names it, along with the k3s the job's log shows.
 - **The local test stack** (`local/`) and **the documentation site's npm
   packages** (`site/`) come once a month, a pull request each, and so does the
   Renovate that `.github/workflows/renovate-config.yml` runs to validate a
