@@ -59,6 +59,7 @@ bearer() {
   [ "$status" -eq 0 ] || fail "status $status: $output $stderr"
   [[ "$output" == *"Admin login OK (configured password)."* ]] || fail "$output"
   [ "$(logins)" = '"admin-pw"' ] || fail "logins: $(logins)"
+  [[ "$stderr" != *WARNING* ]] || fail "$stderr"
 }
 
 @test "reconcile: a password with its final newline logs in to an admin Borg UI created without it" {
@@ -112,6 +113,18 @@ bearer() {
   [ "$status" -eq 0 ] || fail "status $status: $output $stderr"
   [ "$(logins)" = $'"  "\n"admin123"\n"  "' ] || fail "logins: $(logins)"
   [ "$(changes)" = '{"current_password":"admin123","new_password":"  "}' ] || fail "changes: $(changes)"
+}
+
+@test "reconcile: a configured password that is the default one is accepted with a warning" {
+  FAKE_ADMIN_PASS=admin123 start_server
+  for pass in admin123 $'admin123\n'; do
+    : >"$TMP/requests"
+    BORG_UI_ADMIN_PASS="$pass" reconcile
+    [ "$status" -eq 0 ] || fail "status $status: $output $stderr"
+    [[ "$stderr" == *"WARNING: the configured admin password is the default one (surrounding whitespace aside) — set another"* ]] \
+      || fail "$stderr"
+    [ -z "$(changes)" ] || fail "the password was changed: $(changes)"
+  done
 }
 
 @test "reconcile: the stripped password is masked in what the server said" {

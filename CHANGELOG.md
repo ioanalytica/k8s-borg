@@ -52,10 +52,12 @@
   keeps the file's final newline. Borg UI (2.3.0 on) creates the admin without
   surrounding whitespace, but the reconcile Job logged in with the newline and
   stopped with "cannot log in as 'admin'" (HTTP 401). The reconcile Job and the
-  agents' password fallback now try the password as it is first, so an admin
-  an older Borg UI created with the newline keeps working, then without its
-  surrounding whitespace, as Borg UI strips it. The default password is rotated
-  to the stripped form, which can also be typed in the login form.
+  agents' password fallback now try the password as it is first: an admin that
+  an older Borg UI created with the newline keeps working. Only when that fails
+  do they try it without its surrounding whitespace, as Borg UI strips it. The
+  default password is rotated to the stripped form, which can also be typed in
+  the login form. A configured password that is the default one, also once
+  stripped, is accepted as before, with a warning in the Job's log.
   `tests/admin-login.bats` covers both (#109).
 
 * **Try it locally: the whole chart in a throwaway k3d cluster.** A page of

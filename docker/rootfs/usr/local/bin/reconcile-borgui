@@ -278,6 +278,10 @@ sys.stdout.buffer.write(os.fsencode(os.environ["BORG_UI_ADMIN_PASS"].strip()))')
   else
     fatal "cannot log in as '${BORG_UI_ADMIN_USER}' with the configured or default password"
   fi
+  # A configured password that is the default one stays accepted, as it always
+  # was (refusing it would break such installs), but it is said.
+  [ "$admin_pass_stripped" != "$BORG_UI_ADMIN_DEFAULT_PASS" ] \
+    || warn "the configured admin password is the default one (surrounding whitespace aside) — set another"
   jauth=(-H "Authorization: Bearer ${jwt}")
 
   # clear forced password change / rotate to the configured value, stripped like
