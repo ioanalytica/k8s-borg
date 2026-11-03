@@ -20,8 +20,9 @@ metadata:
 spec:
   capacity:
     storage: {{ $p.size | quote }}
-  accessModes:
-    - ReadWriteMany
+  {{- /* --reuse-values keeps the values of the chart the release was
+         installed with, which may have no accessModes yet. */}}
+  accessModes: {{- toYaml ($p.accessModes | default (list "ReadWriteMany")) | nindent 4 }}
   persistentVolumeReclaimPolicy: {{ ternary "Retain" "Delete" $p.retain }}
   storageClassName: ""
   nfs:

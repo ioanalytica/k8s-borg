@@ -16,8 +16,9 @@ metadata:
     helm.sh/resource-policy: keep
   {{- end }}
 spec:
-  accessModes:
-    - ReadWriteMany
+  {{- /* --reuse-values keeps the values of the chart the release was
+         installed with, which may have no accessModes yet. */}}
+  accessModes: {{- toYaml ($p.accessModes | default (list "ReadWriteMany")) | nindent 4 }}
   {{- if $p.createPV }}
   storageClassName: ""
   volumeName: {{ printf "%s-%s-pv" (include "common.names.fullname" $) ($key | kebabcase) }}
