@@ -9,9 +9,10 @@
 # pod), which reaps orphaned processes.
 #
 # The rendered script runs under /bin/sh with /run.sh, hostname and sleep as
-# stubs. The run.sh stub notes its arguments and its parent's PID in
-# $TMP/runs, exits with the status in $TMP/rc and kills its parent from the
-# second run on, which ends the loop; sleep notes its argument in $TMP/slept.
+# stubs, which note each call in $TMP/events, in order: run.sh with its
+# arguments and its parent's PID, sleep with its argument. run.sh exits with
+# the status in $TMP/rc and kills its parent from the second run on, which
+# ends the loop.
 
 setup() {
   load helpers/common
@@ -34,12 +35,12 @@ YAML
   printf '#!/bin/sh\n' >"$TMP/bin/hostname"
   cat >"$TMP/bin/sleep" <<EOF
 #!/bin/sh
-echo "\$1" >> "$TMP/slept"
+echo "sleep \$1" >> "$TMP/events"
 EOF
   cat >"$TMP/run.sh" <<EOF
 #!/bin/sh
-echo "\$* \$PPID" >> "$TMP/runs"
-[ "\$(wc -l < "$TMP/runs")" -lt 2 ] || kill -KILL "\$PPID"
+echo "run.sh \$* \$PPID" >> "$TMP/events"
+[ "\$(grep -c '^run.sh ' "$TMP/events")" -lt 2 ] || kill -KILL "\$PPID"
 exit "\$(cat "$TMP/rc")"
 EOF
   chmod +x "$TMP/bin/hostname" "$TMP/bin/sleep" "$TMP/run.sh"
@@ -82,27 +83,25 @@ start() {
 @test "as an agent, a failed start ends the container with its status" {
   start 3 "${agent[@]}"
   [ "$status" -eq 3 ] || fail "status $status"
-  [ "$(cat "$TMP/runs")" = "run $pid" ] || fail "runs: $(cat "$TMP/runs"), shell $pid"
-  [ ! -e "$TMP/slept" ] || fail "slept $(cat "$TMP/slept")"
+  [ "$(cat "$TMP/events")" = "run.sh run $pid" ] || fail "events: $(cat "$TMP/events"), shell $pid"
 }
 
 @test "as an agent, also an agent that ended without an error" {
   start 0 "${agent[@]}"
   [ "$status" -eq 0 ] || fail "status $status"
-  [ "$(cat "$TMP/runs")" = "run $pid" ] || fail "runs: $(cat "$TMP/runs"), shell $pid"
-  [ ! -e "$TMP/slept" ] || fail "slept $(cat "$TMP/slept")"
+  [ "$(cat "$TMP/events")" = "run.sh run $pid" ] || fail "events: $(cat "$TMP/events"), shell $pid"
 }
 
 @test "in interval mode, /run.sh runs again after the interval" {
   start 0 --set node.backupIntervalSeconds=42
-  [ "$(cat "$TMP/runs")" = "run $pid
-run $pid" ] || fail "runs: $(cat "$TMP/runs"), shell $pid"
-  [ "$(cat "$TMP/slept")" = 42 ] || fail "slept $(cat "$TMP/slept")"
+  [ "$(cat "$TMP/events")" = "run.sh run $pid
+sleep 42
+run.sh run $pid" ] || fail "events: $(cat "$TMP/events"), shell $pid"
 }
 
 @test "in interval mode, also after a failed run" {
   start 3 --set node.backupIntervalSeconds=42
-  [ "$(cat "$TMP/runs")" = "run $pid
-run $pid" ] || fail "runs: $(cat "$TMP/runs"), shell $pid"
-  [ "$(cat "$TMP/slept")" = 42 ] || fail "slept $(cat "$TMP/slept")"
+  [ "$(cat "$TMP/events")" = "run.sh run $pid
+sleep 42
+run.sh run $pid" ] || fail "events: $(cat "$TMP/events"), shell $pid"
 }
