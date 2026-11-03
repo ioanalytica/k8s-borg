@@ -63,8 +63,10 @@ if [ "${1:-}" = "--one" ]; then
   server_opts() { :; }
   server_args() { :; }
   # roles: the servers; tests: the bats file; tests_args: docker run options
-  # of the test container.
-  roles=(src dst dst2) tests=$engine tests_args=() tls_names=() tls_dir=""
+  # of the test container; restarted: servers whose first start fails on
+  # purpose, with restart_cause in their log; the run fails unless each was
+  # restarted once, for that cause.
+  roles=(src dst dst2) tests=$engine tests_args=() tls_names=() tls_dir="" restarted=() restart_cause=""
   # The entrypoint of the MySQL and Percona images puts the root password into
   # SQL unescaped and fails on DB_PASSWORD; the servers start with this one
   # and the tests set DB_PASSWORD (helpers/mysql.bash).
@@ -84,13 +86,28 @@ if [ "${1:-}" = "--one" ]; then
       # `src` and `dst` are single-member replica sets (the oplog case, with
       # authentication, which a replica set only has with a key file); `dst2`
       # is a standalone server. The tests initiate the replica sets.
+      # The image's entrypoint creates the root user with a temporary mongod
+      # and starts the server once `mongod --shutdown` returns, which waits
+      # for the lock file only: the temporary one can still hold the port,
+      # and the server exits 48, "Address already in use"
+      # (docker-library/mongo#730). Restarted, it starts alone: the data
+      # directory is initialized by then, and the entrypoint skips its init.
+      # Only that start can lose the race, so one restart is enough. The
+      # restart finds the key file of the first start, owned by mongodb,
+      # which root may not open for writing in /tmp where the kernel's
+      # fs.protected_regular is on: it is removed first. `race`, a replica
+      # set like `src`, fails its first start that way on purpose
+      # (helpers/mongodb-init-race.sh).
+      roles=(src dst dst2 race) restarted=(race) restart_cause="Address already in use"
       server_opts() {
+        printf '%s\n' --restart on-failure:1
         [ "$1" != dst2 ] || return 0
         printf '%s\n' --entrypoint bash
+        [ "$1" != race ] || printf '%s\n' -v "$PWD/tests/e2e/db/helpers/mongodb-init-race.sh:/docker-entrypoint-initdb.d/race.sh:ro"
       }
       server_args() {
         [ "$1" != dst2 ] || return 0
-        printf '%s\n' -c 'openssl rand -base64 48 >/tmp/keyfile && chmod 400 /tmp/keyfile && chown mongodb /tmp/keyfile && exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile'
+        printf '%s\n' -c 'rm -f /tmp/keyfile && openssl rand -base64 48 >/tmp/keyfile && chmod 400 /tmp/keyfile && chown mongodb /tmp/keyfile && exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile'
       }
       ;;
     redis|valkey)
@@ -251,11 +268,21 @@ if [ "${1:-}" = "--one" ]; then
        [ "$DB_TESTS" != redis ] || command -v valkey-cli >/dev/null || apk add -q --no-cache valkey-cli >/dev/null
        exec bats --print-output-on-failure "/tests/e2e/db/$DB_TESTS.bats"' || rc=$?
     t_tests=$((SECONDS - phase))
+    # A server that was meant to fail its first start and was not restarted,
+    # or not for that, leaves its tests nothing to prove. (Not `docker logs |
+    # grep -q`: pipefail would fail it on docker's SIGPIPE after a match.)
+    for role in ${restarted[@]+"${restarted[@]}"}; do
+      restarts=$(docker inspect -f '{{.RestartCount}}' "${name}-${role}" 2>&1)
+      [ "$restarts" = 1 ] || { echo "✗ server $role: restarted ${restarts} times, not once"; rc=1; }
+      grep -qF "$restart_cause" < <(docker logs "${name}-${role}" 2>&1) \
+        || { echo "✗ server $role: no \"$restart_cause\" in its log"; rc=1; }
+    done
     # A failed run shows how its servers fared: a server that never became
-    # ready leaves nothing in the bats output.
+    # ready leaves nothing in the bats output. The state of a server that
+    # was restarted is that of its last start; its log holds every start.
     if [ "$rc" -ne 0 ]; then
       for role in "${roles[@]}"; do
-        echo "── server $role: $(docker inspect -f '{{.State.Status}}, exit code {{.State.ExitCode}}' "${name}-${role}" 2>&1)"
+        echo "── server $role: $(docker inspect -f '{{.State.Status}}, exit code {{.State.ExitCode}}, restarts {{.RestartCount}}' "${name}-${role}" 2>&1)"
         docker logs --tail 25 "${name}-${role}" 2>&1 | cut -c1-400
       done
     fi

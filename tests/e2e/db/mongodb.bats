@@ -6,7 +6,8 @@
 # archived and extracted with Borg, and restored into the empty replica set
 # `dst` and into `src` itself; every restore is compared with a fingerprint
 # of the source taken at dump time. `dst2` is a standalone server, dumped
-# without an oplog.
+# without an oplog. `race` checks run.sh's restart of a server that loses its
+# port to the image's init.
 
 bats_require_minimum_version 1.5.0
 
@@ -228,4 +229,11 @@ teardown_file() {
   echo "# archive $(wc -c <"$DUMPS/e2e/e2e.archive") bytes; added to the repository: first archive $first, unchanged $unchanged, changed $changed" >&3
   [ "$unchanged" -lt $((first / 2)) ] || fail "unchanged: $unchanged bytes new, the first archive added $first"
   [ "$changed" -lt $((first / 2)) ] || fail "changed: $changed bytes new, the first archive added $first"
+}
+
+@test "a server that loses its port to the image's init answers after its restart, with the root user and a new key file" {
+  # helpers/mongodb-init-race.sh fails the first start of `race` the way
+  # docker-library/mongo#730 does; run.sh restarts it once.
+  wait_for 120 mo ready race
+  mo initiate race
 }
