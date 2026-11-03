@@ -29,10 +29,12 @@ revision it had at the backup. Kubelets, kube-proxy, CoreDNS and other
 controllers that keep running across it have seen higher ones: they resume
 watching from there, get no event until the store passes it, and never learn
 what the restore changed. In the tests, on kubeadm the kubelet kept running
-pods the restore had removed and started no new ones, and kube-proxy and
-CoreDNS kept serving a Service the restore had removed; on k3s, whose kubelet
+pods the restore had removed, and the pods a Deployment's ReplicaSet created
+after it stayed pending, as the kubelet never started them; kube-proxy and
+CoreDNS kept serving a Service the restore had removed. On k3s, whose kubelet
 and kube-proxy list anew when the server is back, CoreDNS did. They stayed so
-until they were restarted.
+until they were restarted. A running `kubectl get --watch` ends when the API
+server stops, with the bump below or without it.
 
 For etcd,
 `etcdutl snapshot restore --bump-revision 1000000000 --mark-compacted` lifts
@@ -43,14 +45,17 @@ to lift the revision above the highest the cluster reached: it counts the
 writes since the backup and the bump of any restore since then (a second
 restore of the same snapshot takes 2000000000). 1000000000 is the value of
 etcd's recovery guide. `etcdutl` comes with the etcd release and with this
-chart's image. SQLite has nothing of the kind.
+chart's image; the image's 3.6.15 restored the snapshots of etcd 3.7 (kind)
+and 3.6 (k3s) in the tests. SQLite has nothing of the kind.
 
 **k3s, embedded etcd** (tested on a fresh node with the same k3s version).
 k3s restores a snapshot at the snapshot's revision and has no option to raise
 it, so `etcdutl` makes a copy with the bump first. k3s checks the SHA-256 at
-the end of a snapshot, which the copy gets appended:
+the end of a snapshot, which the copy gets appended. `etcdutl` refuses a data
+directory that is not empty, so a second attempt starts with a clean one:
 
 ```sh
+rm -rf /root/restore/etcd-bumped &&
 etcdutl snapshot restore /root/restore/var/lib/k8s-borg/datastore/k3s/etcd-snapshot.db \
   --data-dir /root/restore/etcd-bumped --bump-revision 1000000000 --mark-compacted &&
 cp /root/restore/etcd-bumped/member/snap/db /root/restore/etcd-snapshot-bumped.db &&
