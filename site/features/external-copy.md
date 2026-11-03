@@ -80,7 +80,9 @@ known_hosts_file = /etc/borg-offsite/known_hosts
 ssh-keyscan -p 23 u123456.your-storagebox.de   # the line for knownHosts
 ```
 
-Without `known_hosts_file` rclone accepts any host key.
+`ssh-keyscan` does not authenticate the host: compare the key's fingerprint
+(`ssh-keygen -lf <file>`) with the one the provider publishes before you use
+the line. Without `known_hosts_file` rclone accepts any host key.
 
 ::: tip Restore
 Rebuilding the server from the copy, and reading the copy without a server, are described under [Disaster recovery](/operations/disaster-recovery#repository-server).

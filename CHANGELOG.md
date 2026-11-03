@@ -18,7 +18,10 @@
   `tests/site-includes.bats` checks every include and every address of the
   site in the repository, `tests/site-workflow.bats` the workflow. The
   parameter table of `chart/README.md` was cut in two by the 1.0.21 upgrade
-  note; the note now follows the table.
+  note; the note now follows the table. The quick start names a path to back
+  up (the defaults name none) and the base directory Borg 1 needs on the
+  host; the rebuild of the repository server from its external copy waits
+  for a running copy Job and resumes the copy only after `borg check`.
 
 * **A check schedule removed from the values is removed from Borg UI.** The
   agent pods rolled for it since #89, but `set-check-schedule` left the

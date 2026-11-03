@@ -73,6 +73,8 @@ member restores the same snapshot with its own name and the full
 
 1. Set `repoServer.offsite.suspend: true`, so that the job does not take a
    half-restored repository for the current one and trims the copy to it.
+   Suspending starts no new Job but leaves a running one alone: wait until no
+   Job of `<release>-repo-server-offsite` runs any more (`kubectl get jobs`).
 2. Provide the new data directory, owned by `repoServer.runAsUser` (see [Storage and the user](/features/repository-server#storage-and-the-user)).
 3. Copy the repositories back as that user, **with umask 077**: rclone would
    leave the files readable for everyone.
@@ -82,7 +84,9 @@ member restores the same snapshot with its own name and the full
    rclone --config rclone.conf copy offsite:k8s-borg /srv/borg   # as uid 20222
    ```
 
-4. Start the server, then set `suspend: false` again. The clients keep their
+4. Start the server. Set `suspend: false` again only once the copy back
+   ended without an error and `borg check` passed on every repository: the
+   next run makes the copy what the server holds. The clients keep their
    URLs.
 
 **Borg 1 clients that backed up after the last copy refuse the repository**:

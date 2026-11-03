@@ -27,8 +27,11 @@ runs the backups as its managed agents.
 
 <!-- #region quick-start -->
 The chart is published as an OCI artifact; the images live on GitHub Container
-Registry. A first install needs an SSH host with Borg for the repositories, a
-passphrase, an SSH key the host accepts and the host's `known_hosts` line:
+Registry. A first install needs an SSH host with Borg and a directory there for
+the repositories (`mycluster` below, which Borg 1 does not create), a
+passphrase, an SSH key the host accepts and the host's `known_hosts` line. The
+chart names no paths to back up by default: give them as `R` roots, here each
+node's `/etc`:
 
 ```sh
 helm install my-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
@@ -36,7 +39,8 @@ helm install my-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
   --set borg.repoBase.value="ssh://user@borg.example.com:22/./mycluster" \
   --set borg.passphrase.value="…" \
   --set-file ssh.privateKey=./id_ed25519 \
-  --set-file ssh.knownHosts=./known_hosts
+  --set-file ssh.knownHosts=./known_hosts \
+  --set 'node.include={P fm,R /node/etc}'
 ```
 
 ```
