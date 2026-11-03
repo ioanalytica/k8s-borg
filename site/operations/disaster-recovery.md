@@ -61,27 +61,40 @@ etcdutl snapshot restore /root/restore/var/lib/k8s-borg/datastore/k3s/etcd-snaps
 cp /root/restore/etcd-bumped/member/snap/db /root/restore/etcd-snapshot-bumped.db &&
 openssl dgst -sha256 -binary /root/restore/etcd-bumped/member/snap/db >>/root/restore/etcd-snapshot-bumped.db &&
 systemctl stop k3s &&
-k3s server --cluster-reset --etcd-s3=false \
-  --cluster-reset-restore-path=/root/restore/etcd-snapshot-bumped.db \
-  --token="$(cat /root/restore/var/lib/k8s-borg/datastore/k3s/token)" &&
+K3S_TOKEN="$(cat /root/restore/var/lib/k8s-borg/datastore/k3s/token)" \
+  k3s server --cluster-reset --etcd-s3=false \
+  --cluster-reset-restore-path=/root/restore/etcd-snapshot-bumped.db
+# go on only if the last message says the membership has been reset
 systemctl start k3s
 ```
 
 `--etcd-s3=false` keeps k3s to the local file where its configuration sends
 snapshots to S3: k3s would look for the path in the bucket and fail.
-k3s keeps its certificates in the datastore, encrypted with the token: without
-`--token`, a node without the original token file refuses the restore. With
-more than one server, k3s documents the rest: on each other server stop k3s,
-move `/var/lib/rancher/k3s/server/db` away, and start k3s to rejoin (not
-tested here).
 
-**k3s, SQLite** (tested on a fresh node with the same k3s version):
+k3s keeps its certificates in the datastore, encrypted with the token: a node
+without the original token file refuses the restore without it. `K3S_TOKEN`
+hands it to the reset without putting it into the process arguments, where
+other users of the node could read it; k3s takes it neither from
+`--token-file` nor from a token file put in place before the reset. A reset
+that failed can still exit with 0, hence the look at its last message. The
+reset leaves the token in `/var/lib/rancher/k3s/server/token`, from where k3s
+reads it when its configuration names none. Where the configuration names one
+(`token` or `token-file` in `/etc/rancher/k3s/config.yaml`, `K3S_TOKEN` in the
+service's environment file), make it the archived one before the start: with
+another, k3s stops with "bootstrap data already found and encrypted with
+different token". With more than one server, k3s documents the rest: on each
+other server stop k3s, move `/var/lib/rancher/k3s/server/db` away, and start
+k3s to rejoin (not tested here).
+
+**k3s, SQLite** (tested on a fresh node with the same k3s version). The token
+goes back as a file, with the same rule for a token the configuration names:
 
 ```sh
 systemctl stop k3s
 mkdir -p /root/restore/old && mv /var/lib/rancher/k3s/server/db/state.db* /root/restore/old/
 install -m 0600 /root/restore/var/lib/k8s-borg/datastore/k3s/state.db /var/lib/rancher/k3s/server/db/state.db
-systemctl start k3s     # on a fresh node: with --token "$(cat …/k3s/token)", as above
+install -m 0600 /root/restore/var/lib/k8s-borg/datastore/k3s/token /var/lib/rancher/k3s/server/token
+systemctl start k3s
 ```
 
 After this restore, restart the pods that watch the API and kept running:

@@ -12,7 +12,10 @@
   embedded etcd gives `k3s server --cluster-reset` a copy of the snapshot that
   `etcdutl` raised the same way (k3s has no option for it); with that, all of
   them carried on. The SQLite restore, which cannot raise it, restarts CoreDNS
-  and the other controllers in pods afterwards (#98).
+  and the other controllers in pods afterwards. The k3s restores hand the
+  server token over in `K3S_TOKEN` or as a file instead of on the command
+  line, where other users of the node could read it, and say that a token the
+  node's configuration names has to be the archived one (#98).
 
 * **Dependency updates by Renovate.** Renovate opens weekly pull requests for
   the workflows' actions and the agent image's version pins
