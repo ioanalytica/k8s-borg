@@ -4,9 +4,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 Optional static NFS PersistentVolumes. Cluster-infra-specific — only rendered
 for persistence.<vol>.createPV=true. Otherwise bind your own PVs/StorageClass.
+Each one goes with the claim of pvc.yaml: Borg UI's only with Borg UI.
 */}}
 {{- range $key, $p := .Values.persistence }}
-{{- if and $p.createPV (not $p.existingClaim) }}
+{{- if and $p.createPV (not $p.existingClaim) (or (ne $key "ui") $.Values.borgUI.enabled) }}
 ---
 apiVersion: v1
 kind: PersistentVolume

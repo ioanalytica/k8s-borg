@@ -1047,6 +1047,13 @@ borgUI:
 ## first; the data of a bound one has to move to a new claim, named in
 ## existingClaim (ui holds Borg UI's state, uiAgent Borg's key files).
 ##
+## The ui claim, and its static PV, exist only with borgUI.enabled: no other pod
+## mounts it. A release that turns Borg UI off keeps them with `retain: true`,
+## and takes them back when it turns Borg UI on again; with `retain: false` the
+## upgrade deletes them. What counts is the annotation they already carry: a
+## `retain` changed in the same upgrade does not reach them. cache and uiAgent
+## exist in every release.
+##
 persistence:
   cache:
     ## @param persistence.cache.retain Keep the PVC/PV on uninstall (disposable → false)
@@ -1061,7 +1068,7 @@ persistence:
     accessModes:
       - ReadWriteMany
   ui:
-    ## @param persistence.ui.retain Keep the Borg UI /data PVC/PV on uninstall (config survives)
+    ## @param persistence.ui.retain Keep the Borg UI /data PVC/PV on uninstall and when Borg UI is turned off (config survives)
     retain: true
     existingClaim: ""
     createPV: false

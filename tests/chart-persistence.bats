@@ -7,6 +7,11 @@
 # ReadWriteMany. A static PV (createPV) offers the modes of its claim, since a
 # claim binds only to a volume that offers all of them. An existing claim is
 # used as it is.
+#
+# Borg UI's claim, and its static PV, come only with Borg UI, the one pod that
+# mounts it: unused, it stayed Pending on WaitForFirstConsumer storage (the
+# local-path class of k3s and kind) and held `helm --wait` until it timed out.
+# The tests of the access modes run with Borg UI, so that all three exist.
 
 setup() {
   load helpers/common
@@ -24,6 +29,8 @@ ssh:
   privateKey: "test"
   publicKey: "test"
   knownHosts: "test"
+borgUI:
+  enabled: true
 YAML
   CLAIMS=(cache ui ui-agent)
   STATIC=(--set persistence.cache.createPV=true --set persistence.ui.createPV=true
@@ -37,6 +44,16 @@ modes() {
   local kind="$1" name="$2"
   shift 2
   render "$@" | yq "select(.kind == \"$kind\" and .metadata.name == \"$name\") | .spec.accessModes | join(\",\")"
+}
+
+# volumes ARGS… — the claims and volumes the chart creates, "Kind name" a line.
+volumes() {
+  render "$@" | yq -N 'select(.kind == "PersistentVolumeClaim" or .kind == "PersistentVolume") | .kind + " " + .metadata.name' | LC_ALL=C sort
+}
+
+# ui_claim ARGS… — the claim the Borg UI Deployment mounts at /data.
+ui_claim() {
+  render "$@" | yq -N 'select(.kind == "Deployment" and .metadata.name == "rel-k8s-borg-ui") | .spec.template.spec.volumes[] | select(.name == "ui") | .persistentVolumeClaim.claimName'
 }
 
 @test "every claim asks for ReadWriteMany by default" {
@@ -91,4 +108,38 @@ modes() {
     || fail "rendered the chart's own cache claim or volume"
   yq 'select(.kind == "DaemonSet") | .spec.template.spec.volumes[] | select(.name == "cache") | .persistentVolumeClaim.claimName' <<<"$RENDERED" \
     | grep -qx my-cache
+}
+
+@test "Borg UI's claim and static volume come only with Borg UI" {
+  got="$(volumes --set borgUI.enabled=false)"
+  [ "$got" = "$(printf '%s\n' "PersistentVolumeClaim rel-k8s-borg-cache" "PersistentVolumeClaim rel-k8s-borg-ui-agent")" ] \
+    || fail "without Borg UI: $got"
+  got="$(volumes "${STATIC[@]}" --set borgUI.enabled=false)"
+  [ "$got" = "$(printf '%s\n' "PersistentVolume rel-k8s-borg-cache-pv" "PersistentVolume rel-k8s-borg-ui-agent-pv" \
+                  "PersistentVolumeClaim rel-k8s-borg-cache" "PersistentVolumeClaim rel-k8s-borg-ui-agent")" ] \
+    || fail "without Borg UI, createPV: $got"
+  got="$(volumes "${STATIC[@]}")"
+  [ "$got" = "$(printf '%s\n' "PersistentVolume rel-k8s-borg-cache-pv" "PersistentVolume rel-k8s-borg-ui-agent-pv" \
+                  "PersistentVolume rel-k8s-borg-ui-pv" "PersistentVolumeClaim rel-k8s-borg-cache" \
+                  "PersistentVolumeClaim rel-k8s-borg-ui" "PersistentVolumeClaim rel-k8s-borg-ui-agent")" ] \
+    || fail "with Borg UI, createPV: $got"
+  [ "$(ui_claim "${STATIC[@]}")" = rel-k8s-borg-ui ] || fail "Borg UI does not mount its claim"
+}
+
+@test "Borg UI's claim and static volume are kept by default, also when a release turns Borg UI off" {
+  # Helm leaves an object with this annotation in place when an upgrade no
+  # longer renders it, and takes it back when the chart renders it again.
+  RENDERED="$(render "${STATIC[@]}")"
+  for kind_name in "PersistentVolumeClaim rel-k8s-borg-ui" "PersistentVolume rel-k8s-borg-ui-pv"; do
+    got="$(yq -N "select(.kind == \"${kind_name% *}\" and .metadata.name == \"${kind_name#* }\") | .metadata.annotations[\"helm.sh/resource-policy\"]" <<<"$RENDERED")"
+    [ "$got" = keep ] || fail "$kind_name: resource policy '$got'"
+  done
+}
+
+@test "Borg UI's existing claim is used with Borg UI, and the chart creates none either way" {
+  for ui in true false; do
+    got="$(volumes "${STATIC[@]}" --set borgUI.enabled=$ui --set persistence.ui.existingClaim=my-ui | grep -E -- '-ui(-pv)?$' || true)"
+    [ -z "$got" ] || fail "Borg UI $ui: rendered $got"
+  done
+  [ "$(ui_claim "${STATIC[@]}" --set persistence.ui.existingClaim=my-ui)" = my-ui ] || fail "Borg UI does not mount my-ui"
 }

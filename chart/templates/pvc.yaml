@@ -3,7 +3,9 @@ Copyright IO ANALYTICA.
 SPDX-License-Identifier: AGPL-3.0-only
 */}}
 {{- range $key, $p := .Values.persistence }}
-{{- if not $p.existingClaim }}
+{{- /* Borg UI's claim only with Borg UI, the one pod that mounts it: unused,
+       it stays Pending on WaitForFirstConsumer storage, and --wait with it. */}}
+{{- if and (not $p.existingClaim) (or (ne $key "ui") $.Values.borgUI.enabled) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
