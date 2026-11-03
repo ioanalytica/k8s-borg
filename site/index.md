@@ -11,6 +11,9 @@ hero:
       text: Install
       link: /guide/install
     - theme: alt
+      text: Try it locally
+      link: /guide/try-locally
+    - theme: alt
       text: Introduction
       link: /guide/
     - theme: alt

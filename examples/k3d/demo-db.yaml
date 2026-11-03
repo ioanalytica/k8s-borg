@@ -1,0 +1,80 @@
+# A PostgreSQL to back up, in namespace demo, with a table of two rows. Its
+# Secret is where values-demo-db.yaml takes the credentials from. A demo:
+# the password is in this file and the data is gone with the pod.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-db
+  namespace: demo
+stringData:
+  username: postgres
+  password: demo-only
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-db-init
+  namespace: demo
+data:
+  orders.sql: |
+    CREATE TABLE orders (id int PRIMARY KEY, item text);
+    INSERT INTO orders VALUES (1, 'borg'), (2, 'kubernetes');
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: demo-db
+  namespace: demo
+spec:
+  serviceName: demo-db
+  selector:
+    matchLabels:
+      app: demo-db
+  template:
+    metadata:
+      labels:
+        app: demo-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_DB
+              value: shop
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: demo-db
+                  key: password
+          ports:
+            - containerPort: 5432
+          # Over TCP: while the image runs orders.sql, its server listens on
+          # the socket only.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "shop"]
+            periodSeconds: 3
+          volumeMounts:
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init
+          configMap:
+            name: demo-db-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-db
+  namespace: demo
+spec:
+  selector:
+    app: demo-db
+  ports:
+    - port: 5432

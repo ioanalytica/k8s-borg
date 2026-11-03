@@ -1,0 +1,76 @@
+# k8s-borg in a throwaway k3d cluster: every part of the chart on one node,
+# with no host outside it. The steps: https://k8s-borg.ioanalytica.com/guide/try-locally
+#
+# Written for release k8s-borg in namespace k8s-borg on the k3d cluster
+# k8s-borg, whose only node is k3d-k8s-borg-server-0. The passphrase, the
+# admin password and the SSH keys come from the helm command line.
+#
+# The repositories live on the release's own repository server, in a directory
+# of the k3d node container: deleting the cluster deletes them. A cluster to
+# try the chart in, not a backup to rely on.
+#
+# tests/examples-k3d.bats renders these values against the chart and fails on
+# a key chart/values.yaml does not know.
+
+borg:
+  # Borg 1: Borg UI's community plan covers it, and its repository format is
+  # stable (Borg 2 is a beta).
+  version: 1
+  # The repository server below, reached by its Service. The directory
+  # "quickstart" is the one the server gives the key named quickstart (the
+  # comment of its line in ssh.authorizedKeys); each pod adds its own name.
+  repoBase:
+    value: "ssh://borg@k8s-borg-repo-server.k8s-borg.svc:2222/./quickstart"
+
+# The node's /etc, one repository per node, backed up as a Borg UI managed
+# agent along with a snapshot of k3s's datastore (SQLite on a single k3d
+# server). The host's root is mounted read-only at /node.
+node:
+  backupMode: agent
+  include:
+    - "P fm"
+    - "R /node/etc"
+  datastoreSnapshot:
+    enabled: true
+
+# The console pod enrolls as an agent too, and registers the cluster backup
+# as a Borg UI plan once it has a source (values-demo-db.yaml gives it one).
+cluster:
+  mode: agent
+  backupMode: plan
+
+# The Borg host: sshd and borg serve in the release, its data in a directory
+# on the node that has to belong to the server's uid (20222).
+repoServer:
+  enabled: true
+  persistence:
+    size: 5Gi
+    local:
+      createPV: true
+      nodeName: k3d-k8s-borg-server-0
+      path: /srv/borg
+
+# Local login as admin, SQLite and the release's own Redis. Neither the
+# license service nor the error-report ingest is contacted: the community
+# plan needs no license.
+borgUI:
+  enabled: true
+  publicBaseUrl: "http://localhost:8081"
+  redis:
+    mode: internal
+  licensing:
+    startupSync: false
+    activationServiceUrl: ""
+  errorReporting:
+    enabled: false
+
+# The chart's own claims ask for ReadWriteMany, which k3s's local-path
+# storage does not offer; claims.yaml makes ReadWriteOnce ones, enough for
+# pods on one node.
+persistence:
+  cache:
+    existingClaim: borg-cache
+  ui:
+    existingClaim: borg-ui
+  uiAgent:
+    existingClaim: borg-ui-agent
