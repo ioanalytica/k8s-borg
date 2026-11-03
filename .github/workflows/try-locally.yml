@@ -1,0 +1,80 @@
+name: Try it locally
+
+# The page "Try it locally" (site/guide/try-locally.md) end to end, in a k3d
+# cluster on the runner: tests/try-locally/run.sh runs the page's own shell
+# blocks with the files of the checkout, starts the backup plans through Borg
+# UI's API where the page clicks, and checks the archives with borg.
+#
+# A pull request that changes what the page installs runs it with its own
+# chart, and with the images that chart names. One that names images not
+# published yet (a release, a move of the borg-ui pin) ends green with a
+# notice; the tag's build publishes them. The weekly run and a manual one
+# install the latest release, as the page does, and catch what moves under
+# it: the runner, the k3s of a k3d release, the database image of
+# examples/k3d/.
+#
+# Not among the checks the ruleset on main requires: its paths filter skips
+# it for most pull requests, and a skipped required check stays pending.
+# try-locally.bats keeps the paths complete.
+on:
+  pull_request:
+    paths:
+      - "chart/**"
+      - "examples/k3d/**"
+      - "site/guide/try-locally.md"
+      - "tests/try-locally/**"
+      - ".github/workflows/try-locally.yml"
+  schedule:
+    # Mondays, before the working week.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      chart:
+        description: The chart to install
+        type: choice
+        options: [release, checkout]
+        default: release
+
+permissions:
+  contents: read
+
+# A pull request's newer push replaces its run.
+concurrency:
+  group: try-locally-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  k3d:
+    runs-on: ubuntu-26.04
+    # Two to three minutes on a laptop, most of them for pulling the images.
+    # The page's two rollout waits give up after 10 minutes each; the limit
+    # leaves the run time to report what it found then.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Pinned: without a version the action fetches "latest" from the
+      # GitHub API and silently falls back to an old Helm 3 when that fails.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      # The k3d the page is tested with; its release decides the k3s the
+      # cluster runs. Checked against the sums the release publishes.
+      - name: Install k3d
+        env:
+          # renovate: datasource=github-releases depName=k3d-io/k3d
+          K3D_VERSION: 5.9.0
+        run: |
+          base="https://github.com/k3d-io/k3d/releases/download/v${K3D_VERSION}"
+          curl -fsSL -o "$RUNNER_TEMP/k3d" "$base/k3d-linux-amd64"
+          sum="$(curl -fsSL "$base/checksums.txt" | awk '$2 == "_dist/k3d-linux-amd64" { print $1 }')"
+          [ -n "$sum" ] || { echo "✗ checksums.txt of k3d $K3D_VERSION has no k3d-linux-amd64" >&2; exit 1; }
+          echo "$sum  $RUNNER_TEMP/k3d" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/k3d" /usr/local/bin/k3d
+          k3d version
+          kubectl version --client
+      - name: The page, end to end
+        env:
+          CHART: ${{ (github.event_name == 'pull_request' || inputs.chart == 'checkout') && './chart' || '' }}
+        run: tests/try-locally/run.sh ${CHART:+"$CHART"}

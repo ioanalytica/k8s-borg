@@ -175,7 +175,7 @@ A PostgreSQL in namespace `demo`, and a cluster backup that dumps it:
 
 ```sh
 kubectl apply -f $url/demo-db.yaml
-kubectl -n demo rollout status statefulset/demo-db
+kubectl -n demo rollout status statefulset/demo-db --timeout=10m
 helm upgrade k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg -n k8s-borg \
   --reuse-values -f $url/values-demo-db.yaml
 kubectl -n k8s-borg rollout status statefulset/k8s-borg-app --timeout=10m
