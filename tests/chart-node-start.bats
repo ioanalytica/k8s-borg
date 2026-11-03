@@ -12,7 +12,8 @@
 # stubs, which note each call in $TMP/events, in order: run.sh with its
 # arguments and its parent's PID, sleep with its argument. run.sh exits with
 # the status in $TMP/rc and kills its parent from the second run on, which
-# ends the loop.
+# ends the loop; sleep kills it from its third call on, so that a loop that
+# never reaches the run.sh stub fails instead of running forever.
 
 setup() {
   load helpers/common
@@ -36,6 +37,7 @@ YAML
   cat >"$TMP/bin/sleep" <<EOF
 #!/bin/sh
 echo "sleep \$1" >> "$TMP/events"
+[ "\$(grep -c '^sleep ' "$TMP/events")" -lt 3 ] || kill -KILL "\$PPID"
 EOF
   cat >"$TMP/run.sh" <<EOF
 #!/bin/sh
@@ -62,15 +64,16 @@ for doc in yaml.safe_load_all(sys.stdin):
 }
 
 # start RC [HELM ARGS…] — run the start script with run.sh exiting RC; sets
-# $status to the script's and $pid to the shell's PID.
+# $status to the script's and $pid to the shell's PID. The script calls the
+# stub as "$RUN_SH", which holds for a $TMP with spaces too.
 start() {
   local script
   printf '%s' "$1" >"$TMP/rc"; shift
   script=$(container args "$@" | python3 -c 'import json, sys; print(json.load(sys.stdin)[0])')
   [ -n "$script" ] || fail "no start script rendered"
-  script=${script//\/run.sh/$TMP/run.sh}
+  script=${script//\/run.sh/\"\$RUN_SH\"}
   status=0
-  PATH="$TMP/bin:$PATH" /bin/sh -c "$script" &
+  RUN_SH="$TMP/run.sh" PATH="$TMP/bin:$PATH" /bin/sh -c "$script" &
   pid=$!
   wait "$pid" || status=$?
 }
