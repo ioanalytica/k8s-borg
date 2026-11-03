@@ -23,7 +23,10 @@
   start, and no longer counts Borg UI's own features among k8s-borg's. A pull
   request that changes only `site/` is documentation only.
   `tests/site-includes.bats` checks every include and every address of the
-  site in the repository, `tests/site-workflow.bats` the workflow. The
+  site in the repository, `tests/site-workflow.bats` the workflow, and
+  `tests/site-links.bats` where a link of the included files leads: a
+  repository path, also one that starts with a dot (#99), to GitHub or to the
+  page that shows the file. The
   parameter table of `chart/README.md` was cut in two by the 1.0.21 upgrade
   note; the note now follows the table. The quick start names a path to back
   up (the defaults name none) and the base directory Borg 1 needs on the

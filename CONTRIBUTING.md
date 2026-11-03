@@ -24,9 +24,10 @@ cd k8s-borg
 ./run-tests.sh            # adds the end-to-end suites (needs docker)
 ```
 
-The tests need `shellcheck`, `bats`, `helm` and Python 3 with PyYAML
-(`apt-get install python3-yaml`, or `pip install PyYAML` in a virtual
-environment); the end-to-end suites need docker.
+The tests need `shellcheck`, `bats`, `helm`, Node.js 22.18 or later (it runs
+the site's link code) and Python 3 with PyYAML (`apt-get install python3-yaml`,
+or `pip install PyYAML` in a virtual environment); the end-to-end suites need
+docker.
 [`tests/README.md`](tests/README.md) describes each layer. CI runs all of them
 on every pull request, except the end-to-end suites on one that changes only
 documentation: Markdown at the top level, `LICENSE`, `examples/` or the
@@ -58,7 +59,7 @@ A pull request is easiest to review when it:
 ## Dependency updates
 
 [Renovate](https://docs.renovatebot.com/) opens the update pull requests, as
-[`.github/renovate.json`](https://github.com/ioanalytica/k8s-borg/blob/main/.github/renovate.json) configures it: early on
+[`.github/renovate.json`](.github/renovate.json) configures it: early on
 Mondays (Europe/Berlin), for releases at least three days old, and never
 merged by the bot. Its Dependency Dashboard issue lists every dependency it
 found and the updates that wait for approval there.

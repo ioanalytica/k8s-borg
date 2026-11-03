@@ -1,13 +1,12 @@
 // Copyright IO ANALYTICA. SPDX-License-Identifier: AGPL-3.0-only
-import { copyFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfigWithTheme, type DefaultTheme, type MarkdownRenderer } from 'vitepress';
+import { repoUrl, repositoryLinks } from './links';
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(siteRoot, '..');
-const siteUrl = 'https://k8s-borg.ioanalytica.com';
-const repoUrl = 'https://github.com/ioanalytica/k8s-borg';
 
 // The chart icon doubles as the favicon; it is read from the repository root
 // instead of being copied into public/.
@@ -19,45 +18,6 @@ export interface ThemeConfig extends DefaultTheme.Config {
 
 const chartVersion =
   readFileSync(resolve(repoRoot, 'chart/Chart.yaml'), 'utf8').match(/^version:\s*(\S+)/m)?.[1] ?? '';
-
-// Files with a page of their own on the site: a link to them goes there.
-const sitePages: Record<string, string> = {
-  'CHANGELOG.md': '/reference/changelog',
-  'CONTRIBUTING.md': '/reference/contributing',
-  'SECURITY.md': '/security/reporting',
-  'chart/README.md#parameters': '/reference/parameters',
-  'chart/README.md#security-posture': '/security/',
-};
-
-// Pages include sections of README.md, chart/README.md and other files of the
-// repository, whose links are written for GitHub: relative to the repository
-// root, or to this site by its full address. On the site, the first lead to
-// GitHub (or to the page that holds the file), the second stay on the site.
-function siteHref(href: string): string {
-  if (href === siteUrl || href.startsWith(`${siteUrl}/`) || href.startsWith(`${siteUrl}#`)) {
-    return href.slice(siteUrl.length) || '/';
-  }
-  if (/^[a-z][a-z\d+.-]*:/i.test(href) || /^[/#.]/.test(href)) return href;
-  if (sitePages[href]) return sitePages[href];
-  const [path, hash] = href.split('#', 2);
-  const anchor = hash ? `#${hash}` : '';
-  if (sitePages[path]) return sitePages[path] + anchor;
-  const file = resolve(repoRoot, path);
-  if (!existsSync(file)) return href;
-  const kind = statSync(file).isDirectory() ? 'tree' : 'blob';
-  return `${repoUrl}/${kind}/main/${path.replace(/\/$/, '')}${anchor}`;
-}
-
-function repositoryLinks(md: MarkdownRenderer) {
-  md.core.ruler.push('k8s-borg-repository-links', (state) => {
-    for (const block of state.tokens) {
-      for (const token of block.children ?? []) {
-        const href = token.type === 'link_open' && token.attrGet('href');
-        if (href) token.attrSet('href', siteHref(href));
-      }
-    }
-  });
-}
 
 // ```mermaid blocks render in the browser, from the mermaid package bundled
 // with the site (theme/Mermaid.vue).

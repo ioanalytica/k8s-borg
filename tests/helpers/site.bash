@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 #
 # Readers for the documentation site (site/) and what its pages include, for
-# site-includes.bats and site-workflow.bats.
+# site-includes.bats, site-links.bats and site-workflow.bats.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 SITE="$REPO_ROOT/site"
@@ -11,6 +11,16 @@ SITE_URL=https://k8s-borg.ioanalytica.com
 # site_pages — the site's pages, relative to site/.
 site_pages() {
   (cd "$SITE" && find . -name node_modules -prune -o -name '*.md' -print) | sed 's|^\./||' | sort
+}
+
+# site_href HREF… — what the site makes of each link HREF, one per line:
+# siteHref of site/.vitepress/links.ts, run by node (TypeScript needs >= 22.18).
+site_href() {
+  node --input-type=module -e '
+    import { pathToFileURL } from "node:url";
+    const [file, ...hrefs] = process.argv.slice(1);
+    const { siteHref } = await import(pathToFileURL(file).href);
+    for (const href of hrefs) console.log(siteHref(href));' "$SITE/.vitepress/links.ts" "$@"
 }
 
 # includes PAGE — the target of each include of PAGE, as written (path[#region]).
