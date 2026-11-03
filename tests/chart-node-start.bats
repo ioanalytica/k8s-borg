@@ -93,7 +93,14 @@ start() {
   [ ! -e "$TMP/slept" ] || fail "slept $(cat "$TMP/slept")"
 }
 
-@test "in interval mode, /run.sh runs again after the interval, also after a failed run" {
+@test "in interval mode, /run.sh runs again after the interval" {
+  start 0 --set node.backupIntervalSeconds=42
+  [ "$(cat "$TMP/runs")" = "run $pid
+run $pid" ] || fail "runs: $(cat "$TMP/runs"), shell $pid"
+  [ "$(cat "$TMP/slept")" = 42 ] || fail "slept $(cat "$TMP/slept")"
+}
+
+@test "in interval mode, also after a failed run" {
   start 3 --set node.backupIntervalSeconds=42
   [ "$(cat "$TMP/runs")" = "run $pid
 run $pid" ] || fail "runs: $(cat "$TMP/runs"), shell $pid"
