@@ -241,10 +241,12 @@
   page's own commands in a k3d cluster (`tests/try-locally/run.sh`), with the
   files of the checkout: on a pull request that changes the chart,
   `examples/k3d/` or the page, with the pull request's chart, and every Monday
-  with the latest release. Where the page clicks in Borg UI, the job runs the
-  node plan and the cluster plan through Borg UI's API with the reconcile
-  Job's admin token, then checks the archives with `borg list` and
-  `borg extract`: the datastore snapshot and the k3s token, a file of the
+  with the latest release. A pull request whose chart names images not
+  published yet, such as a release's, ends green with a notice and runs no
+  cluster: the tag's build publishes them. Where the page clicks in Borg UI,
+  the job runs the node plan and the cluster plan through Borg UI's API with
+  the reconcile Job's admin token, then checks the archives with `borg list`
+  and `borg extract`: the datastore snapshot and the k3s token, a file of the
   node's `/etc`, the database dump. `tests/try-locally.bats` checks that the
   page's blocks keep the shape the run reads, the workflow's paths, and that
   the workflow installs the k3d, and step 1 the k3s, that the page names.
