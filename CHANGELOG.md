@@ -33,10 +33,11 @@
   built, about ten minutes later. Artifact Hub indexed 1.3.2 in between and
   does not check an indexed version again, so it lists 1.3.2 without the
   signature its check would find now. The chart job now waits for the image
-  builds and pushes the chart as its last step, and the sign job signs it
-  within a minute instead of ten; a version Artifact Hub indexes in that
-  minute still shows as unsigned there. A failed image build leaves no chart
-  behind. `tests/release-signing.bats` keeps the order.
+  builds and pushes the chart as its last step, so the sign job starts as
+  soon as the chart is there instead of ten minutes later; a version Artifact
+  Hub indexes before the signature still shows as unsigned there. A failed
+  image build leaves no chart behind. `tests/release-signing.bats` keeps the
+  order.
 
 ## 1.3.2
 

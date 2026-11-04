@@ -203,8 +203,9 @@ SH
   for j in gate $(wf_image_jobs "$BUILD_WF"); do
     grep -qx "$j" <<<"$needs" || fail "the chart job does not wait for $j"
   done
-  last="$(wf_job "$BUILD_WF" chart | sed -n 's/^      - name: //p; s/^      - uses: \(.*\)/uses \1/p' | tail -1)"
-  [ "$last" = "Push chart to GHCR (tags only)" ] || fail "the chart job's last step is: $last"
+  # Every step starts with "      - ", whatever its first key.
+  last="$(wf_job "$BUILD_WF" chart | grep '^      - ' | tail -1)"
+  [ "$last" = "      - name: Push chart to GHCR (tags only)" ] || fail "the chart job's last step is: $last"
   # The package is handed over before the push, so a re-run after a failed
   # push uploads it again under the same name: without overwrite the upload
   # fails on the failed attempt's artifact.
