@@ -76,7 +76,9 @@ RUN set -eu; \
     python -m venv /opt/borg-ui-agent/borg2/venv; \
     /opt/borg-ui-agent/borg2/venv/bin/pip install --no-cache-dir -q --pre \
         "borgbackup==${BORG2_VERSION}" \
-        "borgstore[rclone,sftp,rest,s3,blake3]==${BORGSTORE_VERSION}" mfusepy
+        "borgstore[rclone,sftp,rest,s3,blake3]==${BORGSTORE_VERSION}" mfusepy; \
+    /opt/borg-ui-agent/borg1/venv/bin/python -m pip uninstall -y -q pip; \
+    /opt/borg-ui-agent/borg2/venv/bin/python -m pip uninstall -y -q pip
 
 # --- s3fs: the release plus one upstream fix ----------------------------------
 # s3fs 1.96 and 1.97 serve a two-entry listing for a directory that has no
@@ -123,9 +125,9 @@ FROM python:${PYTHON_VERSION}-alpine AS etcd-fetch
 
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=etcd-io/etcd
-ARG ETCD_VERSION=3.6.15
-ARG ETCD_SHA256_AMD64=b51d86e6bff2168de5ba8cd631c0fe6c785c7a1b32b083079f5677d6b7e2772c
-ARG ETCD_SHA256_ARM64=567d9b8fa9e75b349600d2b64ef9bf6bc6d512cea75a2ce1c39b1b3046131244
+ARG ETCD_VERSION=3.6.16
+ARG ETCD_SHA256_AMD64=c8c0d96d8292ef085deabbf735e9561d3d396768e4d606df005aa25964f21911
+ARG ETCD_SHA256_ARM64=ad756ff27ba21e3488cfb84d00f3f4ad8d9b60a93e20f5be5b230a4aab1dc053
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache curl
@@ -299,6 +301,7 @@ COPY borg-ui/agent /src/borg-ui/agent
 RUN python -m venv "${BORG_UI_AGENT_VENV}" \
     && "${BORG_UI_AGENT_VENV}/bin/pip" install --no-cache-dir --upgrade pip wheel \
     && "${BORG_UI_AGENT_VENV}/bin/pip" install --no-cache-dir /src/borg-ui \
+    && "${BORG_UI_AGENT_VENV}/bin/python" -m pip uninstall -y -q pip \
     && rm -rf /src
 
 # mongodb-admin (topology, dropping a database before a restore, reading an
@@ -315,7 +318,19 @@ ARG DNSPYTHON_VERSION=2.9.0
 ARG PYYAML_VERSION=6.0.3
 RUN python -m venv /opt/mongodb-admin/venv \
     && NO_EXT=1 /opt/mongodb-admin/venv/bin/pip install --no-cache-dir \
-        "pymongo==${PYMONGO_VERSION}" "dnspython==${DNSPYTHON_VERSION}" "PyYAML==${PYYAML_VERSION}"
+        "pymongo==${PYMONGO_VERSION}" "dnspython==${DNSPYTHON_VERSION}" "PyYAML==${PYYAML_VERSION}" \
+    && /opt/mongodb-admin/venv/bin/python -m pip uninstall -y -q pip
+
+# pip only builds the image: nothing in a container runs it, and the agent is
+# upgraded with the image, not in place. Each virtualenv above drops its copy
+# where it is installed; this removes the base image's and checks that no
+# installed copy is left. Every copy carries pip's known CVEs and those of the
+# setuptools code it vendors, and image scanners such as Artifact Hub's report
+# each of them. CPython's ensurepip keeps its pip wheel: it is part of the
+# standard library, `python -m venv` needs it, and scanners do not report it.
+RUN /usr/local/bin/python -m pip uninstall -y -q pip \
+    && left="$(find / -xdev -name 'pip-*.dist-info')" \
+    && if [ -n "${left}" ]; then echo "pip is still installed: ${left}" >&2; exit 1; fi
 
 # Agent config dir; config.toml is written by `borg-ui-agent register`. The whole
 # image runs as root, so no service user or sudo is needed.

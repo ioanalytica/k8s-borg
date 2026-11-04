@@ -52,7 +52,7 @@ annotations:
     - name: busybox
       image: docker.io/busybox:1.37
     - name: kubectl
-      image: docker.io/alpine/kubectl:1.37.1
+      image: docker.io/alpine/kubectl:1.37.2
 
 dependencies:
   - name: common
