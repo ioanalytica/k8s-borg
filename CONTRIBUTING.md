@@ -84,6 +84,10 @@ found and the updates that wait for approval there.
   with the Helm and cosign versions the workflows install and the runner
   images; a new major comes on its own. A new commit under an unchanged
   release means the tag was moved, and waits for approval on the dashboard.
+  oras, which a release installs with `.github/actions/setup-oras`, comes
+  on its own: its `ORAS_SHA256` is updated by hand on the bot's branch, from
+  the release's checksums once their PGP signature checks out, and the job
+  `oras` of Lint & test fails until it matches.
 - **The agent image's pins** in `docker/Dockerfile` and `docker/rclone.env`
   each sit under a `# renovate: datasource=… depName=…` line, and a new pin
   needs one too (`tests/renovate-config.bats`). MySQL (version and digest),

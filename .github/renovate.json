@@ -143,6 +143,10 @@
       "dependencyDashboardApproval": true
     },
     {
+      "matchDepNames": ["oras-project/oras"],
+      "prBodyNotes": ["The job `oras` of Lint & test fails until `ORAS_SHA256` in .github/actions/setup-oras/action.yml is the sum of `oras_{{{newVersion}}}_linux_amd64.tar.gz` in https://github.com/oras-project/oras/releases/download/v{{{newVersion}}}/oras_{{{newVersion}}}_checksums.txt, after its PGP signature (`.asc` next to it) checks out against the ORAS release key C6FC42F0DE84A345FAADB742F44418110791EF37 (KEYS in oras-project/oras)."]
+    },
+    {
       "matchDepNames": ["rclone/rclone"],
       "prBodyNotes": ["The build fails until `RCLONE_SHA256_AMD64` and `RCLONE_SHA256_ARM64` in docker/rclone.env and docker/Dockerfile are the sums of https://downloads.rclone.org/v{{{newVersion}}}/SHA256SUMS, after its PGP signature checks out against the rclone release key FBF737ECE9F8AB18604BD2AC93935E02FF3B54FA."]
     },

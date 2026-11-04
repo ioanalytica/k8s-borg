@@ -586,11 +586,18 @@ tag_fixture() {
   [ ! -e "$FIX/oras.log" ] || fail "tags were set: $(cat "$FIX/oras.log")"
 }
 
-@test "oras comes from the repository's action, checked against its release's sums" {
+@test "oras comes from the repository's action, checked against the sum it pins" {
   local action="$REPO_ROOT/.github/actions/setup-oras/action.yml" cmd entry job first_oras setup
-  grep -qF 'sha256sum -c -' "$action" || fail "the action does not check oras against its release's sums"
+  grep -qE '^ +ORAS_SHA256: [0-9a-f]{64}$' "$action" || fail "the action pins no sum for oras"
+  grep -qxF '        echo "$ORAS_SHA256  $RUNNER_TEMP/$tarball" | sha256sum -c -' "$action" \
+    || fail "the action does not check oras against the sum it pins"
+  # Sums read from the release at run time would come with a replaced release.
+  ! grep -q 'checksums' <<<"$(grep -v '^ *#' "$action")" || fail "the action reads the release's checksums"
   grep -qE '^ +# renovate: datasource=github-releases depName=oras-project/oras$' "$action" \
     || fail "the action's oras version has no # renovate: line"
+  # Pull requests install it too, so a new version without its sum fails there.
+  grep -qxE ' +- uses: \./\.github/actions/setup-oras' <<<"$(wf_job "$WF/lint-test.yml" oras)" \
+    || fail "lint-test.yml does not install oras on pull requests"
   run grep -ln 'oras-project/oras/releases' "$WF"/*.y*ml
   [ "$status" -ne 0 ] || fail "a workflow downloads oras itself: $output"
   # Every job that runs oras installs it with the action first.
