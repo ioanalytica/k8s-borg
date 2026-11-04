@@ -197,7 +197,10 @@ jobs:
       # pushed below and then signed. Kept as long as GitHub lets a run's
       # failed jobs be re-run, so a sign job that failed on a Friday can still
       # publish the release on Monday. Handed over before the push, so that
-      # the push is the job's last step.
+      # the push is the job's last step. A re-run of this job after a failed
+      # push packages again and replaces the package of the failed attempt
+      # (overwrite), which would otherwise block the upload: the new package
+      # is the one that gets pushed and signed.
       - name: Hand the package to the release job (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -206,6 +209,7 @@ jobs:
           path: ${{ runner.temp }}/chart/k8s-borg-*.tgz
           if-no-files-found: error
           retention-days: 30
+          overwrite: true
       # Artifact Hub reads artifacthub-repo.yml from the tag `artifacthub.io`
       # of the chart's repository, as the layer of an ORAS artifact with these
       # media types. It reads it when a new version appears, so it goes up

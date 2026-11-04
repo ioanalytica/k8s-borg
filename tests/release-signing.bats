@@ -205,6 +205,11 @@ SH
   done
   last="$(wf_job "$BUILD_WF" chart | sed -n 's/^      - name: //p; s/^      - uses: \(.*\)/uses \1/p' | tail -1)"
   [ "$last" = "Push chart to GHCR (tags only)" ] || fail "the chart job's last step is: $last"
+  # The package is handed over before the push, so a re-run after a failed
+  # push uploads it again under the same name: without overwrite the upload
+  # fails on the failed attempt's artifact.
+  grep -qx '          overwrite: true' <<<"$(wf_step "$BUILD_WF" 'name: Hand the package to the release job (tags only)')" \
+    || fail "a re-run of the chart job cannot replace the package of a failed attempt"
 }
 
 @test "the GitHub Release is published only after the signatures verified" {
