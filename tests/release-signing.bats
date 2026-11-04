@@ -561,10 +561,12 @@ tag_fixture() {
 }
 
 @test "one tag job runs at a time, across runs, and none is cancelled for another" {
+  # GitHub keeps one pending job per group unless it queues them; a third run
+  # would cancel the second, which waits with its signed images untagged.
   local job
   job="$(wf_job "$BUILD_WF" tag)"
   [ "$(awk '$1 == "concurrency:" { on = 1; next } on && /^      [a-z-]+:/ { print $1 $2; next } on { exit }' <<<"$job" | tr '\n' ' ')" \
-    = "group:build-tag cancel-in-progress:false " ] || fail "the tag job's concurrency: $(grep -A2 'concurrency:' <<<"$job")"
+    = "group:build-tag queue:max " ] || fail "the tag job's concurrency: $(grep -A2 'concurrency:' <<<"$job")"
   run grep -n 'group: build-tag' "$WF"/*.y*ml
   [ "${#lines[@]}" -eq 1 ] || fail "another job shares the group: $output"
 }

@@ -297,11 +297,11 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     # One tag job at a time across runs: reading which run a tag names and
-    # moving it are two steps. (A run waiting behind another that already
-    # waits is cancelled by GitHub; re-run it.)
+    # moving it are two steps. The others wait in line (queue: max, up to 100)
+    # instead of GitHub's one pending job, which a third would cancel.
     concurrency:
       group: build-tag
-      cancel-in-progress: false
+      queue: max
     permissions:
       contents: read         # artifacthub-repo.yml and the oras action
       packages: write        # tag the release's artifacts
