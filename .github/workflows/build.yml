@@ -312,3 +312,21 @@ jobs:
           # Latest release.
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
+
+  # The page "Try it locally" against what this tag published: the chart at
+  # the tag's version, pulled from GHCR and installed with the images it
+  # names, with the page and examples/k3d/ of the tag's commit. After the
+  # signing, so the page meets the artifacts as users get them, signed;
+  # beside the release, and nothing may `needs:` it: on an rc a red run
+  # means the page or the release needs a fix before X.Y.Z is tagged; on
+  # X.Y.Z the rc has passed the same page, and a flaky k3d run must not
+  # hold up a release. The pull request that prepared the release could not
+  # check this: its chart named images not published yet.
+  try-locally:
+    needs: sign
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/try-locally.yml
+    with:
+      chart-version: ${{ github.ref_name }}
