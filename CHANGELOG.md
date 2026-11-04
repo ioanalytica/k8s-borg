@@ -2,7 +2,28 @@
 
 ## Unreleased
 
+### Chart and images
+
+* **The chart on Artifact Hub.** It is listed at
+  https://artifacthub.io/packages/helm/k8s-borg/k8s-borg, and `Chart.yaml`
+  carries the `artifacthub.io/*` annotations the listing shows: the license,
+  the category, links to the changelog, the signature check and the issues,
+  and every image the chart can run, which Artifact Hub scans for known CVEs.
+  `home` is the documentation site now. A release adds the lead sentences of
+  its CHANGELOG entry as the version's changes and marks a version with a
+  suffix as a prerelease (`scripts/artifacthub-annotations.sh`); it pushes
+  `artifacthub-repo.yml` to the tag `artifacthub.io` of the chart's
+  repository, which keeps versions with a suffix off the listing and names the
+  publisher. The Bitnami-style `category`, `licenses` and `images`
+  annotations, which Artifact Hub does not read, are gone; `busybox` and
+  `alpine/kubectl` joined the image list. The listing shows all of this from
+  the first release with it on. `tests/artifacthub.bats` covers it.
+
 ### Documentation
+
+* **The chart's README installs from the registry.** Artifact Hub shows the
+  chart's `README.md`, whose install section had only the command for a
+  checkout of the repository; the OCI install comes first now.
 
 * **"Try it locally": the admin password is the one in the generated file.**
   The page said to sign in "with the password in `admin-password`", which

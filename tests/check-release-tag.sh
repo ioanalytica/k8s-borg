@@ -29,7 +29,7 @@ if [ "$tag" != "$want" ]; then
     echo "✗ release tag '$tag' does not match chart/Chart.yaml version '$want'"
     echo
     echo "  Bump chart/Chart.yaml before tagging — version, appVersion, and the"
-    echo "  k8s-borg entry under annotations.images. Publishing as-is would"
+    echo "  k8s-borg entry of artifacthub.io/images. Publishing as-is would"
     echo "  package $want again and overwrite the chart already published under"
     echo "  that version."
   } >&2

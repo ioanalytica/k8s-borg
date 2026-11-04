@@ -19,8 +19,10 @@ distance appended in both images (`2.3.10-64-g…` → agent `0.1.21.64`,
 `docker/agent-version-stamp.sh`): it sorts above the release and below the
 next one, and enrolled agents are offered the new code. A pin at a release tag,
 or one that left the agent unchanged, keeps the plain version.
-The `annotations.images` block in `Chart.yaml` restates all of this for chart
-scanners, so it has to be updated along with any bump.
+The `artifacthub.io/images` annotation in `Chart.yaml` restates all of this,
+with every other image the chart can run, for
+[Artifact Hub](https://artifacthub.io/packages/helm/k8s-borg/k8s-borg), which
+lists and scans these images, so it has to be updated along with any bump.
 
 `tests/chart-versions.bats` enforces the whole set — a mismatch fails CI rather
 than shipping a chart that points at an image tag nobody built.
