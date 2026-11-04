@@ -121,9 +121,10 @@ kubectl -n k8s-borg port-forward svc/k8s-borg-ui 8081:8081
 
 The commands of the next steps go on in the first terminal, in
 `k8s-borg-try`, where `$url` is set. Open `http://localhost:8081` and sign in
-as `admin` with the password in `admin-password`. On the first sign-in Borg UI
-asks whether the browser may send usage analytics; the chart has no switch
-for that (see [Error reports](/features/borg-ui-server#error-reports)).
+as `admin` with the password in the generated file `admin-password`. On the
+first sign-in Borg UI asks whether the browser may send usage analytics; the
+chart has no switch for that (see
+[Error reports](/features/borg-ui-server#error-reports)).
 
 The chart has registered:
 
