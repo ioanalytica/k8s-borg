@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.3.1
+
+* **Borg UI 2.4.6, as in 1.3.0.** The `borg-ui` submodule stays at the
+  v2.4.6 release (agent 0.1.22, no database change).
 
 ### Chart and images
 
@@ -17,7 +20,7 @@
   publisher. The Bitnami-style `category`, `licenses` and `images`
   annotations, which Artifact Hub does not read, are gone; `busybox` and
   `alpine/kubectl` joined the image list. The listing shows all of this from
-  the first release with it on. `tests/artifacthub.bats` covers it.
+  this release on. `tests/artifacthub.bats` covers it.
 
 ### Documentation
 
