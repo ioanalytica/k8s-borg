@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Chart and images
+
+* **A values schema.** The chart carries `values.schema.json`: Helm checks
+  the values of every install, upgrade, template and lint against it, and
+  Artifact Hub shows it as the chart's values reference, every parameter of
+  `values.yaml` with its text and default. It refuses only what the chart
+  cannot use either: a mode other than the listed ones (`node.backupMode`,
+  `cluster.mode`, `cluster.backupMode`, `s3.onMountFailure`,
+  `borgUI.redis.mode`), a value of the wrong kind (text for a list, a list for
+  a switch, a fraction for a count) and a `borgUI.errorReporting.enabled`
+  that is no boolean. What a release sets in another form passes as before:
+  text as a number and numbers as text, as `--set`, `--set-string` and Flux
+  `valuesFrom` deliver them, a switch as 0/1 or as text, a map or list empty
+  as the other kind (`{}`, `[]`, `""`). The schema does not change how the
+  chart reads a value: the text `"false"` still counts as on where a template
+  tests a switch. It requires no key and refuses no key it does not list, so
+  the chart's own message for the removed `app` and `config` sections stays,
+  and so do its checks behind the schema (`helm --skip-schema-validation`,
+  Helm 3.16 and later). `tests/values-schema.bats` keeps the schema in step
+  with `values.yaml`.
+
 ## 1.3.1
 
 * **Borg UI 2.4.6, as in 1.3.0.** The `borg-ui` submodule stays at the

@@ -58,6 +58,10 @@ extra() {
 @test "error reporting: a non-boolean value fails the render" {
   run render --set-string borgUI.errorReporting.enabled=false
   [ "$status" -ne 0 ] || fail "rendered with the string \"false\""
+  refused_by_schema borgUI.errorReporting.enabled "$output" || fail "not refused by the schema: $output"
+  # Without the schema (--skip-schema-validation) the chart refuses it itself.
+  run render --set-string borgUI.errorReporting.enabled=false --skip-schema-validation
+  [ "$status" -ne 0 ] || fail "rendered with the string \"false\" without the schema"
   [[ "$output" == *"borgUI.errorReporting.enabled must be true or false"* ]] || fail "$output"
 }
 
@@ -113,6 +117,10 @@ extra() {
   printf 'borgUI:\n  extraEnv:\n    LOG_LEVEL: DEBUG\n' >"$BATS_TEST_TMPDIR/extra.yaml"
   run render -f "$BATS_TEST_TMPDIR/extra.yaml"
   [ "$status" -ne 0 ] || fail "rendered a map"
+  refused_by_schema borgUI.extraEnv "$output" || fail "not refused by the schema: $output"
+  # Without the schema (--skip-schema-validation) the chart refuses it itself.
+  run render -f "$BATS_TEST_TMPDIR/extra.yaml" --skip-schema-validation
+  [ "$status" -ne 0 ] || fail "rendered a map without the schema"
   [[ "$output" == *"borgUI.extraEnv must be a list of EnvVar objects"* ]] || fail "$output"
   extra '    - value: "DEBUG"'
   run render -f "$BATS_TEST_TMPDIR/extra.yaml"

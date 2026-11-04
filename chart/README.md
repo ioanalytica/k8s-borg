@@ -79,7 +79,11 @@ The guides are on the documentation site:
 
 <!-- #region parameters -->
 Parameters are grouped and documented inline in [`values.yaml`](https://github.com/ioanalytica/k8s-borg/blob/main/chart/values.yaml)
-(`## @param`). Key sections:
+(`## @param`). [`values.schema.json`](https://github.com/ioanalytica/k8s-borg/blob/main/chart/values.schema.json)
+describes the same parameters: Helm checks the values of every install,
+upgrade, template and lint against it, and Artifact Hub shows it as the values
+reference of the chart. It refuses a mode the chart does not know and a value
+of a kind the chart cannot use, nothing else. Key sections:
 
 | Section | Highlights |
 | --- | --- |

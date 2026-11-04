@@ -26,6 +26,14 @@ common_teardown() {
 # helper the tests need beyond plain [ ] checks.
 fail() { printf '%s\n' "$*" >&2; return 1; }
 
+# refused_by_schema KEY OUTPUT — OUTPUT is Helm refusing the values by the
+# chart's values.schema.json, naming KEY (a.b.c): Helm 3.18 and later write the
+# key as /a/b/c, earlier Helm 3 as a.b.c.
+refused_by_schema() {
+  [[ $2 == *"values don't meet the specifications of the schema"* ]] || return 1
+  [[ $2 == *"/${1//.//}"* || $2 == *"- $1"* ]]
+}
+
 # make_fake_borg RC [STDOUT] [STDERR] — install a stub in place of the real borg
 # binary. It records its argv one-per-line in $TMP/argv so tests can assert on
 # what the wrapper actually passed through.

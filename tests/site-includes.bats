@@ -73,6 +73,8 @@ setup() {
     esac
     [ -f "$SITE/$page" ] || fail "$url: no page site/$page"
     [ -z "$anchor" ] || anchors "$page" | grep -qxF -- "$anchor" || fail "$url: no heading #$anchor on site/$page"
-  done < <(git -C "$REPO_ROOT" grep -hoE "$SITE_URL[^][:space:])\"'\`<>,;*]*" -- ':!site' | sed 's/\.$//' | sort -u)
+  # A backslash ends an address too: in chart/values.schema.json a line break
+  # right after one is the escape \n.
+  done < <(git -C "$REPO_ROOT" grep -hoE "$SITE_URL[^][:space:])\"'\`<>,;*\\]*" -- ':!site' | sed 's/\.$//' | sort -u)
   [ "$n" -gt 10 ] || fail "only $n addresses found"
 }

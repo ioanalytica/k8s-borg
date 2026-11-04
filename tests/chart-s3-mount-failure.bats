@@ -62,6 +62,10 @@ plan_args=(--set cluster.mode=agent --set cluster.backupMode=plan)
 @test "any other s3.onMountFailure is refused" {
   run render --set s3.onMountFailure=ignore
   [ "$status" -ne 0 ] || fail "rendered"
+  refused_by_schema s3.onMountFailure "$output" || fail "not refused by the schema: $output"
+  # Without the schema (--skip-schema-validation) the chart refuses it itself.
+  run render --set s3.onMountFailure=ignore --skip-schema-validation
+  [ "$status" -ne 0 ] || fail "rendered without the schema"
   [[ $output == *'s3.onMountFailure must be "skip" or "fail" (got "ignore")'* ]] || fail "$output"
 }
 
