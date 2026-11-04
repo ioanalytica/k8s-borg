@@ -346,8 +346,13 @@ jobs:
             [ "$n" -gt 0 ] || { echo "✗ no tags for $image" >&2; return 1; }
           }
           # run_of REF — the Build & push run that built the index REF names
-          # (build-image.yml), or nothing for an index from before.
-          run_of() { oras manifest fetch "$1" | jq -r '.annotations["com.ioanalytica.k8s-borg.build-run"] // ""'; }
+          # (build-image.yml), or nothing for an index from before. A failed
+          # fetch fails it: the step's bash has no pipefail.
+          run_of() {
+            local m
+            m="$(oras manifest fetch "$1")" || return
+            jq -r '.annotations["com.ioanalytica.k8s-borg.build-run"] // ""' <<<"$m"
+          }
           # move_tags REF TAG… — set each TAG on REF, unless it names an index
           # of a later run: a newer release, or a newer prerelease for the
           # shared Borg UI and runtime base tags. A tag the registry does not

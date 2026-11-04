@@ -478,7 +478,8 @@ esac
 SH
   chmod +x "$bin/oras"
   export FIX AGENT AGENT_TAGS RUNTIME_BASE RUNTIME_BASE_TAGS SERVER SERVER_TAGS
-  GITHUB_REF_NAME="$1" PATH="$bin:$PATH" RUNNER_TEMP="$FIX" bash -eo pipefail "$BATS_TEST_TMPDIR/tag.sh"
+  # GitHub runs a step without a shell: of its own with bash -e, no pipefail.
+  GITHUB_REF_NAME="$1" PATH="$bin:$PATH" RUNNER_TEMP="$FIX" bash -e "$BATS_TEST_TMPDIR/tag.sh"
 }
 
 # tag_exists IMAGE:TAG DIGEST [RUN] — the registry has TAG on DIGEST, an
