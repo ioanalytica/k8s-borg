@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Project and CI
+
+* **The daily CVE scan reports what matters.** `.github/workflows/cve-scan.yml`
+  also scans the third-party images the chart runs (`busybox`,
+  `alpine/kubectl`, `redis`) at the tags `values.yaml` gives them, next to
+  ours at `latest` (`scripts/cve-scan-images.sh`). Code scanning gets CRITICAL
+  and HIGH alone. The run fails, and a failed scheduled run is mailed, when an
+  image has a CRITICAL or HIGH that a newer package version fixes; its summary
+  lists them. Findings without a fix, and those with a fix k8s-borg cannot
+  install yet, which `.github/cve-scan-accepted.yaml` lists with the reason
+  and an expiry date, show in code scanning only.
+  `tests/cve-scan-workflow.bats` covers the list, the gate and the summary.
+
 ## 1.3.2
 
 * **Borg UI 2.4.6, as in 1.3.1.** The `borg-ui` submodule stays at the

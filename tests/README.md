@@ -11,7 +11,7 @@ The site's page "Try it locally" runs as written in a k3d cluster, in a
 workflow of its own (see "Try it locally" below).
 
 ```sh
-brew install shellcheck bats-core helm jq node   # or: apt-get install shellcheck bats jq python3-yaml, plus helm >= 3.16 and node >= 22.18
+brew install shellcheck bats-core helm jq yq node   # or: apt-get install shellcheck bats jq python3-yaml, plus helm >= 3.16, yq 4 (mikefarah/yq) and node >= 22.18
 python3 -m venv .venv && . .venv/bin/activate && pip install PyYAML   # if python3 lacks PyYAML
 
 ./run-tests.sh                        # all layers, with a summary
