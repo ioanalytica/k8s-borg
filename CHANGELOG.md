@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Project and CI
+
+* **A release candidate is tagged on its release's commit.** `X.Y.Z-rc.N`
+  goes on the commit on `main` whose `Chart.yaml` says `X.Y.Z`, and `X.Y.Z`
+  on the same commit once the candidate passed, so a release is the source
+  its candidate tested and `main` stays one line. Until now each candidate
+  was a commit of its own beside `main`. The build gives the chart the tag's
+  version (`scripts/chart-release-version.sh`), a candidate shares the
+  `CHANGELOG.md` entry of its release, and `CONTRIBUTING.md` describes the
+  steps of a release.
+
 ## 1.3.3
 
 * **Borg UI 2.4.6, as in 1.3.2.** The `borg-ui` submodule stays at the

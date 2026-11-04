@@ -65,8 +65,9 @@ PY
   v="$(chart_version)"
   [ -n "$v" ] || fail "no version: in Chart.yaml"
   # Every version with a -suffix (a beta, an rc, a -N revision) is a
-  # prerelease. One is built from a branch whose Chart.yaml carries its version
-  # (check-release-tag.sh); the example stays on the last release meanwhile.
+  # prerelease. A commit whose Chart.yaml says so keeps the example on the last
+  # release; the usual prerelease is a tag on the release's commit
+  # (check-release-tag.sh), whose example pins the release already.
   if [[ "$v" == *-* ]]; then
     skip "chart $v is a prerelease; the example stays on the last release"
   fi

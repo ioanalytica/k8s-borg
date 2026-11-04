@@ -164,9 +164,58 @@ YAML
   [[ "$output" == *"does not match"* ]]
 }
 
+@test "check-release-tag accepts a prerelease of the chart version, and nothing beside it" {
+  # X.Y.Z-rc.1 goes on the commit X.Y.Z is tagged on once it passed.
+  local v t
+  v="$(chart_version)"
+  for t in "$v-rc.1" "$v-beta.12" "$v-1"; do
+    run ./tests/check-release-tag.sh "$t"
+    [ "$status" -eq 0 ] || fail "$t: $output"
+    [[ "$output" == *"is a prerelease of"* ]] || fail "$t: $output"
+  done
+  for t in "$v-" "${v}rc.1" "$v.1-rc.1" "$v-rc 1" "1$v-rc.1"; do
+    run ./tests/check-release-tag.sh "$t"
+    [ "$status" -eq 1 ] || fail "'$t' passed: $output"
+  done
+}
+
 @test "check-release-tag without an argument is a usage error" {
   run ./tests/check-release-tag.sh
   [ "$status" -eq 2 ]
+}
+
+# --- the chart of a prerelease --------------------------------------------------
+
+@test "the chart of a prerelease carries the tag's version and names the agent image of the tag" {
+  local t="$BATS_TEST_TMPDIR/chart" v
+  cp -R "$REPO_ROOT/chart" "$t"
+  v="$(chart_version)-rc.1"
+  run "$REPO_ROOT/scripts/chart-release-version.sh" "$v" "$t/Chart.yaml"
+  [ "$status" -eq 0 ] || fail "$output"
+  [ "$(sed -n 's/^version: //p' "$t/Chart.yaml")" = "$v" ] || fail "version: $(grep '^version:' "$t/Chart.yaml")"
+  [ "$(sed -n 's/^appVersion: //p' "$t/Chart.yaml")" = "\"$v\"" ] || fail "appVersion: $(grep '^appVersion:' "$t/Chart.yaml")"
+  grep -qxF "      image: ghcr.io/ioanalytica/k8s-borg:$v" "$t/Chart.yaml" || fail "$(grep 'k8s-borg:' "$t/Chart.yaml")"
+  # Nothing else moved: three lines differ from the repository's.
+  [ "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml" | grep -c '^>')" -eq 3 ] || fail "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml")"
+  # The agent image follows the appVersion (see above); the chart still lints.
+  run helm lint "$t"
+  [ "$status" -eq 0 ] || fail "$output"
+}
+
+@test "the chart of a release stays as it is, and a file it does not know fails" {
+  local t="$BATS_TEST_TMPDIR/Chart.yaml"
+  cp "$CHART" "$t"
+  run "$REPO_ROOT/scripts/chart-release-version.sh" "$(chart_version)" "$t"
+  [ "$status" -eq 0 ] || fail "$output"
+  cmp "$CHART" "$t" || fail "a release's Chart.yaml changed"
+  # Without the image line, or with a second version line, nothing is written.
+  grep -v 'image: ghcr.io/ioanalytica/k8s-borg:' "$CHART" >"$t"
+  cp "$t" "$t.before"
+  run "$REPO_ROOT/scripts/chart-release-version.sh" 9.9.9 "$t"
+  [ "$status" -eq 1 ] && [[ "$output" == *"once each"* ]] || fail "status $status: $output"
+  cmp "$t.before" "$t" || fail "the file was changed"
+  run "$REPO_ROOT/scripts/chart-release-version.sh"
+  [ "$status" -eq 2 ] || fail "status $status without a version"
 }
 
 @test "the chart version is the appVersion, optionally with a -N revision" {

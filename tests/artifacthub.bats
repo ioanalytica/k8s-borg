@@ -158,6 +158,15 @@ $got"
   [ "$(yq -o json -I0 .dependencies "$TMP/Chart.yaml")" = '[]' ]
 }
 
+@test "a prerelease without a section of its own takes the changes of its release" {
+  fixtures
+  run "$SCRIPT" 1.2.3-rc.1 "$TMP/Chart.yaml" "$TMP/CHANGELOG.md"
+  [ "$status" -eq 0 ] || fail "$output"
+  [ "$(annotation artifacthub.io/prerelease "$TMP/Chart.yaml")" = true ] || fail "not a prerelease"
+  annotation artifacthub.io/changes "$TMP/Chart.yaml" | yq -e 'length == 4' >/dev/null \
+    || fail "changes: $(annotation artifacthub.io/changes "$TMP/Chart.yaml")"
+}
+
 @test "a version with a -suffix is a prerelease" {
   local v
   for v in 1.2.3-beta.1 1.2.3-1 1.3.0-rc.1; do
@@ -210,13 +219,18 @@ $got"
 
 # --- build.yml ------------------------------------------------------------------
 
-@test "the chart job writes the release annotations before it lints and packages" {
-  local job annotate package
+@test "the chart job sets the tag's version and writes the release annotations before it lints and packages" {
+  local job check version annotate package
   job="$(wf_job "$BUILD_WF" chart)"
+  check="$(grep -n -- '- name: Tag must match the chart version' <<<"$job" | cut -d: -f1)"
+  version="$(grep -n -- '- name: Chart version from the tag (tags only)' <<<"$job" | cut -d: -f1)"
   annotate="$(grep -n -- '- name: Artifact Hub annotations (tags only)' <<<"$job" | cut -d: -f1)"
   package="$(grep -n -- '- name: Lint & package' <<<"$job" | cut -d: -f1)"
-  [ -n "$annotate" ] && [ -n "$package" ] || fail "steps not found"
+  [ -n "$check" ] && [ -n "$version" ] && [ -n "$annotate" ] && [ -n "$package" ] || fail "steps not found"
+  [ "$check" -lt "$version" ] && [ "$version" -lt "$annotate" ] || fail "the version is set out of order"
   [ "$annotate" -lt "$package" ] || fail "the annotations are written after the chart is packaged"
+  grep -qxF '        run: scripts/chart-release-version.sh "$GITHUB_REF_NAME"' <<<"$(wf_step "$BUILD_WF" 'name: Chart version from the tag (tags only)')" \
+    || fail "the chart does not get the tag's version"
   local s
   s="$(wf_step "$BUILD_WF" 'name: Artifact Hub annotations (tags only)')"
   grep -qxF "        if: startsWith(github.ref, 'refs/tags/')" <<<"$s" || fail "not limited to tags"
