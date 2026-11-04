@@ -222,18 +222,18 @@ JSON
     || fail "the chart job does not output a digest"
 }
 
-# The chart job's push script, with a stub helm and a stub oras. FAKE_HELM
-# picks what push reports: ok (Helm 4: "Digest:" on stdout), stderr, none, or
-# fail; FAKE_ORAS=fail fails the copy.
+# The chart job's push script, with a stub curl (the job's registry is up), a
+# stub helm and a stub oras. FAKE_HELM picks what push reports: ok (Helm 4:
+# "Digest:" on stdout), stderr, none, or fail; FAKE_ORAS=fail fails the copy.
 push_chart() {
   local bin="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$bin" "$BATS_TEST_TMPDIR/chart"
   touch "$BATS_TEST_TMPDIR/chart/k8s-borg-1.0.0.tgz"
   wf_run "$BUILD_WF" 'name: Push chart to GHCR by digest (tags only)' | sed 's/\${{[^}]*}}/x/g' >"$BATS_TEST_TMPDIR/push.sh"
   [ -s "$BATS_TEST_TMPDIR/push.sh" ] || fail "no push script found"
+  printf '#!/bin/sh\necho "$*" >>"$BATS_TEST_TMPDIR/curl.log"\n' >"$bin/curl"
   cat >"$bin/helm" <<'SH'
 #!/usr/bin/env bash
-[ "$1" = registry ] && { cat >/dev/null; exit 0; }
 echo "$*" >>"$BATS_TEST_TMPDIR/helm.log"
 d="sha256:$(printf 'a%.0s' {1..64})"
 case "$FAKE_HELM" in
@@ -249,23 +249,36 @@ SH
 echo "$*" >>"$BATS_TEST_TMPDIR/oras.log"
 [ "$FAKE_ORAS" != fail ]
 SH
-  chmod +x "$bin/helm" "$bin/oras"
+  chmod +x "$bin/curl" "$bin/helm" "$bin/oras"
   FAKE_HELM="$1" FAKE_ORAS="${2:-ok}" PATH="$bin:$PATH" REGISTRY=ghcr.io OWNER=ioanalytica TOKEN=t ACTOR=a \
     RUNNER_TEMP="$BATS_TEST_TMPDIR" GITHUB_OUTPUT="$BATS_TEST_TMPDIR/output" \
     bash -e "$BATS_TEST_TMPDIR/push.sh"
 }
 
-@test "the chart goes up through a staging repository, into its own by digest under no tag" {
+@test "the chart goes up through the job's own registry, into GHCR by digest under no tag" {
   local d="sha256:$(printf 'a%.0s' {1..64})"
   run push_chart ok
   [ "$status" -eq 0 ] || fail "$output"
-  # helm push tags the version as it pushes, so it pushes elsewhere.
-  [ "$(cat "$BATS_TEST_TMPDIR/helm.log")" = "push $BATS_TEST_TMPDIR/chart/k8s-borg-1.0.0.tgz oci://ghcr.io/ioanalytica/staging/charts" ] \
+  # It waits for the registry to answer.
+  grep -qF 'http://localhost:5000/v2/' "$BATS_TEST_TMPDIR/curl.log" || fail "curl was asked: $(cat "$BATS_TEST_TMPDIR/curl.log")"
+  # helm push tags the version as it pushes, so it pushes there.
+  [ "$(cat "$BATS_TEST_TMPDIR/helm.log")" = "push $BATS_TEST_TMPDIR/chart/k8s-borg-1.0.0.tgz oci://localhost:5000/charts --plain-http" ] \
     || fail "helm was asked: $(cat "$BATS_TEST_TMPDIR/helm.log")"
   # oras copies that digest, and gives the copy no tag.
-  [ "$(cat "$BATS_TEST_TMPDIR/oras.log")" = "cp ghcr.io/ioanalytica/staging/charts/k8s-borg@$d ghcr.io/ioanalytica/charts/k8s-borg" ] \
+  [ "$(cat "$BATS_TEST_TMPDIR/oras.log")" = "cp --from-plain-http localhost:5000/charts/k8s-borg@$d ghcr.io/ioanalytica/charts/k8s-borg" ] \
     || fail "oras was asked: $(cat "$BATS_TEST_TMPDIR/oras.log")"
   [ "$(cat "$BATS_TEST_TMPDIR/output")" = "digest=$d" ] || fail "output: $(cat "$BATS_TEST_TMPDIR/output")"
+}
+
+@test "the chart job's registry is the one helm pushes to, pinned by version and digest" {
+  local job
+  job="$(wf_job "$BUILD_WF" chart)"
+  grep -qE '^        image: registry:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$' <<<"$job" \
+    || fail "the registry image: $(grep -F 'image:' <<<"$job")"
+  grep -qxF '          - 5000:5000' <<<"$job" || fail "the registry is not on port 5000: $job"
+  # Nothing else in the release names a registry image.
+  run grep -nE '^ +image: registry:' "$WF"/*.y*ml
+  [ "${#lines[@]}" -eq 1 ] || fail "$output"
 }
 
 @test "the chart job passes on the digest helm push reports, and fails without one or without the copy" {
@@ -384,9 +397,9 @@ where_oras() {
     [[ "$line" == *"imagetools create --dry-run "* ]] || fail "imagetools create pushes: $line"
     ! grep -qE -- ' (-t|--tag)[ =]' <<<"$line" || fail "imagetools create is given a tag: $line"
   done < <(grep -v '^ *#' <<<"$output")
-  # helm push tags as it pushes: into the staging repository alone.
+  # helm push tags as it pushes: into the chart job's own registry alone.
   run grep -hE '(^ *|\$\()helm push ' "$WF"/*.y*ml
-  [ "${#lines[@]}" -eq 1 ] && [[ "$output" == *' "oci://$REGISTRY/$OWNER/staging/charts")"' ]] \
+  [ "${#lines[@]}" -eq 1 ] && [[ "$output" == *' oci://localhost:5000/charts --plain-http)"' ]] \
     || fail "helm push: $output"
   # oras sets tags in the tag job alone; it pushes by digest elsewhere.
   [ "$(where_oras tag)" = workflows/build.yml:tag ] || fail "oras tag runs in: $(where_oras tag | tr '\n' ' ')"

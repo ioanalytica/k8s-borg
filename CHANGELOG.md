@@ -34,15 +34,14 @@
   indexed 1.3.2 in that time and does not check an indexed version again, so
   it lists 1.3.2 as unsigned, and `cosign verify` failed for an image pulled
   in between. The images and the chart now go up by digest alone (the chart
-  through the staging repository `staging/charts/k8s-borg`, as `helm push`
-  tags what it pushes), the sign job signs those digests, and a new job,
-  `tag`, sets the tags after it: the versions, `sha-…`, the shared Borg UI
-  and runtime base tags, `latest` for a release, Artifact Hub's repository
-  metadata and the chart's version last. A failed signature leaves no tag
-  behind. The server image builds on the runtime base by its digest, the
-  chart job still waits for the image builds, and "Try it locally" and the
-  GitHub Release wait for the tags. `tests/release-signing.bats` keeps the
-  order (#133).
+  through a registry on the runner, as `helm push` tags what it pushes), the
+  sign job signs those digests, and a new job, `tag`, sets the tags after
+  it: the versions, `sha-…`, the shared Borg UI and runtime base tags,
+  `latest` for a release, Artifact Hub's repository metadata and the chart's
+  version last. A failed signature leaves no tag behind. The server image
+  builds on the runtime base by its digest, the chart job still waits for
+  the image builds, and "Try it locally" and the GitHub Release wait for the
+  tags. `tests/release-signing.bats` keeps the order (#133).
 
 ## 1.3.2
 

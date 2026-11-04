@@ -160,6 +160,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # helm push tags the chart's version as it pushes, so it pushes into this
+    # registry on the runner, which goes with the job; oras copies the chart
+    # from there into GHCR (the push step below).
+    services:
+      registry:
+        image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
+        ports:
+          - 5000:5000
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
@@ -209,12 +217,10 @@ jobs:
           overwrite: true
       - uses: ./.github/actions/setup-oras
         if: startsWith(github.ref, 'refs/tags/')
-      # helm push tags the chart's version as it pushes, so it pushes into a
-      # staging repository, staging/charts/k8s-borg, which nothing pulls from.
-      # oras copies the chart from there into charts/k8s-borg by its digest,
-      # under no tag; the digest stays the same. helm names the manifest it
-      # pushed ("Digest: sha256:…"): the sign job signs that digest, and the
-      # tag job tags it.
+      # helm pushes into the job's own registry, and names the manifest it
+      # pushed ("Digest: sha256:…"). oras copies that digest into
+      # charts/k8s-borg under no tag; content-addressed, the copy has the same
+      # digest. The sign job signs it, and the tag job tags it.
       - name: Push chart to GHCR by digest (tags only)
         id: push
         if: startsWith(github.ref, 'refs/tags/')
@@ -222,13 +228,13 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: |
-          echo "$TOKEN" | helm registry login "$REGISTRY" -u "$ACTOR" --password-stdin
-          echo "$TOKEN" | oras login "$REGISTRY" -u "$ACTOR" --password-stdin
-          out="$(helm push "$RUNNER_TEMP"/chart/k8s-borg-*.tgz "oci://$REGISTRY/$OWNER/staging/charts")"
+          curl -fsS --retry 10 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:5000/v2/
+          out="$(helm push "$RUNNER_TEMP"/chart/k8s-borg-*.tgz oci://localhost:5000/charts --plain-http)"
           echo "$out"
           digest="$(sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' <<<"$out")"
           [ -n "$digest" ] || { echo "✗ helm push reported no digest" >&2; exit 1; }
-          oras cp "$REGISTRY/$OWNER/staging/charts/k8s-borg@$digest" "$REGISTRY/$OWNER/charts/k8s-borg"
+          echo "$TOKEN" | oras login "$REGISTRY" -u "$ACTOR" --password-stdin
+          oras cp --from-plain-http "localhost:5000/charts/k8s-borg@$digest" "$REGISTRY/$OWNER/charts/k8s-borg"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   # Keyless Sigstore signatures for everything the release pushed to GHCR, each
