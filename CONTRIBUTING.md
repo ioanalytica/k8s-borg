@@ -38,8 +38,8 @@ The site's page "Try it locally" runs as written in a k3d cluster:
 `.github/workflows/try-locally.yml`, on a pull request that changes the chart,
 `examples/k3d/` or the page, with the pull request's chart, every Monday
 with the latest release, and after each tag's build with the chart and the
-images that tag published and signed (`build.yml` calls it after the
-signing, beside the release, which does not wait for it). A pull request
+images that tag published, signed and tagged (`build.yml` calls it after
+its tag job, beside the release, which does not wait for it). A pull request
 whose chart names images not published yet, a release for one, gets a notice
 instead of a run; the tag's run then checks the page. A red run on an rc
 means the page or the release needs a fix before `X.Y.Z` is tagged; a red
@@ -84,6 +84,10 @@ found and the updates that wait for approval there.
   with the Helm and cosign versions the workflows install and the runner
   images; a new major comes on its own. A new commit under an unchanged
   release means the tag was moved, and waits for approval on the dashboard.
+  oras, which a release installs with `.github/actions/setup-oras`, comes
+  on its own: its `ORAS_SHA256` is updated by hand on the bot's branch, from
+  the release's checksums once their PGP signature checks out, and the job
+  `oras` of Lint & test fails until it matches.
 - **The agent image's pins** in `docker/Dockerfile` and `docker/rclone.env`
   each sit under a `# renovate: datasource=… depName=…` line, and a new pin
   needs one too (`tests/renovate-config.bats`). MySQL (version and digest),

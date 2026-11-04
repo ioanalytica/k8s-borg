@@ -31,6 +31,37 @@ setup() {
   done
 }
 
+@test "the tag job refuses to move latest for a version with a -suffix" {
+  # build-image.yml computes the tags, the tag job sets them: should a tag
+  # rule ever add latest for a prerelease, the job fails before it sets any.
+  local bin="$BATS_TEST_TMPDIR/bin" g=ghcr.io/ioanalytica
+  mkdir -p "$bin"
+  wf_run "$BUILD_WF" 'name: Tag the images' >"$BATS_TEST_TMPDIR/tag.sh"
+  [ -s "$BATS_TEST_TMPDIR/tag.sh" ] || fail "no tag script found"
+  # oras sets tags, finds none, and every index is of run 50.
+  cat >"$bin/oras" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  tag)      echo "$*" >>"$BATS_TEST_TMPDIR/oras.log" ;;
+  resolve)  echo "Error: failed to resolve digest: $2: not found" >&2; exit 1 ;;
+  manifest) echo '{"annotations":{"com.ioanalytica.k8s-borg.build-run":"50"}}' ;;
+  *)        exit 1 ;;
+esac
+SH
+  chmod +x "$bin/oras"
+  export AGENT="$g/k8s-borg@sha256:1" AGENT_TAGS="$g/k8s-borg:1.3.3-rc.1"
+  export RUNTIME_BASE="$g/k8s-borg-ui-runtime-base@sha256:2" RUNTIME_BASE_TAGS="$g/k8s-borg-ui-runtime-base:runtime-x-r1"
+  export SERVER="$g/k8s-borg-ui@sha256:3" SERVER_TAGS="$(printf '%s\n' "$g/k8s-borg-ui:2.4.6" "$g/k8s-borg-ui:latest")"
+  GITHUB_REF_NAME=1.3.3-rc.1 PATH="$bin:$PATH" RUNNER_TEMP="$BATS_TEST_TMPDIR" run bash -e "$BATS_TEST_TMPDIR/tag.sh"
+  [ "$status" -ne 0 ] && [[ "$output" == *"1.3.3-rc.1 is a prerelease: $g/k8s-borg-ui:latest stays where it is"* ]] \
+    || fail "latest passed for a prerelease: $output"
+  [ ! -e "$BATS_TEST_TMPDIR/oras.log" ] || fail "tags were set: $(cat "$BATS_TEST_TMPDIR/oras.log")"
+  # The same list for a release goes through.
+  GITHUB_REF_NAME=1.3.3 PATH="$bin:$PATH" RUNNER_TEMP="$BATS_TEST_TMPDIR" run bash -e "$BATS_TEST_TMPDIR/tag.sh"
+  [ "$status" -eq 0 ] || fail "$output"
+  grep -qxF "tag $SERVER 2.4.6 latest" "$BATS_TEST_TMPDIR/oras.log" || fail "oras was asked: $(cat "$BATS_TEST_TMPDIR/oras.log")"
+}
+
 @test "no tag rule adds latest behind the release check's back" {
   # metadata-action's automatic `latest` comes with type=ref,event=tag for any
   # tag, prereleases included, and with flavor latest=true for everything.

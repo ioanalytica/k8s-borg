@@ -34,7 +34,7 @@ sys.exit(1 if problems else 0)
 
 @test "every action is pinned to a commit, with its release in a comment" {
   local uses
-  uses="$(grep -hE '^ *(- )?uses: ' "$REPO_ROOT"/.github/workflows/*.y*ml | grep -v 'uses: \./')"
+  uses="$(grep -hE '^ *(- )?uses: ' "$REPO_ROOT"/.github/workflows/*.y*ml "$REPO_ROOT"/.github/actions/*/action.y*ml | grep -v 'uses: \./')"
   [ -n "$uses" ] || fail "no action found"
   run grep -vE 'uses: [^ ]+@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$uses"
   [ "$status" -eq 1 ] || fail "not pinned to a commit with its release: $output"
@@ -66,7 +66,7 @@ sys.exit(1 if problems else 0)
   [ "$status" -eq 0 ] || fail "runner labels Renovate does not read: $output"
 }
 
-@test "the custom managers find every version pin of the agent image and the workflows, PYTHON_VERSION aside" {
+@test "the custom managers find every version pin of the agent image, the workflows and their actions, PYTHON_VERSION aside" {
   # PYTHON_VERSION is borg-ui's (tests/python-version.bats). The match strings
   # are JavaScript regular expressions; their named groups are the only syntax
   # Python spells differently.
@@ -78,7 +78,7 @@ managers = [([re.compile(p.strip("/")) for p in m["managerFilePatterns"]],
             for m in c["customManagers"] if m.get("datasourceTemplate") != "github-runners"]
 # Where a version pin is written down, and how it reads there.
 pins = {"docker/Dockerfile": r"^ARG (\w+_VERSION)=", "docker/rclone.env": r"^(\w+_VERSION)="}
-for wf in sorted(glob.glob(f"{root}/.github/workflows/*.y*ml")):
+for wf in sorted(glob.glob(f"{root}/.github/workflows/*.y*ml") + glob.glob(f"{root}/.github/actions/*/action.y*ml")):
     pins[os.path.relpath(wf, root)] = r"^ *(\w+_VERSION): "
 problems = []
 for path, pin in pins.items():

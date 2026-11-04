@@ -17,7 +17,7 @@
 
 * **"Try it locally" runs against each tag's chart and images.** `build.yml`
   calls `.github/workflows/try-locally.yml` once a tag's images and chart
-  are in GHCR and signed, with the tag as the version: the run pulls that
+  are in GHCR, signed and tagged, with the tag as the version: the run pulls that
   chart and installs it with the images it names, with the page and
   `examples/k3d/` of the tag's commit. It stands beside the release, which
   does not wait for it; a red run on an rc means the page or the release
@@ -28,16 +28,23 @@
   run ends with a notice, and one that changes the page for the next
   release fails against the published images (#122).
 
-* **The chart is pushed right before it is signed.** A release pushed the
-  chart as soon as its tests passed, and signed it once the images were
-  built, about ten minutes later. Artifact Hub indexed 1.3.2 in between and
-  does not check an indexed version again, so it lists 1.3.2 without the
-  signature its check would find now. The chart job now waits for the image
-  builds and pushes the chart as its last step, so the sign job starts as
-  soon as the chart is there instead of ten minutes later; a version Artifact
-  Hub indexes before the signature still shows as unsigned there. A failed
-  image build leaves no chart behind. `tests/release-signing.bats` keeps the
-  order.
+* **A release's tags appear only once it is signed.** A release pushed its
+  images and its chart under their tags and signed them by digest
+  afterwards, so a version was public and unsigned for minutes: Artifact Hub
+  indexed 1.3.2 in that time and does not check an indexed version again, so
+  it lists 1.3.2 as unsigned, and `cosign verify` failed for an image pulled
+  in between. The images and the chart now go up by digest alone (the chart
+  through a registry on the runner, as `helm push` tags what it pushes), the
+  sign job signs those digests, and a new job, `tag`, sets the tags after
+  it: the versions, `sha-…`, the shared Borg UI and runtime base tags,
+  `latest` for a release, Artifact Hub's repository metadata and the chart's
+  version last. A failed signature leaves no tag behind, and a tag moves
+  only to the images of a later run: a late re-run of an older release's
+  failed jobs leaves `latest` and the shared tags where a newer release put
+  them. The
+  server image builds on the runtime base by its digest, the chart job still
+  waits for the image builds, and "Try it locally" and the GitHub Release
+  wait for the tags. `tests/release-signing.bats` keeps the order (#133).
 
 ## 1.3.2
 

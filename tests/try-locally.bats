@@ -294,17 +294,17 @@ run_sh() {
   [ "$status" -eq 2 ] || fail "two charts ($status): $output"
 }
 
-@test "each tag's build runs the page against what it published, beside the signing and the release" {
+@test "each tag's build runs the page against what it published, after the tagging, beside the release" {
   local build="$REPO_ROOT/.github/workflows/build.yml" job needs j
   job="$(wf_job "$build" try-locally)"
   [ -n "$job" ] || fail "build.yml has no try-locally job"
   grep -qxF '    uses: ./.github/workflows/try-locally.yml' <<<"$job" || fail "the job does not call the workflow: $job"
   grep -qxF '      chart-version: ${{ github.ref_name }}' <<<"$job" || fail "the job does not pass the tag as the version: $job"
   grep -qxF "    if: startsWith(github.ref, 'refs/tags/')" <<<"$job" || fail "the job is not guarded to tags: $job"
-  # After the signing, which waits for every image and the chart
-  # (release-signing.bats): run.sh installs the chart with the images it
-  # names, as users get them.
-  grep -qx '    needs: sign' <<<"$job" || fail "the job does not wait for the sign job alone: $(grep -F needs: <<<"$job")"
+  # After the tag job, which sets the tags once every image and the chart is
+  # signed (release-signing.bats): run.sh pulls the chart by its version and
+  # installs it with the images it names by tag, as users get them.
+  grep -qx '    needs: tag' <<<"$job" || fail "the job does not wait for the tag job alone: $(grep -F needs: <<<"$job")"
   # Nothing waits for it: a red run on X.Y.Z holds up neither the signatures
   # nor the release.
   run awk '/^  [a-z][a-z0-9-]*:$/ { j = $1; sub(/:$/, "", j) }

@@ -249,6 +249,10 @@ is recorded in the public Rekor log. Every platform of an image also carries an
 SPDX SBOM and SLSA provenance. Both are attestation manifests listed in the
 image index, so the index's signature covers them.
 
+Releases after 1.3.2 set their tags only once the signatures are in place:
+until then the images and the chart are in GHCR under their digests alone, so
+no tag names an artifact that is not signed yet.
+
 Resolve the tag once and use the digest from then on, so that what you read
 afterwards belongs to what you verified. With
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3:

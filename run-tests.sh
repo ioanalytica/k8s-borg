@@ -36,12 +36,19 @@ done
 # "command not found" from three levels down.
 need() {
   command -v "$1" >/dev/null 2>&1 && return 0
-  echo "✗ $1 is not installed — brew install $2   (or: apt-get install $2)" >&2
+  echo "✗ $1 is not installed — brew install $2   (or: ${3:-apt-get install $2})" >&2
   exit 2
 }
 need shellcheck shellcheck
 need bats bats-core
 need helm helm
+# The tests read YAML with the Go yq, mikefarah/yq 4. Debian's and Ubuntu's
+# package yq is another program, a Python wrapper of jq.
+need yq yq "the mikefarah/yq release binary; apt's yq is another program"
+yq --version 2>&1 | grep -q mikefarah || {
+  echo "✗ $(command -v yq) is not mikefarah/yq — brew install yq   (or: the mikefarah/yq release binary)" >&2
+  exit 2
+}
 
 if [ -t 1 ]; then bold=$'\033[1m'; off=$'\033[0m'; else bold=''; off=''; fi
 

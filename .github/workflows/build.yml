@@ -139,8 +139,10 @@ jobs:
       context: borg-ui
       file: ./borg-ui/Dockerfile
       agent-edge: ${{ needs.prep.outputs.agent_edge }}
+      # The runtime base by the digest its job pushed: its tag follows only
+      # in the tag job, once the release is signed.
       build-args: |
-        BASE_IMAGE=ghcr.io/ioanalytica/k8s-borg-ui-runtime-base:${{ needs.prep.outputs.runtime_tag }}
+        BASE_IMAGE=ghcr.io/ioanalytica/k8s-borg-ui-runtime-base@${{ needs.runtime-base.outputs.digest }}
         APP_VERSION=${{ needs.prep.outputs.app_version }}
         PYTHON_VERSION=${{ needs.prep.outputs.python }}
       tags: |
@@ -149,19 +151,23 @@ jobs:
         type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
 
   chart:
-    # Publishes on tags and would overwrite the chart in the registry —
-    # it waits for the gate like the image jobs do. It also waits for the
-    # images, and pushes the chart as its last step, so that the sign job,
-    # which needs only this job then, signs the chart right after it appears.
-    # Pushed as soon as the gate passed, the chart sat unsigned in the registry
-    # for the ten minutes of the image builds: Artifact Hub indexed 1.3.2 in
-    # that time, and it never checks a version it has indexed again, so it
-    # lists 1.3.2 as unsigned. A failed image build now leaves no chart behind.
+    # Publishes on tags — it waits for the gate like the image jobs do, and
+    # for the images, so a failed image build leaves no chart behind. The
+    # chart goes into its repository under its digest alone; the tag job
+    # gives it its version once it is signed.
     needs: [gate, agent, runtime-base, server]
     runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
+    # helm push tags the chart's version as it pushes, so it pushes into this
+    # registry on the runner, which goes with the job; oras copies the chart
+    # from there into GHCR (the push step below).
+    services:
+      registry:
+        image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
+        ports:
+          - 5000:5000
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
@@ -196,8 +202,7 @@ jobs:
       # The release job attaches this very file, the bytes of the chart layer
       # pushed below and then signed. Kept as long as GitHub lets a run's
       # failed jobs be re-run, so a sign job that failed on a Friday can still
-      # publish the release on Monday. Handed over before the push, so that
-      # the push is the job's last step. A re-run of this job after a failed
+      # publish the release on Monday. A re-run of this job after a failed
       # push packages again and replaces the package of the failed attempt
       # (overwrite), which would otherwise block the upload: the new package
       # is the one that gets pushed and signed.
@@ -210,49 +215,33 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           overwrite: true
-      # Artifact Hub reads artifacthub-repo.yml from the tag `artifacthub.io`
-      # of the chart's repository, as the layer of an ORAS artifact with these
-      # media types. It reads it when a new version appears, so it goes up
-      # before the chart. Not a semver tag: Helm, Flux and Artifact Hub's own
-      # version list pass over it.
-      - name: Artifact Hub repository metadata (tags only)
+      - uses: ./.github/actions/setup-oras
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          # renovate: datasource=github-releases depName=oras-project/oras
-          ORAS_VERSION: 1.3.6
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          base="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}"
-          tarball="oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-          curl -fsSL -o "$RUNNER_TEMP/$tarball" "$base/$tarball"
-          sum="$(curl -fsSL "$base/oras_${ORAS_VERSION}_checksums.txt" | awk -v f="$tarball" '$2 == f { print $1 }')"
-          [ -n "$sum" ] || { echo "✗ the checksums of oras $ORAS_VERSION have no $tarball" >&2; exit 1; }
-          echo "$sum  $RUNNER_TEMP/$tarball" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/oras"
-          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/oras" oras
-          oras="$RUNNER_TEMP/oras/oras"
-          "$oras" version
-          echo "$TOKEN" | "$oras" login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
-          "$oras" push "$REGISTRY/$OWNER/charts/k8s-borg:artifacthub.io" \
-            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
-            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
-      - name: Push chart to GHCR (tags only)
+      # helm pushes into the job's own registry, and names the manifest it
+      # pushed ("Digest: sha256:…"). oras copies that digest into
+      # charts/k8s-borg under no tag; content-addressed, the copy has the same
+      # digest. The sign job signs it, and the tag job tags it.
+      - name: Push chart to GHCR by digest (tags only)
         id: push
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
-          # helm names the manifest it pushed ("Digest: sha256:…"); the sign
-          # job signs that digest, not the tag.
-          out="$(helm push "$RUNNER_TEMP"/chart/k8s-borg-*.tgz "oci://$REGISTRY/$OWNER/charts")"
+          curl -fsS --retry 10 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:5000/v2/
+          out="$(helm push "$RUNNER_TEMP"/chart/k8s-borg-*.tgz oci://localhost:5000/charts --plain-http)"
           echo "$out"
           digest="$(sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' <<<"$out")"
           [ -n "$digest" ] || { echo "✗ helm push reported no digest" >&2; exit 1; }
+          echo "$TOKEN" | oras login "$REGISTRY" -u "$ACTOR" --password-stdin
+          oras cp --from-plain-http "localhost:5000/charts/k8s-borg@$digest" "$REGISTRY/$OWNER/charts/k8s-borg"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   # Keyless Sigstore signatures for everything the release pushed to GHCR, each
   # by its digest: a tag can be moved to another manifest, the digest is what
-  # was built. An image index lists the attestation manifests (SBOM and
-  # provenance) of its platforms, so its signature covers those as well.
+  # was built, and until the tag job nothing of the release has a tag. An
+  # image index lists the attestation manifests (SBOM and provenance) of its
+  # platforms, so its signature covers those as well.
   # Fulcio certifies this job's GitHub OIDC token, the certificate names this
   # workflow at the release tag, and the signature is logged in the public
   # Rekor instance. The one job with an OIDC token: signing in build-image.yml
@@ -290,11 +279,139 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity-regexp "$SIGNER" >/dev/null
 
-  # The GitHub Release comes last, once the signatures verified: a release page
-  # must not announce artifacts that fail the check README.md gives users. A
-  # failed sign job leaves no release behind; re-running it publishes one.
+  # The tags of the release, set once its digests are signed: each image's
+  # tags from build-image.yml (the version, sha-…, the shared UI and runtime
+  # base tags, `latest` for a release), Artifact Hub's repository metadata,
+  # and the chart's version last. Until here every artifact of the release
+  # sits in GHCR under its digest alone, so no tag names an unsigned one:
+  # Artifact Hub indexes a chart version when its tag appears, and does not
+  # check it again while its digest stays the same (1.3.2 is listed as
+  # unsigned for that reason). A failed sign job leaves no tag behind; a
+  # re-run of this job sets the same tags on the same digests again. A tag
+  # moves only to the images of a later run: a late re-run of an older
+  # release's failed jobs leaves `latest` and the shared tags on the newer
+  # release's images.
+  tag:
+    needs: [agent, runtime-base, server, chart, sign]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    # One tag job at a time across runs: reading which run a tag names and
+    # moving it are two steps. The others wait in line (queue: max, up to 100)
+    # instead of GitHub's one pending job, which a third would cancel.
+    concurrency:
+      group: build-tag
+      queue: max
+    permissions:
+      contents: read         # artifacthub-repo.yml and the oras action
+      packages: write        # tag the release's artifacts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-oras
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The images first: the chart, tagged last, names them by tag. Every
+      # list and the run number of every index are checked before the first
+      # tag is set.
+      - name: Tag the images
+        env:
+          AGENT: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg@${{ needs.agent.outputs.digest }}
+          AGENT_TAGS: ${{ needs.agent.outputs.tags }}
+          RUNTIME_BASE: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg-ui-runtime-base@${{ needs.runtime-base.outputs.digest }}
+          RUNTIME_BASE_TAGS: ${{ needs.runtime-base.outputs.tags }}
+          SERVER: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg-ui@${{ needs.server.outputs.digest }}
+          SERVER_TAGS: ${{ needs.server.outputs.tags }}
+        run: |
+          # tags REF LIST — the tags of LIST (metadata-action's, one image:tag
+          # a line) for REF (image@digest), one a line.
+          tags() {
+            local image="${1%@*}" t n=0
+            while IFS= read -r t; do
+              [ -n "$t" ] || continue
+              [[ "$t" == "$image:"* ]] || { echo "✗ $t is not a tag of $image" >&2; return 1; }
+              t="${t#"$image:"}"
+              # Every version with a -suffix is a prerelease.
+              if [ "$t" = latest ] && [[ "$GITHUB_REF_NAME" == *-* ]]; then
+                echo "✗ $GITHUB_REF_NAME is a prerelease: $image:latest stays where it is" >&2
+                return 1
+              fi
+              echo "$t"
+              n=$((n + 1))
+            done <<<"$2"
+            [ "$n" -gt 0 ] || { echo "✗ no tags for $image" >&2; return 1; }
+          }
+          # run_of REF — the Build & push run that built the index REF names
+          # (build-image.yml), or nothing for an index from before. A failed
+          # fetch fails it: the step's bash has no pipefail.
+          run_of() {
+            local m
+            m="$(oras manifest fetch "$1")" || return
+            jq -r '.annotations["com.ioanalytica.k8s-borg.build-run"] // ""' <<<"$m"
+          }
+          # move_tags REF TAG… — set each TAG on REF, unless it names an index
+          # of a later run: a newer release, or a newer prerelease for the
+          # shared Borg UI and runtime base tags. A tag the registry does not
+          # have, or one on an index from before, moves; any other answer
+          # than "not found" stops the job.
+          move_tags() {
+            local ref="$1" image="${1%@*}" ours t now theirs err="$RUNNER_TEMP/resolve.err"
+            local -a move=()
+            shift
+            ours="$(run_of "$ref")"
+            for t in "$@"; do
+              if now="$(oras resolve "$image:$t" 2>"$err")"; then
+                theirs="$(run_of "$image@$now")"
+                if [ -n "$theirs" ] && [ "$theirs" -gt "$ours" ]; then
+                  echo "◆ $image:$t stays on $now, from the later run $theirs"
+                  continue
+                fi
+              elif ! grep -q 'not found' "$err"; then
+                cat "$err" >&2
+                return 1
+              fi
+              move+=("$t")
+            done
+            [ "${#move[@]}" -eq 0 ] || oras tag "$ref" "${move[@]}"
+          }
+          agent="$(tags "$AGENT" "$AGENT_TAGS")"
+          runtime_base="$(tags "$RUNTIME_BASE" "$RUNTIME_BASE_TAGS")"
+          server="$(tags "$SERVER" "$SERVER_TAGS")"
+          for ref in "$AGENT" "$RUNTIME_BASE" "$SERVER"; do
+            [[ "$(run_of "$ref")" =~ ^[0-9]+$ ]] || { echo "✗ $ref names no run" >&2; exit 1; }
+          done
+          # A tag has no blanks: the lists split on their newlines.
+          move_tags "$AGENT" $agent
+          move_tags "$RUNTIME_BASE" $runtime_base
+          move_tags "$SERVER" $server
+      # Artifact Hub reads artifacthub-repo.yml from the tag `artifacthub.io`
+      # of the chart's repository, as the layer of an ORAS artifact with these
+      # media types. It reads it when a new version appears, so it goes up
+      # before the chart's version. Not a semver tag: Helm, Flux and Artifact
+      # Hub's own version list pass over it.
+      - name: Artifact Hub repository metadata
+        run: |
+          oras push "$REGISTRY/$OWNER/charts/k8s-borg:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+      # The tag is the version check-release-tag.sh matched against the
+      # chart's.
+      - name: Tag the chart
+        env:
+          CHART: ${{ env.REGISTRY }}/${{ env.OWNER }}/charts/k8s-borg@${{ needs.chart.outputs.digest }}
+        run: oras tag "$CHART" "$GITHUB_REF_NAME"
+
+  # The GitHub Release comes last, once the signatures verified and the tags
+  # are set: a release page must not announce artifacts that fail the check
+  # README.md gives users, or that cannot be pulled by their version yet. A
+  # failed sign or tag job leaves no release behind; re-running it publishes
+  # one.
   release:
-    needs: [chart, sign]
+    needs: [chart, sign, tag]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-26.04
     timeout-minutes: 10
@@ -327,14 +444,14 @@ jobs:
   # The page "Try it locally" against what this tag published: the chart at
   # the tag's version, pulled from GHCR and installed with the images it
   # names, with the page and examples/k3d/ of the tag's commit. After the
-  # signing, so the page meets the artifacts as users get them, signed;
-  # beside the release, and nothing may `needs:` it: on an rc a red run
+  # tagging, so the page meets the artifacts as users get them, signed and
+  # tagged; beside the release, and nothing may `needs:` it: on an rc a red run
   # means the page or the release needs a fix before X.Y.Z is tagged; on
   # X.Y.Z the rc has passed the same page, and a flaky k3d run must not
   # hold up a release. The pull request that prepared the release could not
   # check this: its chart named images not published yet.
   try-locally:
-    needs: sign
+    needs: tag
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read

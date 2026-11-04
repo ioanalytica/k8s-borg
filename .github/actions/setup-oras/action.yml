@@ -1,0 +1,33 @@
+name: Set up oras
+description: >-
+  Installs the oras CLI at the version below, checked against the SHA-256 sum
+  pinned with it, and puts it on the PATH. A release pushes, copies and tags
+  its artifacts with it (build.yml, build-image.yml).
+
+runs:
+  using: composite
+  steps:
+    - name: Install oras
+      shell: bash
+      env:
+        # renovate: datasource=github-releases depName=oras-project/oras
+        ORAS_VERSION: 1.3.6
+        # The sum of oras_${ORAS_VERSION}_linux_amd64.tar.gz in the release's
+        # checksums, whose PGP signature (ORAS Project Release Signing,
+        # C6FC42F0DE84A345FAADB742F44418110791EF37, from the KEYS file of
+        # oras-project/oras) was verified when it was copied. Not read from the
+        # release at run time: a replaced release would bring its own sums. It
+        # moves with the version, by hand; the job oras of lint-test.yml fails
+        # until it matches.
+        ORAS_SHA256: 66fb0ad7206f3f6fa77ed5b552049d364ccf4b50b1684554f731f76302b52ca0
+      run: |
+        # The jobs that use it run on x64; an arm64 runner would get a binary
+        # it cannot run.
+        [ "$RUNNER_OS-$RUNNER_ARCH" = Linux-X64 ] || { echo "✗ oras is installed for Linux X64 only, not $RUNNER_OS $RUNNER_ARCH" >&2; exit 1; }
+        tarball="oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+        curl -fsSL -o "$RUNNER_TEMP/$tarball" "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/$tarball"
+        echo "$ORAS_SHA256  $RUNNER_TEMP/$tarball" | sha256sum -c -
+        mkdir -p "$RUNNER_TEMP/oras"
+        tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/oras" oras
+        "$RUNNER_TEMP/oras/oras" version
+        echo "$RUNNER_TEMP/oras" >>"$GITHUB_PATH"

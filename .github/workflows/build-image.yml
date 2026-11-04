@@ -8,6 +8,10 @@ name: build-image (reusable)
 # workflow's output: build.yml signs it there rather than here, so that every
 # certificate of a release names the one workflow, build.yml, that README.md
 # tells users to verify.
+#
+# Nothing here pushes a tag. The index goes up under its digest alone, and its
+# tags are the second output: build.yml's tag job sets them once the index is
+# signed, so no tag ever names an unsigned image.
 
 on:
   workflow_call:
@@ -15,6 +19,9 @@ on:
       digest:
         description: Digest of the merged multi-arch index
         value: ${{ jobs.merge.outputs.digest }}
+      tags:
+        description: The index's tags, one image:tag a line, for build.yml's tag job to set
+        value: ${{ jobs.merge.outputs.tags }}
     inputs:
       image:
         description: Short image name under ghcr.io/ioanalytica/
@@ -34,7 +41,7 @@ on:
         type: string
         default: ""
       tags:
-        description: docker/metadata-action tags config (used on the final manifest)
+        description: docker/metadata-action tags config (the final manifest's tags, set by build.yml's tag job)
         required: true
         type: string
       agent-edge:
@@ -137,7 +144,14 @@ jobs:
       packages: write
     outputs:
       digest: ${{ steps.index.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
+      # The action that installs oras, nothing else.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/setup-oras
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/digests
@@ -149,32 +163,45 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The tags the index gets once it is signed, computed here and set in
+      # build.yml's tag job.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
           tags: ${{ inputs.tags }}
-      - name: Create manifest list & push
+      # imagetools create pushes an index only under a tag, so it prints the
+      # index instead (--dry-run), and oras pushes it under its digest alone.
+      # The print ends in a newline the index lacks: what goes up are the
+      # bytes imagetools would have pushed. The index carries the number of
+      # the Build & push run that built it, which a re-run keeps: the tag job
+      # moves a tag only to an index of a later run.
+      - name: Create manifest list & push by digest
         working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
+          BUILD_RUN: ${{ github.run_number }}
         run: |
-          docker buildx imagetools create --metadata-file "$RUNNER_TEMP/index-metadata.json" \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}@sha256:%s ' *)
-      # The digest is the one imagetools reports for the index it pushed. Read
-      # back through a tag, it could name another run's index: two releases
-      # with the same borg-ui pin push the same UI and runtime base tags. From
-      # here on the index is named by that digest, which is what gets signed.
-      # A signature over the index covers the attestation manifests it lists,
-      # so a merge that dropped one would publish a signed image without its
-      # SBOM or provenance: fail instead (tests/release-signing.bats runs this
-      # script).
+          sources=()
+          for d in *; do sources+=("$IMAGE@sha256:$d"); done
+          index="$(docker buildx imagetools create --dry-run \
+            --annotation "index:com.ioanalytica.k8s-borg.build-run=$BUILD_RUN" "${sources[@]}")"
+          printf '%s' "$index" >"$RUNNER_TEMP/index.json"
+          oras manifest push "$IMAGE" "$RUNNER_TEMP/index.json"
+      # The digest is that of the bytes pushed. Read back through a tag, it
+      # could name another run's index: two releases with the same borg-ui pin
+      # set the same UI and runtime base tags. From here on the index is named
+      # by that digest, which is what gets signed and then tagged. A signature
+      # over the index covers the attestation manifests it lists, so a merge
+      # that dropped one would publish a signed image without its SBOM or
+      # provenance: fail instead (tests/release-signing.bats runs this script).
       - name: Inspect
         id: index
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
         run: |
-          digest="$(jq -r '."containerimage.descriptor".digest // empty' "$RUNNER_TEMP/index-metadata.json")"
-          [[ "$digest" == sha256:* ]] || { echo "✗ imagetools create reported no digest for $IMAGE" >&2; exit 1; }
+          [ -s "$RUNNER_TEMP/index.json" ] || { echo "✗ no index was pushed for $IMAGE" >&2; exit 1; }
+          digest="sha256:$(sha256sum "$RUNNER_TEMP/index.json" | cut -d' ' -f1)"
           ref="$IMAGE@$digest"
           docker buildx imagetools inspect "$ref"
           platforms="$(docker buildx imagetools inspect --raw "$ref" | jq '[.manifests[] | select(.platform.os != "unknown")] | length')"
