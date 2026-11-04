@@ -1,0 +1,18 @@
+# Artifact Hub repository metadata for the chart,
+# https://artifacthub.io/packages/helm/k8s-borg/k8s-borg.
+#
+# The chart job of .github/workflows/build.yml pushes this file to the tag
+# `artifacthub.io` of oci://ghcr.io/ioanalytica/charts/k8s-borg with every
+# release tag. Artifact Hub reads it when the repository has a new version, so
+# a change here takes effect with the next release.
+# Format: https://github.com/artifacthub/hub/blob/master/docs/metadata/artifacthub-repo.yml
+
+# The repository's ID on Artifact Hub: a match marks it as a verified publisher.
+repositoryID: 25f2f171-079b-400c-883b-f1126825aaa5
+
+# Every version with a -suffix is a prerelease (a beta, an rc, a -N chart
+# revision). Artifact Hub would show the highest version as the latest, a beta
+# above the last release included, so they are not listed there at all.
+ignore:
+  - name: k8s-borg
+    version: '-'

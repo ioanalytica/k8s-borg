@@ -20,8 +20,8 @@ setup() { load helpers/versions; }
   [ -n "$(ui_app_version)" ]      || fail "no UI app version — is the submodule checked out, with its tags (docker/ui-app-version.sh --fetch-tags)?"
   [ -n "$(chart_version)" ]       || fail "no version: in Chart.yaml"
   [ -n "$(chart_app_version)" ]   || fail "no appVersion: in Chart.yaml"
-  [ -n "$(annotation_image k8s-borg)" ]    || fail "no k8s-borg entry in the annotations block"
-  [ -n "$(annotation_image k8s-borg-ui)" ] || fail "no k8s-borg-ui entry in the annotations block"
+  [ -n "$(annotation_image k8s-borg)" ]    || fail "no k8s-borg entry in the artifacthub.io/images annotation"
+  [ -n "$(annotation_image k8s-borg-ui)" ] || fail "no k8s-borg-ui entry in the artifacthub.io/images annotation"
   [ -n "$(values_tag ioanalytica/k8s-borg-ui)" ] || fail "no borgUI image tag in values.yaml"
 }
 
@@ -103,6 +103,48 @@ YAML
 
 @test "the Chart.yaml annotation matches the Redis image in values.yaml" {
   [ "$(annotation_image redis)" = "$(values_tag redis)" ]
+}
+
+@test "the Chart.yaml annotation matches the init and resolver images in values.yaml" {
+  [ "$(annotation_image busybox)" = "$(values_tag busybox)" ]
+  [ "$(annotation_image kubectl)" = "$(values_tag alpine/kubectl)" ]
+}
+
+@test "the Chart.yaml annotation lists every image values.yaml names, and no other" {
+  # Artifact Hub shows and scans the images of this list, not what the chart
+  # renders: an image added to values.yaml and not here would go unscanned,
+  # and one under another registry or tag would scan an image the chart
+  # does not run. The agent's tag is the appVersion.
+  local listed named
+  listed="$(annotation_images | sort)"
+  named="$(values_images | sed "s|:\$|:$(chart_app_version)|" | sort)"
+  [ "$(wc -l <<<"$named")" -ge 5 ] || fail "values_images found only: $named"
+  [ "$listed" = "$named" ] || fail "artifacthub.io/images lists
+$listed
+values.yaml names
+$named"
+}
+
+@test "values_images takes each block's own registry, Docker Hub without one" {
+  cat >"$BATS_TEST_TMPDIR/values.yaml" <<'YAML'
+image:
+  registry: ghcr.io
+  ## @param image.repository a comment
+  repository: ioanalytica/k8s-borg
+  tag: ""
+initImage:
+  repository: busybox
+  tag: "1.37"
+cache:
+  internal:
+    image:
+      registry: quay.io
+      repository: some/redis
+      tag: 7.4-alpine
+YAML
+  [ "$(values_images "$BATS_TEST_TMPDIR/values.yaml")" = "$(printf '%s\n' \
+    ghcr.io/ioanalytica/k8s-borg: docker.io/busybox:1.37 quay.io/some/redis:7.4-alpine)" ] \
+    || fail "got: $(values_images "$BATS_TEST_TMPDIR/values.yaml")"
 }
 
 # --- chart version ------------------------------------------------------------

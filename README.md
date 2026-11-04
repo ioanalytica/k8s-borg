@@ -9,6 +9,7 @@
 [![Lint & test](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml/badge.svg?branch=main)](https://github.com/ioanalytica/k8s-borg/actions/workflows/lint-test.yml)
 [![Daily CVE scan](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml/badge.svg?branch=main)](https://github.com/ioanalytica/k8s-borg/actions/workflows/cve-scan.yml)
 [![Release](https://img.shields.io/github/v/release/ioanalytica/k8s-borg)](https://github.com/ioanalytica/k8s-borg/releases/latest)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/k8s-borg)](https://artifacthub.io/packages/helm/k8s-borg/k8s-borg)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
 
 <!-- #region intro -->
@@ -36,11 +37,11 @@ Registry. A first install needs an SSH host with Borg and a directory there for
 the repositories (`mycluster` below, which Borg 1 does not create), a
 passphrase, an SSH key the host accepts and the host's `known_hosts` line. The
 chart names no paths to back up by default: give them as `R` roots, here each
-node's `/etc`:
+node's `/etc`. Without `--version`, Helm installs the latest release:
 
 ```sh
 helm install my-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
-  --version <version> -n k8s-borg --create-namespace \
+  -n k8s-borg --create-namespace \
   --set borg.repoBase.value="ssh://user@borg.example.com:22/./mycluster" \
   --set borg.passphrase.value="…" \
   --set-file ssh.privateKey=./id_ed25519 \

@@ -29,14 +29,45 @@ ui_app_version() { "$REPO_ROOT/docker/ui-app-version.sh" 2>/dev/null; }
 chart_version()     { sed -n 's/^version:[[:space:]]*"\{0,1\}\([^"[:space:]]*\).*/\1/p'    "$CHART" | head -1; }
 chart_app_version() { sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"[:space:]]*\).*/\1/p' "$CHART" | head -1; }
 
-# annotation_image NAME — the tag of an entry in Chart.yaml's annotations.images
-# block, which is a YAML document embedded in a string and therefore invisible
-# to a plain YAML query.
+# annotation_block KEY — the lines of one block-string annotation in
+# Chart.yaml (`  KEY: |`), up to the next annotation or top-level key. Its
+# value is a YAML document embedded in a string and therefore invisible to a
+# plain YAML query.
+annotation_block() {
+  awk -v head="  $1: |" '
+    on && match($0, /[^ ]/) && RSTART <= 3 { exit }
+    on
+    $0 == head { on = 1 }' "$CHART"
+}
+
+# annotation_images — the image references of artifacthub.io/images, one per line.
+annotation_images() {
+  annotation_block artifacthub.io/images | awk '$1 == "image:" { print $2 }'
+}
+
+# annotation_image NAME — the tag of the entry NAME in artifacthub.io/images.
 annotation_image() {
-  awk -v want="$1" '
+  annotation_block artifacthub.io/images | awk -v want="$1" '
     $1 == "-" && $2 == "name:" { cur = $3 }
     $1 == "image:" && cur == want { print $2; exit }
-  ' "$CHART" | sed 's/.*://'
+  ' | sed 's/.*://'
+}
+
+# values_images [FILE] — every image of values.yaml as REGISTRY/REPOSITORY:TAG,
+# one per line. A block without `registry:` is Docker Hub's, docker.io, as for
+# the container runtime. The agent's empty tag stays empty (`…/k8s-borg:`).
+# A key that opens a mapping (`image:`) starts a new block, so a registry is
+# never carried over into the next one.
+values_images() {
+  awk '
+    /^ *[A-Za-z0-9_]+: *$/ { reg = ""; repo = "" }
+    $1 == "registry:"   { reg = $2 }
+    $1 == "repository:" { repo = $2 }
+    $1 == "tag:" && repo != "" {
+      tag = $2; gsub(/"/, "", tag)
+      print (reg == "" ? "docker.io" : reg) "/" repo ":" tag
+      repo = ""
+    }' "${1:-$VALUES}"
 }
 
 # values_tag REPOSITORY [FILE] — the `tag:` belonging to a given `repository:`

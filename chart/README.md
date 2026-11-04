@@ -12,6 +12,30 @@ enrollment, and an optional Borg 1/Borg 2 repository server.
 
 ## Install
 
+The chart is published as an OCI artifact on GitHub Container Registry. A
+first install needs an SSH host with Borg and a directory there for the
+repositories, a passphrase, an SSH key the host accepts and the host's
+`known_hosts` line; the chart backs up no paths by default, here each node's
+`/etc`. Without `--version`, Helm installs the latest release:
+
+```sh
+helm install my-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
+  -n k8s-borg --create-namespace \
+  --set borg.repoBase.value="ssh://user@borg.example.com:22/./mycluster" \
+  --set borg.passphrase.value="…" \
+  --set-file ssh.privateKey=./id_ed25519 \
+  --set-file ssh.knownHosts=./known_hosts \
+  --set 'node.include={P fm,R /node/etc}'
+```
+
+The chart and its images are signed with Sigstore cosign;
+[Verify releases](https://k8s-borg.ioanalytica.com/security/verify) has the
+commands. [Install](https://k8s-borg.ioanalytica.com/guide/install) and
+[Try it locally](https://k8s-borg.ioanalytica.com/guide/try-locally) on the
+documentation site go further.
+
+From a checkout of the repository:
+
 <!-- #region install -->
 ```sh
 # pull the common library dependency (or use the vendored charts/ tarball)

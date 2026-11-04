@@ -1,8 +1,37 @@
 # Changelog
 
-## Unreleased
+## 1.3.1
+
+* **Borg UI 2.4.6, as in 1.3.0.** The `borg-ui` submodule stays at the
+  v2.4.6 release (agent 0.1.22, no database change).
+
+### Chart and images
+
+* **The chart on Artifact Hub.** It is listed at
+  https://artifacthub.io/packages/helm/k8s-borg/k8s-borg, and `Chart.yaml`
+  carries the `artifacthub.io/*` annotations the listing shows: the license,
+  the category, links to the changelog, the signature check and the issues,
+  and every image the chart can run, which Artifact Hub scans for known CVEs.
+  `home` is the documentation site now. A release adds the lead sentences of
+  its CHANGELOG entry as the version's changes and marks a version with a
+  suffix as a prerelease (`scripts/artifacthub-annotations.sh`); it pushes
+  `artifacthub-repo.yml` to the tag `artifacthub.io` of the chart's
+  repository, which keeps versions with a suffix off the listing and names the
+  publisher. The Bitnami-style `category`, `licenses` and `images`
+  annotations, which Artifact Hub does not read, are gone; `busybox` and
+  `alpine/kubectl` joined the image list. The listing shows all of this from
+  this release on. `tests/artifacthub.bats` covers it.
 
 ### Documentation
+
+* **The chart's README installs from the registry.** Artifact Hub shows the
+  chart's `README.md`, whose install section had only the command for a
+  checkout of the repository; the OCI install comes first now.
+
+* **Install commands without a `<version>` placeholder.** The shell read it
+  as a redirection, so the install command of the README and the render
+  command of `examples/README.md` failed as copied. They take the latest
+  release now, and say that `--version` picks another.
 
 * **"Try it locally": the admin password is the one in the generated file.**
   The page said to sign in "with the password in `admin-password`", which
