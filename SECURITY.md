@@ -29,7 +29,8 @@ This policy covers what this repository builds: the Helm chart, the
   [BorgBackup](https://github.com/borgbackup/borg).
 - Known CVEs in the images' third-party packages, and in the third-party images
   the chart runs, are found by a daily Trivy scan; an issue about one that is
-  already public is fine.
+  already public is fine. The ones with a fix k8s-borg cannot install yet are
+  listed, with the reason, in [`.github/cve-scan-accepted.yaml`](.github/cve-scan-accepted.yaml).
 
 The chart's security model — which pods run privileged and why, what a
 repository with a datastore snapshot holds — is described in "Security posture"
