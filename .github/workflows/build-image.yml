@@ -173,18 +173,19 @@ jobs:
       # imagetools create pushes an index only under a tag, so it prints the
       # index instead (--dry-run), and oras pushes it under its digest alone.
       # The print ends in a newline the index lacks: what goes up are the
-      # bytes imagetools would have pushed. The index carries the time it was
-      # built: the tag job moves a tag only to a newer build.
+      # bytes imagetools would have pushed. The index carries the number of
+      # the Build & push run that built it, which a re-run keeps: the tag job
+      # moves a tag only to an index of a later run.
       - name: Create manifest list & push by digest
         working-directory: ${{ runner.temp }}/digests
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ inputs.image }}
+          BUILD_RUN: ${{ github.run_number }}
         run: |
           sources=()
           for d in *; do sources+=("$IMAGE@sha256:$d"); done
-          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           index="$(docker buildx imagetools create --dry-run \
-            --annotation "index:org.opencontainers.image.created=$created" "${sources[@]}")"
+            --annotation "index:com.ioanalytica.k8s-borg.build-run=$BUILD_RUN" "${sources[@]}")"
           printf '%s' "$index" >"$RUNNER_TEMP/index.json"
           oras manifest push "$IMAGE" "$RUNNER_TEMP/index.json"
       # The digest is that of the bytes pushed. Read back through a tag, it

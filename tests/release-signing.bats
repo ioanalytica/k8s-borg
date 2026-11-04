@@ -116,7 +116,7 @@ SH
   chmod +x "$bin/docker" "$bin/oras"
   (cd "$BATS_TEST_TMPDIR/digests" &&
     FAKE_DOCKER="$1" FIX="$BATS_TEST_TMPDIR/fix" PATH="$bin:$PATH" IMAGE=ghcr.io/ioanalytica/k8s-borg \
-      RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -e "$BATS_TEST_TMPDIR/push.sh")
+      BUILD_RUN=41 RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -e "$BATS_TEST_TMPDIR/push.sh")
 }
 
 @test "the merge pushes the index imagetools prints, by its digest and under no tag" {
@@ -126,9 +126,11 @@ SH
   run merge_push ok
   [ "$status" -eq 0 ] || fail "$output"
   # imagetools create pushes under a tag unless it only prints (--dry-run).
-  # The index carries its build time, which the tag job compares.
-  [[ "$(cat "$fix/docker.log")" =~ ^"buildx imagetools create --dry-run --annotation index:org.opencontainers.image.created="[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z" ghcr.io/ioanalytica/k8s-borg@sha256:$b ghcr.io/ioanalytica/k8s-borg@sha256:$c"$ ]] \
+  # The index carries the number of its run, which the tag job compares.
+  [ "$(cat "$fix/docker.log")" = "buildx imagetools create --dry-run --annotation index:com.ioanalytica.k8s-borg.build-run=41 ghcr.io/ioanalytica/k8s-borg@sha256:$b ghcr.io/ioanalytica/k8s-borg@sha256:$c" ] \
     || fail "docker was asked: $(cat "$fix/docker.log")"
+  grep -qxF '          BUILD_RUN: ${{ github.run_number }}' <<<"$(wf_step "$BUILD_IMAGE" 'name: Create manifest list & push by digest')" \
+    || fail "the index does not get the run's number"
   # A reference without a tag: oras pushes the manifest by its digest.
   [ "$(cat "$fix/oras.log")" = "manifest push ghcr.io/ioanalytica/k8s-borg $BATS_TEST_TMPDIR/index.json" ] \
     || fail "oras was asked: $(cat "$fix/oras.log")"
@@ -451,8 +453,9 @@ where_oras() {
 }
 
 # The tag job's image script, with a stub oras: it logs the tags it is asked
-# to set (FIX/oras.log), resolves the tags tag_exists made, and gives an index
-# the build time tag_fixture or tag_exists recorded for its digest. REF is the
+# to set (FIX/oras.log), resolves the tags tag_exists made (any other: "not
+# found", or FAKE_RESOLVE's error), and gives an index the run tag_fixture or
+# tag_exists recorded for its digest (FAKE_FETCH=fail: an error). REF is the
 # version the run is for.
 tag_images() {
   local bin="$BATS_TEST_TMPDIR/bin"
@@ -463,37 +466,40 @@ tag_images() {
 #!/usr/bin/env bash
 case "$1 $2" in
   "tag "*) echo "$*" >>"$FIX/oras.log" ;;
-  "resolve "*) f="$FIX/tags/${2//\//_}"; [ -f "$f" ] || { echo "Error: $2: not found" >&2; exit 1; }; cat "$f" ;;
+  "resolve "*)
+    [ -z "${FAKE_RESOLVE-}" ] || { echo "Error: $FAKE_RESOLVE" >&2; exit 1; }
+    f="$FIX/tags/${2//\//_}"; [ -f "$f" ] || { echo "Error: failed to resolve digest: $2: not found" >&2; exit 1; }; cat "$f" ;;
   "manifest fetch")
-    d="$FIX/built/${3#*@}"
-    if [ -f "$d" ]; then printf '{"annotations":{"org.opencontainers.image.created":"%s"}}\n' "$(cat "$d")"; else echo '{}'; fi ;;
+    [ "${FAKE_FETCH-}" != fail ] || [ -f "$FIX/run/${3#*@}.ours" ] || { echo "Error: 502 Bad Gateway" >&2; exit 1; }
+    d="$FIX/run/${3#*@}"
+    if [ -f "$d" ]; then printf '{"annotations":{"com.ioanalytica.k8s-borg.build-run":"%s"}}\n' "$(cat "$d")"; else echo '{}'; fi ;;
   *) echo "unexpected: oras $*" >&2; exit 1 ;;
 esac
 SH
   chmod +x "$bin/oras"
   export FIX AGENT AGENT_TAGS RUNTIME_BASE RUNTIME_BASE_TAGS SERVER SERVER_TAGS
-  GITHUB_REF_NAME="$1" PATH="$bin:$PATH" bash -eo pipefail "$BATS_TEST_TMPDIR/tag.sh"
+  GITHUB_REF_NAME="$1" PATH="$bin:$PATH" RUNNER_TEMP="$FIX" bash -eo pipefail "$BATS_TEST_TMPDIR/tag.sh"
 }
 
-# tag_exists IMAGE:TAG DIGEST [BUILT] — the registry has TAG on DIGEST, an
-# index built at BUILT (none: without the annotation).
+# tag_exists IMAGE:TAG DIGEST [RUN] — the registry has TAG on DIGEST, an
+# index of the run RUN (none: from before runs were recorded).
 tag_exists() {
   echo "$2" >"$FIX/tags/${1//\//_}"
-  [ -z "${3-}" ] || echo "$3" >"$FIX/built/${2#*@}"
+  [ -z "${3-}" ] || echo "$3" >"$FIX/run/${2#*@}"
 }
 
 tag_fixture() {
   local g=ghcr.io/ioanalytica d
   FIX="$(mktemp -d "$BATS_TEST_TMPDIR/fix.XXXXXX")"
-  mkdir -p "$FIX/tags" "$FIX/built"
+  mkdir -p "$FIX/tags" "$FIX/run"
   AGENT="$g/k8s-borg@sha256:$(printf '1%.0s' {1..64})"
   AGENT_TAGS="$(printf '%s\n' "$g/k8s-borg:1.3.3" "$g/k8s-borg:sha-abc1234" "$g/k8s-borg:latest")"
   RUNTIME_BASE="$g/k8s-borg-ui-runtime-base@sha256:$(printf '2%.0s' {1..64})"
   RUNTIME_BASE_TAGS="$(printf '%s\n' "$g/k8s-borg-ui-runtime-base:runtime-x-r1" "$g/k8s-borg-ui-runtime-base:latest" '')"
   SERVER="$g/k8s-borg-ui@sha256:$(printf '3%.0s' {1..64})"
   SERVER_TAGS="$(printf '%s\n' "$g/k8s-borg-ui:2.4.6" "$g/k8s-borg-ui:latest")"
-  # This run's indexes were built at noon.
-  for d in "$AGENT" "$RUNTIME_BASE" "$SERVER"; do echo 2026-11-04T12:00:00Z >"$FIX/built/${d#*@}"; done
+  # This is run 50.
+  for d in "$AGENT" "$RUNTIME_BASE" "$SERVER"; do echo 50 >"$FIX/run/${d#*@}"; touch "$FIX/run/${d#*@}.ours"; done
 }
 
 @test "the tag job sets each image's tags on its digest, the agent first" {
@@ -506,18 +512,19 @@ tag_fixture() {
     "tag $SERVER 2.4.6 latest")" ] || fail "oras was asked: $(cat "$FIX/oras.log")"
 }
 
-@test "the tag job moves a tag only to a newer build" {
+@test "the tag job moves a tag only to the images of a later run" {
   # A late re-run of an older release's failed jobs: a newer release holds
-  # latest and the shared tags, which stay; an older build, or an index from
-  # before build times were recorded, gives them up.
+  # latest and the shared tags, which stay; an earlier run, or an index from
+  # before runs were recorded, gives them up. Run 100 is after run 50, which
+  # a comparison of strings would not say.
   local g=ghcr.io/ioanalytica newer older plain
   newer="sha256:$(printf '4%.0s' {1..64})"
   older="sha256:$(printf '5%.0s' {1..64})"
   plain="sha256:$(printf '6%.0s' {1..64})"
   tag_fixture
-  tag_exists "$g/k8s-borg-ui:2.4.6" "$newer" 2026-11-04T13:00:00Z
+  tag_exists "$g/k8s-borg-ui:2.4.6" "$newer" 100
   tag_exists "$g/k8s-borg-ui:latest" "$newer"
-  tag_exists "$g/k8s-borg:latest" "$older" 2026-11-04T11:00:00Z
+  tag_exists "$g/k8s-borg:latest" "$older" 49
   tag_exists "$g/k8s-borg-ui-runtime-base:latest" "$plain"
   # A re-run finds its own tag where it put it.
   tag_exists "$g/k8s-borg:1.3.3" "${AGENT#*@}"
@@ -526,16 +533,39 @@ tag_fixture() {
   [ "$(cat "$FIX/oras.log")" = "$(printf '%s\n' \
     "tag $AGENT 1.3.3 sha-abc1234 latest" \
     "tag $RUNTIME_BASE runtime-x-r1 latest")" ] || fail "oras was asked: $(cat "$FIX/oras.log")"
-  [[ "$output" == *"◆ $g/k8s-borg-ui:2.4.6 stays on $newer, built after this release's index"* ]] || fail "$output"
-  [[ "$output" == *"◆ $g/k8s-borg-ui:latest stays on $newer"* ]] || fail "$output"
+  [[ "$output" == *"◆ $g/k8s-borg-ui:2.4.6 stays on $newer, from the later run 100"* ]] || fail "$output"
+  [[ "$output" == *"◆ $g/k8s-borg-ui:latest stays on $newer, from the later run 100"* ]] || fail "$output"
 }
 
-@test "the tag job sets no tag for an index without its build time" {
+@test "the tag job stops when the registry does not say which run a tag names" {
+  # Only "not found" lets a tag move without knowing its current run.
   tag_fixture
-  rm "$FIX/built/${SERVER#*@}"
-  run tag_images 1.3.3
-  [ "$status" -ne 0 ] && [[ "$output" == *"✗ $SERVER carries no build time"* ]] || fail "$output"
+  FAKE_RESOLVE="failed to resolve digest: ghcr.io/ioanalytica/k8s-borg:1.3.3: 502 Bad Gateway" run tag_images 1.3.3
+  [ "$status" -ne 0 ] && [[ "$output" == *"502 Bad Gateway"* ]] || fail "a resolve error passed: $output"
   [ ! -e "$FIX/oras.log" ] || fail "tags were set: $(cat "$FIX/oras.log")"
+
+  tag_fixture
+  tag_exists ghcr.io/ioanalytica/k8s-borg:latest "sha256:$(printf '4%.0s' {1..64})" 100
+  FAKE_FETCH=fail run tag_images 1.3.3
+  [ "$status" -ne 0 ] && [[ "$output" == *"502 Bad Gateway"* ]] || fail "a fetch error passed: $output"
+  [ ! -e "$FIX/oras.log" ] || fail "tags were set: $(cat "$FIX/oras.log")"
+}
+
+@test "the tag job sets no tag for an index of the run that names no run" {
+  tag_fixture
+  rm "$FIX/run/${SERVER#*@}"
+  run tag_images 1.3.3
+  [ "$status" -ne 0 ] && [[ "$output" == *"✗ $SERVER names no run"* ]] || fail "$output"
+  [ ! -e "$FIX/oras.log" ] || fail "tags were set: $(cat "$FIX/oras.log")"
+}
+
+@test "one tag job runs at a time, across runs, and none is cancelled for another" {
+  local job
+  job="$(wf_job "$BUILD_WF" tag)"
+  [ "$(awk '$1 == "concurrency:" { on = 1; next } on && /^      [a-z-]+:/ { print $1 $2; next } on { exit }' <<<"$job" | tr '\n' ' ')" \
+    = "group:build-tag cancel-in-progress:false " ] || fail "the tag job's concurrency: $(grep -A2 'concurrency:' <<<"$job")"
+  run grep -n 'group: build-tag' "$WF"/*.y*ml
+  [ "${#lines[@]}" -eq 1 ] || fail "another job shares the group: $output"
 }
 
 @test "the tag job sets no tag when a list has another image's tag, or none" {
