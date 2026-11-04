@@ -16,15 +16,21 @@ version="${1:-}"
 [ -n "$version" ] || { echo "usage: chart-release-version.sh VERSION [CHART_YAML]" >&2; exit 2; }
 chart="${2:-$(dirname "${BASH_SOURCE[0]}")/../chart/Chart.yaml}"
 
+# A tag equal to the chart's version: the file already says what it should.
+if grep -qxF "version: $version" "$chart"; then
+  echo "✓ $chart: already at $version"
+  exit 0
+fi
+
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 # Each of the three once, or the file is not the one this was written for.
 if ! awk -v v="$version" '
-  /^version: /    { print "version: " v; n++; next }
-  /^appVersion: / { print "appVersion: \"" v "\""; n++; next }
-  /^      image: ghcr\.io\/ioanalytica\/k8s-borg:/ { sub(/:[^:]*$/, ":" v); print; n++; next }
+  /^version: /    { print "version: " v; a++; next }
+  /^appVersion: / { print "appVersion: \"" v "\""; b++; next }
+  /^      image: ghcr\.io\/ioanalytica\/k8s-borg:/ { sub(/:[^:]*$/, ":" v); print; c++; next }
   { print }
-  END { exit n != 3 }' "$chart" >"$tmp"; then
+  END { exit !(a == 1 && b == 1 && c == 1) }' "$chart" >"$tmp"; then
   echo "✗ $chart: expected version:, appVersion: and the k8s-borg image of artifacthub.io/images once each" >&2
   exit 1
 fi

@@ -34,9 +34,12 @@ if [ "$tag" = "$want" ]; then
   echo "✓ release tag '$tag' matches chart/Chart.yaml"
   exit 0
 fi
-# The suffix in SemVer's characters, of a version that has none itself.
+# A SemVer prerelease of a version that has none itself: dot-separated
+# identifiers, none empty, a number without a leading zero. Helm refuses the
+# chart of any other version, after the images are built.
+identifier='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 suffix="${tag#"$want"-}"
-if [[ "$want" != *-* && "$tag" == "$want"-?* && "$suffix" =~ ^[0-9A-Za-z.-]+$ ]]; then
+if [[ "$want" != *-* && "$tag" == "$want"-?* && "$suffix" =~ ^$identifier(\.$identifier)*$ ]]; then
   echo "✓ release tag '$tag' is a prerelease of chart/Chart.yaml's $want"
   exit 0
 fi

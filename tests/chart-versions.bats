@@ -168,12 +168,15 @@ YAML
   # X.Y.Z-rc.1 goes on the commit X.Y.Z is tagged on once it passed.
   local v t
   v="$(chart_version)"
-  for t in "$v-rc.1" "$v-beta.12" "$v-1"; do
+  [[ "$v" != *-* ]] || skip "chart $v is a prerelease itself, which has none of its own"
+  for t in "$v-rc.1" "$v-beta.12" "$v-1" "$v-rc.0" "$v-0a.b-c"; do
     run ./tests/check-release-tag.sh "$t"
     [ "$status" -eq 0 ] || fail "$t: $output"
     [[ "$output" == *"is a prerelease of"* ]] || fail "$t: $output"
   done
-  for t in "$v-" "${v}rc.1" "$v.1-rc.1" "$v-rc 1" "1$v-rc.1"; do
+  # Helm refuses a version that is not SemVer: an empty identifier, a number
+  # with a leading zero.
+  for t in "$v-" "${v}rc.1" "$v.1-rc.1" "$v-rc 1" "1$v-rc.1" "$v-rc..1" "$v-rc.01" "$v-.rc" "$v-rc."; do
     run ./tests/check-release-tag.sh "$t"
     [ "$status" -eq 1 ] || fail "'$t' passed: $output"
   done
@@ -189,7 +192,7 @@ YAML
 @test "the chart of a prerelease carries the tag's version and names the agent image of the tag" {
   local t="$BATS_TEST_TMPDIR/chart" v
   cp -R "$REPO_ROOT/chart" "$t"
-  v="$(chart_version)-rc.1"
+  v=9.9.9-rc.1
   run "$REPO_ROOT/scripts/chart-release-version.sh" "$v" "$t/Chart.yaml"
   [ "$status" -eq 0 ] || fail "$output"
   [ "$(sed -n 's/^version: //p' "$t/Chart.yaml")" = "$v" ] || fail "version: $(grep '^version:' "$t/Chart.yaml")"
@@ -208,12 +211,18 @@ YAML
   run "$REPO_ROOT/scripts/chart-release-version.sh" "$(chart_version)" "$t"
   [ "$status" -eq 0 ] || fail "$output"
   cmp "$CHART" "$t" || fail "a release's Chart.yaml changed"
-  # Without the image line, or with a second version line, nothing is written.
-  grep -v 'image: ghcr.io/ioanalytica/k8s-borg:' "$CHART" >"$t"
-  cp "$t" "$t.before"
-  run "$REPO_ROOT/scripts/chart-release-version.sh" 9.9.9 "$t"
-  [ "$status" -eq 1 ] && [[ "$output" == *"once each"* ]] || fail "status $status: $output"
-  cmp "$t.before" "$t" || fail "the file was changed"
+  # Without the image, and with a second image and no appVersion, whose lines
+  # still add up to three: nothing is written.
+  local broken
+  for broken in \
+    "$(grep -v 'image: ghcr.io/ioanalytica/k8s-borg:' "$CHART")" \
+    "$(grep -v '^appVersion: ' "$CHART" | awk '{ print } /image: ghcr.io\/ioanalytica\/k8s-borg:/ { print }')"; do
+    printf '%s\n' "$broken" >"$t"
+    cp "$t" "$t.before"
+    run "$REPO_ROOT/scripts/chart-release-version.sh" 9.9.9 "$t"
+    [ "$status" -eq 1 ] && [[ "$output" == *"once each"* ]] || fail "status $status: $output"
+    cmp "$t.before" "$t" || fail "the file was changed"
+  done
   run "$REPO_ROOT/scripts/chart-release-version.sh"
   [ "$status" -eq 2 ] || fail "status $status without a version"
 }
