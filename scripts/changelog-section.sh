@@ -18,22 +18,17 @@ version="${1:-}"
 [ -n "$version" ] || { echo "usage: changelog-section.sh VERSION [FILE]" >&2; exit 2; }
 file="${2:-$(dirname "${BASH_SOURCE[0]}")/../CHANGELOG.md}"
 
-# section VERSION — the entry of VERSION, or nothing.
-section() {
-  awk -v want="## $1" '
-    $0 == want { inside = 1; next }
-    inside && /^## / { exit }
-    inside { lines[++n] = $0 }
-    END {
-      first = 1; while (first <= n && lines[first] == "") first++
-      last = n;  while (last >= first && lines[last] == "") last--
-      for (i = first; i <= last; i++) print lines[i]
-    }
-  ' "$file"
-}
-
-entry="$(section "$version")"
-if [ -z "$entry" ] && [[ "$version" == *-* ]]; then
-  entry="$(section "${version%%-*}")"
+if [[ "$version" == *-* ]] && ! grep -qxF "## $version" "$file"; then
+  version="${version%%-*}"
 fi
-[ -z "$entry" ] || printf '%s\n' "$entry"
+
+awk -v want="## $version" '
+  $0 == want { inside = 1; next }
+  inside && /^## / { exit }
+  inside { lines[++n] = $0 }
+  END {
+    first = 1; while (first <= n && lines[first] == "") first++
+    last = n;  while (last >= first && lines[last] == "") last--
+    for (i = first; i <= last; i++) print lines[i]
+  }
+' "$file"

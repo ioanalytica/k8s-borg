@@ -68,6 +68,10 @@ teardown() { common_teardown; }
   [ "$output" = "* The beta." ] || fail "got: $output"
   run "$SCRIPT" 9.9.9-rc.1 "$TMP/CHANGELOG.md"
   [ "$status" -eq 0 ] && [ -z "$output" ] || fail "got: $output"
+  # An empty section of its own is its section.
+  awk '$0 == "## 1.2.3" { print "## 1.2.3-rc.2\n" } { print }' "$TMP/CHANGELOG.md" >"$TMP/empty.md"
+  run "$SCRIPT" 1.2.3-rc.2 "$TMP/empty.md"
+  [ "$status" -eq 0 ] && [ -z "$output" ] || fail "got: $output"
 }
 
 @test "no version is a usage error, a missing file a failure" {
