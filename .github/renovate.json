@@ -34,8 +34,8 @@
     },
     {
       "customType": "regex",
-      "description": "Tool versions of the workflows, an env *_VERSION under a '# renovate: datasource=... depName=...' line.",
-      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "description": "Tool versions of the workflows and their local actions, an env *_VERSION under a '# renovate: datasource=... depName=...' line.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/", "/^\\.github/actions/[^/]+/action\\.ya?ml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n *\\w+_VERSION: (?<currentValue>\\S+)"
       ]
@@ -82,7 +82,7 @@
       "enabled": false
     },
     {
-      "matchFileNames": [".github/workflows/**"],
+      "matchFileNames": [".github/workflows/**", ".github/actions/**"],
       "semanticCommitType": "ci"
     },
     {

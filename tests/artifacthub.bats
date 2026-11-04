@@ -2,8 +2,8 @@
 #
 # The chart's listing on Artifact Hub: the artifacthub.io/* annotations of
 # chart/Chart.yaml, the ones a release adds (scripts/artifacthub-annotations.sh),
-# the repository metadata in artifacthub-repo.yml, and the chart job of
-# build.yml that publishes both. The image list is chart-versions.bats' business.
+# the repository metadata in artifacthub-repo.yml, and the chart and tag jobs
+# of build.yml that publish both. The image list is chart-versions.bats' business.
 #
 # Artifact Hub ignores what it cannot parse and says so only in its control
 # panel, so these check the values against what its documentation accepts.
@@ -223,20 +223,21 @@ $got"
   grep -qxF '        run: scripts/artifacthub-annotations.sh "$GITHUB_REF_NAME"' <<<"$s" || fail "$s"
 }
 
-@test "the chart job pushes the repository metadata where Artifact Hub reads it, before the chart" {
-  local job meta push s
-  job="$(wf_job "$BUILD_WF" chart)"
-  meta="$(grep -n -- '- name: Artifact Hub repository metadata (tags only)' <<<"$job" | cut -d: -f1)"
-  push="$(grep -n -- '- name: Push chart to GHCR (tags only)' <<<"$job" | cut -d: -f1)"
-  [ -n "$meta" ] && [ -n "$push" ] || fail "steps not found"
-  [ "$meta" -lt "$push" ] || fail "the metadata goes up after the chart"
-  s="$(wf_step "$BUILD_WF" 'name: Artifact Hub repository metadata (tags only)')"
-  grep -qxF "        if: startsWith(github.ref, 'refs/tags/')" <<<"$s" || fail "not limited to tags"
-  grep -qF '"$oras" push "$REGISTRY/$OWNER/charts/k8s-borg:artifacthub.io" \' <<<"$s" || fail "not pushed to the tag artifacthub.io"
+@test "the tag job pushes the repository metadata where Artifact Hub reads it, before the chart's version" {
+  # Artifact Hub reads the metadata when a new version appears: the tag job
+  # sets the chart's version, after the signing (release-signing.bats).
+  local job meta version s
+  job="$(wf_job "$BUILD_WF" tag)"
+  grep -qxF "    if: startsWith(github.ref, 'refs/tags/')" <<<"$job" || fail "not limited to tags"
+  meta="$(grep -n -- '- name: Artifact Hub repository metadata' <<<"$job" | cut -d: -f1)"
+  version="$(grep -n -- '- name: Tag the chart' <<<"$job" | cut -d: -f1)"
+  [ -n "$meta" ] && [ -n "$version" ] || fail "steps not found"
+  [ "$meta" -lt "$version" ] || fail "the metadata goes up after the chart's version"
+  s="$(wf_step "$BUILD_WF" 'name: Artifact Hub repository metadata')"
+  grep -qF 'oras push "$REGISTRY/$OWNER/charts/k8s-borg:artifacthub.io" \' <<<"$s" || fail "not pushed to the tag artifacthub.io"
   grep -qF -- '--config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \' <<<"$s" || fail "wrong config media type"
   grep -qF 'artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml' <<<"$s" \
     || fail "wrong layer media type"
-  grep -qF 'sha256sum -c -' <<<"$s" || fail "oras is not checked against its release's sums"
 }
 
 # --- artifacthub-repo.yml -----------------------------------------------------------

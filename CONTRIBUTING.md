@@ -38,8 +38,8 @@ The site's page "Try it locally" runs as written in a k3d cluster:
 `.github/workflows/try-locally.yml`, on a pull request that changes the chart,
 `examples/k3d/` or the page, with the pull request's chart, every Monday
 with the latest release, and after each tag's build with the chart and the
-images that tag published and signed (`build.yml` calls it after the
-signing, beside the release, which does not wait for it). A pull request
+images that tag published, signed and tagged (`build.yml` calls it after
+its tag job, beside the release, which does not wait for it). A pull request
 whose chart names images not published yet, a release for one, gets a notice
 instead of a run; the tag's run then checks the page. A red run on an rc
 means the page or the release needs a fix before `X.Y.Z` is tagged; a red
