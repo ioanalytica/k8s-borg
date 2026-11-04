@@ -45,8 +45,8 @@ to lift the revision above the highest the cluster reached: it counts the
 writes since the backup and the bump of any restore since then (a second
 restore of the same snapshot takes 2000000000). 1000000000 is the value of
 etcd's recovery guide. `etcdutl` comes with the etcd release and with this
-chart's image; the image's 3.6.15 restored the snapshots of etcd 3.7 (kind)
-and 3.6 (k3s) in the tests. SQLite has nothing of the kind.
+chart's image; the `etcdutl` 3.6.15 of the image of chart 1.2.3 restored the
+snapshots of etcd 3.7 (kind) and 3.6 (k3s) in the tests. SQLite has nothing of the kind.
 
 **k3s, embedded etcd** (tested on a fresh node with the same k3s version).
 k3s restores a snapshot at the snapshot's revision and has no option to raise

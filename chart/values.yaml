@@ -421,7 +421,7 @@ databases:
   credentialsResolver:
     image:
       repository: alpine/kubectl
-      tag: 1.37.1
+      tag: 1.37.2
       pullPolicy: IfNotPresent
 
 ## @section Node backup (DaemonSet)

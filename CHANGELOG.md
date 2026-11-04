@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.3.2
+
+* **Borg UI 2.4.6, as in 1.3.1.** The `borg-ui` submodule stays at the
+  v2.4.6 release (agent 0.1.22, no database change).
 
 ### Chart and images
 
@@ -22,6 +25,18 @@
   and so do its checks behind the schema (`helm --skip-schema-validation`,
   Helm 3.16 and later). `tests/values-schema.bats` keeps the schema in step
   with `values.yaml`.
+
+* **Fewer known vulnerabilities in the images.** The agent image ships
+  `etcdctl` and `etcdutl` 3.6.16 (3.6.15), built with a Go release that fixes
+  the standard library CVEs of the old one, and no longer carries pip:
+  nothing in a container runs it, and each of its copies brought pip's known
+  CVEs and those of the setuptools code it vendors. The credentials
+  resolver's default image is `alpine/kubectl:1.37.2` (1.37.1), on a current
+  Alpine. Artifact Hub, which scans the chart's images, counted 79 known
+  vulnerabilities in the agent image of 1.3.1 and 70 in the kubectl image,
+  all of them with a fix; what stays in the agent image is msgpack, whose
+  version Borg pins, and the Go libraries of rclone and etcd that have no
+  fixed release yet.
 
 ## 1.3.1
 

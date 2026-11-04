@@ -3,8 +3,8 @@
 
 apiVersion: v2
 name: k8s-borg
-version: 1.3.1
-appVersion: "1.3.1"
+version: 1.3.2
+appVersion: "1.3.2"
 
 description: >-
   Backup for Kubernetes clusters with BorgBackup. Deploys a node-backup
@@ -44,7 +44,7 @@ annotations:
       url: https://github.com/ioanalytica/k8s-borg/issues
   artifacthub.io/images: |
     - name: k8s-borg
-      image: ghcr.io/ioanalytica/k8s-borg:1.3.1
+      image: ghcr.io/ioanalytica/k8s-borg:1.3.2
     - name: k8s-borg-ui
       image: ghcr.io/ioanalytica/k8s-borg-ui:2.4.6
     - name: redis
@@ -52,7 +52,7 @@ annotations:
     - name: busybox
       image: docker.io/busybox:1.37
     - name: kubectl
-      image: docker.io/alpine/kubectl:1.37.1
+      image: docker.io/alpine/kubectl:1.37.2
 
 dependencies:
   - name: common
