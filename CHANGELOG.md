@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.3.3
+
+* **Borg UI 2.4.6, as in 1.3.2.** The `borg-ui` submodule stays at the
+  v2.4.6 release (agent 0.1.22, no database change).
 
 ### Project and CI
 
