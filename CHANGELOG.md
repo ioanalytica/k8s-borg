@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+* **"Try it locally": the admin password is the one in the generated file.**
+  The page said to sign in "with the password in `admin-password`", which
+  could be read as the word itself.
+
 ## 1.3.0
 
 * **Borg UI 2.4.6, as in 1.2.3.** The `borg-ui` submodule stays at the
