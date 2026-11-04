@@ -1,0 +1,2926 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "Copyright IO ANALYTICA. SPDX-License-Identifier: AGPL-3.0-only",
+  "title": "k8s-borg",
+  "description": "The values of the k8s-borg chart, documented in values.yaml. Helm checks them against this schema on install, upgrade, template and lint. It refuses only what the chart cannot use either: a mode other than the listed ones, and a list or map where the chart reads a single value, or the other way round. Text may come as a number and numbers as text, as --set, --set-string and Flux valuesFrom deliver them, switches as 0/1 or text; the chart reads them as it always did. Keys the schema does not list are left to the chart, which names removed sections (app, config) itself.",
+  "type": "object",
+  "properties": {
+    "global": {
+      "title": "Global parameters",
+      "type": "object",
+      "properties": {
+        "imageRegistry": {
+          "description": "Global Docker image registry (overrides image.registry)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "imagePullSecrets": {
+          "description": "Global Docker registry secret names as an array",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        },
+        "defaultStorageClass": {
+          "description": "Global default StorageClass for PVC(s)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        }
+      }
+    },
+    "nameOverride": {
+      "title": "Common parameters",
+      "description": "Partially override the fullname",
+      "type": [
+        "string",
+        "number"
+      ],
+      "default": ""
+    },
+    "fullnameOverride": {
+      "description": "Fully override the fullname",
+      "type": [
+        "string",
+        "number"
+      ],
+      "default": ""
+    },
+    "commonLabels": {
+      "description": "Labels added to all deployed resources",
+      "type": [
+        "object",
+        "array",
+        "string"
+      ],
+      "maxItems": 0,
+      "default": {}
+    },
+    "commonAnnotations": {
+      "description": "Annotations added to all deployed resources",
+      "type": [
+        "object",
+        "array",
+        "string"
+      ],
+      "maxItems": 0,
+      "default": {}
+    },
+    "timezone": {
+      "description": "Timezone for all pods (also the CronJob default). Safe default: UTC.",
+      "type": [
+        "string",
+        "number"
+      ],
+      "default": "UTC"
+    },
+    "extraVolumes": {
+      "description": "Extra volumes added to ALL backup workloads. Mount your own sources to back up here — e.g. an NFS share or a PVC at /mnt/nfs. The chart does not assume any shared source of its own.",
+      "type": [
+        "array",
+        "object",
+        "string"
+      ],
+      "maxProperties": 0,
+      "default": []
+    },
+    "extraVolumeMounts": {
+      "description": "Extra volume mounts added to ALL backup workloads",
+      "type": [
+        "array",
+        "object",
+        "string"
+      ],
+      "maxProperties": 0,
+      "default": []
+    },
+    "mountPoints": {
+      "description": "Extra directories the init container pre-creates so the pod can mount there at runtime (e.g. s3fs targets). MUST live under /mnt (a shared writable emptyDir). The S3 mount path (s3.mountPath) is created automatically.",
+      "type": [
+        "array",
+        "object",
+        "string"
+      ],
+      "maxProperties": 0,
+      "maxLength": 0,
+      "default": []
+    },
+    "image": {
+      "title": "Image parameters",
+      "type": "object",
+      "properties": {
+        "registry": {
+          "description": "Agent image registry",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "ghcr.io"
+        },
+        "repository": {
+          "description": "Agent image repository",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "ioanalytica/k8s-borg"
+        },
+        "tag": {
+          "description": "Agent image tag (defaults to the chart appVersion)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "pullPolicy": {
+          "description": "Agent image pull policy",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "IfNotPresent"
+        }
+      }
+    },
+    "initImage": {
+      "description": "Image used by the SSH init container",
+      "type": "object",
+      "properties": {
+        "repository": {
+          "description": "Init container image repository",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "busybox"
+        },
+        "tag": {
+          "description": "Init container image tag",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "1.37"
+        },
+        "pullPolicy": {
+          "description": "Init container image pull policy",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "IfNotPresent"
+        }
+      }
+    },
+    "borg": {
+      "title": "Borg parameters",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Borg binary the scripts use: 1 or 2 (transport comes from the URL scheme)",
+          "type": [
+            "integer",
+            "string"
+          ],
+          "default": 1
+        },
+        "encryption": {
+          "description": "Mode of the repositories the pods create (rendered as BORG_ENCRYPTION, read by borg-init and register-repo). Empty = the default of borg.version: repokey-blake2 (Borg 1), repokey-aes-ocb (Borg 2). Named as Borg UI names the modes:\n  Borg 1   repokey-blake2, repokey, keyfile-blake2, keyfile, authenticated-blake2,\n           authenticated, none\n  Borg 2   repokey-aes-ocb, repokey-chacha20-poly1305, keyfile-aes-ocb,\n           keyfile-chacha20-poly1305, authenticated (= authenticated-sha256)\nA mode the major does not have fails the render. A repository that exists keeps its mode. Borg's key files (BORG_KEYS_DIR) live on the uiAgent volume, per node, in every mode: export the key of a keyfile repository (`borg key export`), see https://k8s-borg.ioanalytica.com/features/borg-versions#keyfile-modes",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "treatWarningsAsErrors": {
+          "description": "Propagate borg warnings (rc=1) as failures. Default false: the borg wrapper downgrades rc=1 (missing path, file changed mid-backup) to success so managed-agent backup jobs aren't marked \"failed\" on routine warnings.",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": false
+        },
+        "defaultParams": {
+          "description": "Extra params injected into every borg call by the borg/borg2 wrapper. Mapped to BORG1_DEFAULT_PARAMS or BORG2_DEFAULT_PARAMS depending on borg.version above. Empty = none.",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "planCustomFlags": {
+          "description": "Extra `borg create` flags stored on every registered backup plan (register-backup-plan writes them as the plan's custom_flags). Create-only — unlike defaultParams these would be invalid on other subcommands. e.g. \"--filter AME --list --exclude-caches\". NB: the agent's create already passes --stats; --list logs one line per file into the job log.",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "remotePath": {
+          "description": "Name or path of the borg executable on an ssh:// server, e.g. \"borg-1.4\" or \"borg2\" when the server's borg isn't the default `borg` on PATH. Empty = none. Rendered as BORG_REMOTE_PATH. Borg 1: the borg wrapper turns it into the option `--remote-path=<value>` of every call. Borg 2 has no such option (removed in 2.0.0b22) and reads the variable itself.",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "repoBase": {
+          "description": "Repository base. Each pod appends its node name. The same text means different directories for the two majors:\n\n  Borg 1   ssh://user@host:22/./cluster    relative to the login directory\n           ssh://user@host:22/srv/cluster  absolute\n  Borg 2   ssh://user@host:22/cluster      relative to the login directory\n           ssh://user@host:22//srv/cluster absolute\n           sftp://…, s3:…, rclone:…        see the Borg 2 documentation\n\nBorg 2.0.0b25 and later know no rest:// (up to 2.0.0b24 the name of what is ssh:// now) and read such a URL as a local directory: `value` is refused at render time for borg.version 2, a base from an existing Secret by the borg2 wrapper at run time. The wrapper goes by the Borg 2 of the image, the chart cannot: a release that pins an image with an earlier Borg 2 takes its rest:// base from an existing Secret. Borg 2 takes the port from the URL unless a remote shell command is set (BORG_RSH or BORGSTORE_RSH, which the chart does not set). Such a command is used as it is and has to name the port itself: \"ssh -p 2222\". Sensitive: provide `value`, or reference an existing Secret via existingSecret[+existingSecretKey].",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "Repository base URL",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecret": {
+              "description": "Existing Secret holding the repository base",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecretKey": {
+              "description": "Key in existingSecret (default: BORG_REPO_BASE)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "passphrase": {
+          "description": "Repository passphrase (sensitive). Mandatory for every Borg 2 repository: from 2.0.0b25 on Borg 2 has no repository without a key, and every command needs it, break-lock and repo-delete included.",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "Repository passphrase",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecret": {
+              "description": "Existing Secret holding the passphrase",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecretKey": {
+              "description": "Key in existingSecret (default: BORG_PASSPHRASE)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "archiveNameTemplate": {
+          "description": "Managed-agent archive name template (register-backup-plan). Empty = the agent's built-in default `$(NODE_NAME)-{utcnow:%Y-%m-%d-%s}` (with a REPO_NAME fallback). borg expands `{utcnow:FMT}`/`{now:FMT}`; borg-ui expands `{date}/{time}/{timestamp}`. Prefer `{utcnow:…}` for timestamps: `{now:…}` is local time, which repeats an hour when daylight saving time ends (same name twice, \"Archive … already exists\"), and on the Alpine images `{now:%s}` is local wall time read as UTC, not the Unix time. To include the node name, use the k8s env-ref form `$(NODE_NAME)` (NOT `${NODE_NAME}`) — e.g. \"$(NODE_NAME)-{utcnow:%s}\" for timestamp-only naming.",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "dbBackupLocation": {
+          "description": "Where logical DB dumps are written before archiving, one directory per instance. The dumps are uncompressed (Borg deduplicates and compresses them): this needs room for several times the size of gzipped dumps. The cluster backup archives them only when this directory, or one above it, is a root in cluster.include (\"R <path>\") and cluster.exclude does not leave them out. With cluster.backupMode=plan the plan takes only the roots that exist when the console pod starts, before any dump: the pod creates this directory first, and a WARNING in its log names one it cannot create or a root on it the plan leaves out. With a database engine configured and no such root, the notes of helm install and helm upgrade warn that the dumps are written but not archived (excludes aside). The files and the privileges: https://k8s-borg.ioanalytica.com/features/databases; restore-postgres / restore-mariadb: https://k8s-borg.ioanalytica.com/operations/restore",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "/mnt/nfs/data/db-backup"
+        },
+        "retention": {
+          "description": "Prune retention (KEEP_DAILY/WEEKLY/MONTHLY)",
+          "type": "object",
+          "properties": {
+            "daily": {
+              "description": "Daily archives to keep (KEEP_DAILY)",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 7
+            },
+            "weekly": {
+              "description": "Weekly archives to keep (KEEP_WEEKLY)",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 4
+            },
+            "monthly": {
+              "description": "Monthly archives to keep (KEEP_MONTHLY)",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 3
+            }
+          }
+        },
+        "backupMaintenance": {
+          "description": "Post-backup maintenance run by each backup plan (register-backup-plan). Prune retention comes from borg.retention above. NB: `check` here is an EXTRA check after every backup — independent of borg.checkSchedule (scheduled checks).",
+          "type": "object",
+          "properties": {
+            "prune": {
+              "description": "Run borg prune after each backup",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "compact": {
+              "description": "Run borg compact after each backup",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "check": {
+              "description": "Run an extra borg check after each backup",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "checkMaxDuration": {
+              "description": "Time budget (seconds) for the post-backup check",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 3600
+            },
+            "checkExtraFlags": {
+              "description": "Extra flags for the post-backup check (e.g. \"--verify-data\")",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "checkSchedule": {
+          "description": "Scheduled repository integrity checks (borg check). Rendered into a ConfigMap and mounted at BORG_CHECK_SCHEDULE_DIR; when an agent pod starts it applies its own schedule via `set-check-schedule`, selecting the key that matches its POD HOSTNAME (`<hostname>_check_schedule`) and falling back to `default`. Only used by components running as managed agents (node.backupMode=agent or cluster.mode=agent). Leave both empty to create no schedules. A change rolls the agent pods, so that they apply it. A schedule removed from here is removed from Borg UI too, unless it was given another cron there since; one set by hand in Borg UI is left alone. \"off\" (perHost or default) removes a pod's schedule whoever set it, and keeps a pod off `default`. perHost keys are pod hostnames, not node or release names:\n  - the console pod: cluster.nodeName itself (default \"k8s-borg-mycluster\");\n  - a node pod: \"k8s-borg-\" + its Kubernetes node name (node01 → \"k8s-borg-node01\").\nA pod without a matching key gets `default`. The install notes name keys that no agent pod applies.",
+          "type": "object",
+          "properties": {
+            "default": {
+              "description": "Fallback cron for pods without a perHost entry (empty = no default, \"off\" = remove every pod's schedule)",
+              "type": [
+                "string",
+                "boolean"
+              ],
+              "default": ""
+            },
+            "perHost": {
+              "description": "Cron or \"off\" per pod hostname: cluster.nodeName for the console pod, \"k8s-borg-<node name>\" for a node pod, e.g. { k8s-borg-mycluster: \"0 4 * * 0\", k8s-borg-node01: \"0 3 * * *\", k8s-borg-node02: \"off\" }",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "maxLength": 0,
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "default": {}
+            }
+          }
+        },
+        "backupSchedule": {
+          "description": "Scheduled backups (borg create via a server-side backup plan). Same shape and POD-HOSTNAME keys as checkSchedule; each agent pod applies its own cron via `register-backup-plan`, mounted at BORG_BACKUP_SCHEDULE_DIR. The console pod registers a plan only with cluster.backupMode=plan. Sources/excludes come from node.include/exclude and cluster.include/exclude (the /root/.borg pattern files), not from here. Leave both empty to create plans without a schedule (they can still be run manually). A change rolls the agent pods, as above; a removed schedule turns the plan's schedule off, and \"off\" keeps a pod's plan off `default`.",
+          "type": "object",
+          "properties": {
+            "default": {
+              "description": "Fallback backup cron for pods without a perHost entry (empty = no default)",
+              "type": [
+                "string",
+                "boolean"
+              ],
+              "default": ""
+            },
+            "perHost": {
+              "description": "Backup cron or \"off\" per pod hostname: cluster.nodeName for the console pod, \"k8s-borg-<node name>\" for a node pod, e.g. { k8s-borg-mycluster: \"0 2 * * 0\", k8s-borg-node01: \"0 2 * * *\", k8s-borg-node02: \"off\" }",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "maxLength": 0,
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "default": {}
+            }
+          }
+        }
+      }
+    },
+    "s3": {
+      "title": "S3 sources (cluster/app jobs)",
+      "description": "Buckets (cluster.s3Buckets) are mounted via s3fs under s3.mountPath. The init container pre-creates that directory in the shared /mnt volume.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Mount S3 buckets as read sources (via s3fs)",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": false
+        },
+        "endpoint": {
+          "description": "S3 endpoint URL",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "http://minio.minio.svc:9000"
+        },
+        "region": {
+          "description": "SigV4 region of the S3 endpoint (s3fs `endpoint=`); empty keeps s3fs's default us-east-1. Servers that check the region (e.g. Garage) need it set",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "mountPath": {
+          "description": "Where buckets are mounted (must be under /mnt)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "/mnt/s3"
+        },
+        "verifyListing": {
+          "description": "Before each cluster backup, compare every mount with its bucket's listing through the S3 API; a bucket that misses objects or lost its mount is mounted again, and if it still misses objects the run fails (it is archived anyway). In cluster.backupMode=plan this is the pre-backup hook `s3-verify-listing`, and a bucket still incomplete ends the run with a warning in Borg UI",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": true
+        },
+        "onMountFailure": {
+          "description": "What a bucket that cannot be mounted does: `skip` (warn, back up the other buckets; the start stops only when no bucket can be mounted) or `fail` (stop the start). A skipped bucket makes each cluster backup end with a warning",
+          "type": "string",
+          "enum": [
+            "skip",
+            "fail"
+          ],
+          "default": "skip"
+        },
+        "accessKey": {
+          "description": "S3 access key (sensitive).",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "S3 access key",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecret": {
+              "description": "Existing Secret holding the access key",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecretKey": {
+              "description": "Key in existingSecret (default: AWS_KEY)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "secretKey": {
+          "description": "S3 secret key (sensitive).",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "S3 secret key",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecret": {
+              "description": "Existing Secret holding the secret key",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecretKey": {
+              "description": "Key in existingSecret (default: AWS_SECRET_KEY)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        }
+      }
+    },
+    "ssh": {
+      "title": "SSH credentials (Secret, staged into /root/.ssh)",
+      "type": "object",
+      "properties": {
+        "existingSecret": {
+          "description": "Use an existing SSH Secret (keys: id_ed25519, id_ed25519.pub, known_hosts)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "privateKey": {
+          "description": "SSH private key for the Borg host",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "publicKey": {
+          "description": "SSH public key",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "knownHosts": {
+          "description": "known_hosts for the Borg host",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "hostKey": {
+          "description": "Host key of the repository server, private part (Secret key `ssh_host_ed25519_key`). Create one with: ssh-keygen -t ed25519 -N \"\" -C \"\" -f ssh_host_ed25519_key",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "authorizedKeys": {
+          "description": "Public keys of the repository server's clients (Secret key `authorized_keys`), one per line as in any authorized_keys file: \"<type> <key> <name>\". The comment names the client. No options — the server adds the restriction itself.",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        }
+      }
+    },
+    "databases": {
+      "title": "Databases (logical dumps; cluster/app workloads)",
+      "description": "An engine is dumped only when it is enabled AND has at least one instance or an existingSecret; enabled with neither fails the render. See https://k8s-borg.ioanalytica.com/features/databases\n\nAn instance is configured EITHER with a static `config` (rendered into a chart-managed Secret, or brought via existingSecret) OR with a `secretRef` pointing at a credentials Secret in the database's own namespace (e.g. the operator-generated Zalando/CloudNativePG/mariadb-operator secrets). secretRef instances are resolved at pod start by an init container: it reads each referenced Secret through the Kubernetes API and synthesizes the *.conf file the dump scripts consume. The generated files are available in the cluster CronJob for backups and in the app StatefulSet for restores; node DaemonSet pods never receive DB credentials. The StatefulSet must be rolled after a referenced Secret changes. The chart creates a get-only Role in each referenced namespace, restricted to exactly the configured Secret names, and binds it to a dedicated resolver ServiceAccount.",
+      "type": "object",
+      "properties": {
+        "mariadb": {
+          "description": "MariaDB",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Back up MariaDB instances",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "existingSecret": {
+              "description": "Use an existing Secret (one *.conf per instance)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "instances": {
+              "description": "MariaDB instances (static config or secretRef) The image's client asks for TLS by default and refuses a server without it (a MariaDB before 11.4 without a certificate): `tls: false` on a secretRef instance, or a `skip-ssl` line in a static config, turns it off.",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            }
+          }
+        },
+        "mysql": {
+          "description": "MySQL (Oracle MySQL, Percona Server)",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Back up MySQL instances (Oracle MySQL, Percona Server)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "existingSecret": {
+              "description": "Use an existing Secret (one *.conf per instance)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "instances": {
+              "description": "MySQL instances (static config or secretRef) Dumped and restored with MySQL's own client (8.4), not MariaDB's. Its options: TLS when the server offers it, its certificate unchecked (ssl-mode=PREFERRED); `tls: false` on a secretRef instance writes `ssl-mode=DISABLED` and `get-server-public-key`. Neither authenticates the server, so both are for a trusted network; a static config checks it with `ssl-mode=VERIFY_IDENTITY` and `ssl-ca` (or `server-public-key-path` without TLS). See https://k8s-borg.ioanalytica.com/features/databases#mysql-and-percona-server",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            }
+          }
+        },
+        "postgres": {
+          "description": "PostgreSQL",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Back up PostgreSQL instances",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "existingSecret": {
+              "description": "Use an existing Secret (one *.conf per instance)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "instances": {
+              "description": "PostgreSQL instances (static config or secretRef) A superuser dumps the roles with their passwords; any other user gets them without (the dump then ends with a warning) and needs pg_read_all_data, CONNECT on every database and SELECT on every large object.",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            }
+          }
+        },
+        "mongodb": {
+          "description": "MongoDB",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Back up MongoDB instances",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "existingSecret": {
+              "description": "Use an existing Secret (one *.conf per instance)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "instances": {
+              "description": "MongoDB instances (static config or secretRef) A *.conf file is the YAML file mongodump/mongorestore read with --config: `uri` (a connection string) and, optionally, `password` for the user in the URI. A secretRef takes the whole connection string from one key (uriKey, e.g. the MongoDB Community operator's connectionString.standard), or builds one from host, port, options and the user (as for the other engines). The user needs the backup role to dump, the restore role to restore; see https://k8s-borg.ioanalytica.com/features/mongodb#privileges",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            }
+          }
+        },
+        "redis": {
+          "description": "Redis and Valkey",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Back up Redis and Valkey instances (RDB snapshots)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "existingSecret": {
+              "description": "Use an existing Secret (one *.conf per instance)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "instances": {
+              "description": "Redis/Valkey instances (static config or secretRef) A static config is key=value lines: host (required), port (6379), user, password, tls, cacert, insecure. A cluster is found by itself: one RDB file per primary. An ACL user needs `+info +sync +replconf +cluster|nodes`; without user, the default user. A CA bundle for `cacert` comes in through cluster.extraVolumes.",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            }
+          }
+        },
+        "credentialsResolver": {
+          "description": "Image for the secretRef resolver init container The init container runs a POSIX sh script: any image with kubectl, sh, base64, od and awk will do (BusyBox's are enough, Bash is not needed).",
+          "type": "object",
+          "properties": {
+            "image": {
+              "description": "Resolver image",
+              "type": "object",
+              "properties": {
+                "repository": {
+                  "description": "Resolver image repository",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "alpine/kubectl"
+                },
+                "tag": {
+                  "description": "Resolver image tag",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "1.37.1"
+                },
+                "pullPolicy": {
+                  "description": "Resolver image pull policy",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "IfNotPresent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "node": {
+      "title": "Node backup (DaemonSet)",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Deploy the node-backup DaemonSet",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": true
+        },
+        "backupMode": {
+          "description": "How node backups run: \"interval\" (legacy in-pod loop every backupIntervalSeconds) or \"agent\" (enroll each DaemonSet pod as a managed agent and register a per-node backup plan in Borg UI). \"agent\" requires a reachable server (borgUI.agentConnection.server or an in-cluster Borg UI). Node schedules then come from borg.backupSchedule/checkSchedule.",
+          "type": "string",
+          "enum": [
+            "interval",
+            "agent"
+          ],
+          "default": "interval"
+        },
+        "backupIntervalSeconds": {
+          "description": "Sleep between node backups (backupMode=interval only)",
+          "type": [
+            "number",
+            "string"
+          ],
+          "default": 3600
+        },
+        "hostRootPath": {
+          "description": "Host path mounted at /node",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "/"
+        },
+        "hostRootReadOnly": {
+          "description": "Mount the host root at /node read-only Backups only READ /node, so read-only is the safe default. Set to false to allow restore-to-original-location on the node (the agent restore writes back through /node). WARNING: false lets a restore write anywhere on the host FS — the pod is already privileged, but this additionally grants host-write.",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": true
+        },
+        "tolerations": {
+          "description": "Tolerations (backups run on every node by default)",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "default": [
+            {
+              "operator": "Exists",
+              "effect": "NoSchedule"
+            }
+          ]
+        },
+        "containerSecurityContext": {
+          "description": "Node container security context (privileged: reads node FS, FUSE)",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {
+            "privileged": true,
+            "capabilities": {
+              "add": [
+                "SYS_ADMIN"
+              ]
+            }
+          }
+        },
+        "resources": {
+          "description": "Node container resources",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {}
+        },
+        "agentScripts": {
+          "description": "Pre/post-backup scripts published to each NODE agent (backupMode=agent). Map of filename -> script body. Each entry is mounted read-only and executable at /etc/borg-ui-agent-scripts and becomes selectable as a pre/post-backup hook in Borg UI. The agent only ever runs scripts from this allow-list. Use this for node-local scripts; for CLUSTER-backup scripts (which need the cluster secrets) use cluster.agentScripts instead. Example:\nagentScripts:\n  pre-db-dump.sh: |\n    #!/bin/sh\n    # borg-ui: Dump the local database before backup\n    pg_dumpall > /var/backups/db.sql",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {}
+        },
+        "datastoreSnapshot": {
+          "description": "Snapshot of the cluster datastore on the control-plane nodes, archived with the node backup: etcd of k3s or kubeadm (etcdctl), or k3s's SQLite. Each node pod detects its datastore itself; a node without one skips the step. The snapshot holds every Secret of the cluster in clear text: it is written to a memory-backed volume of the pod only, archived from there, and removed after the run. Restore: https://k8s-borg.ioanalytica.com/operations/disaster-recovery#cluster-datastore",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Snapshot the cluster datastore before each node backup",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "sizeLimit": {
+              "description": "Size limit of the memory volume the snapshot is written to (counts against the pod's memory) etcd's default quota is 2 GiB; raise this with --quota-backend-bytes.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "2Gi"
+            },
+            "hostNetwork": {
+              "description": "Run the node pods in the host network and reach etcd at 127.0.0.1 Off, etcd is reached at the node's IP, on which k3s and kubeadm also listen.",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "etcdEndpoint": {
+              "description": "etcd client URL (default: https://<node IP>:2379, or https://127.0.0.1:2379 with hostNetwork)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "k3sDataDir": {
+              "description": "k3s data directory on the node (k3s --data-dir)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "/var/lib/rancher/k3s"
+            },
+            "kubeadmDir": {
+              "description": "kubeadm configuration directory on the node",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "/etc/kubernetes"
+            }
+          }
+        },
+        "sqlite": {
+          "description": "Consistent copies of SQLite databases on application volumes, archived with the node backup instead of the files the application writes while they are read. A database is named by its PersistentVolumeClaim and its path inside the volume; the node that has the volume (a local or hostPath volume on its disk, any other while the kubelet has it mounted for a pod there) copies it with SQLite's online backup. The node pods read the claims and volumes through the API (get only) and see the volumes through /node with HostToContainer mount propagation. Restore: https://k8s-borg.ioanalytica.com/operations/restore#sqlite",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Copy the listed SQLite databases before each node backup",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "databases": {
+              "description": "SQLite databases to copy: namespace and claim of the volume, path inside it",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            },
+            "sizeLimit": {
+              "description": "Size limit of the volume on the node's disk the copies are written to (\"\" = none)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "busyTimeout": {
+              "description": "Seconds a copy waits for the application's write lock before it fails",
+              "type": [
+                "number",
+                "string"
+              ],
+              "default": 60
+            },
+            "kubeletDir": {
+              "description": "The kubelet's root directory on the node (kubelet --root-dir); also what the node backup's skipped-mount warning leaves out",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "/var/lib/kubelet"
+            }
+          }
+        },
+        "include": {
+          "description": "Borg include patterns for node backups (prepend the /node mount)",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": [
+            "P fm"
+          ]
+        },
+        "exclude": {
+          "description": "Borg exclude patterns for node backups",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        }
+      }
+    },
+    "cluster": {
+      "title": "Cluster backup (CronJob or console/agent pod)",
+      "description": "The cluster covers the cluster-scope data (S3/NFS/DB sources) AND the long-lived console pod that represents the cluster repository in Borg UI and, in agent mode, runs the cluster backup. The CronJob and the console pod are pinned the same way (same node-local storage) and share the settings below.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Back up cluster-scope data + deploy the console/agent pod",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": true
+        },
+        "mode": {
+          "description": "Console pod behaviour: \"legacy\" (inspection only — tails the log, kubectl exec in) or \"agent\" (enrol at Borg UI: register the cluster repository + check-schedule so it is browsable, and run the agent). Agent mode needs a reachable Borg UI (borgUI.agentConnection.server or an in-cluster borgUI.enabled server). cluster.backupMode=plan requires cluster.mode=agent.",
+          "type": "string",
+          "enum": [
+            "legacy",
+            "agent"
+          ],
+          "default": "legacy"
+        },
+        "backupMode": {
+          "description": "How the cluster backup is scheduled (not who talks to Borg UI): \"cronjob\" → a k8s CronJob runs it on cluster.schedule (the console pod, if agent, just makes the repo visible); \"plan\" → a server-side BackupPlan run by the console/agent pod (needs cluster.mode=agent). Plan/check schedules come from borg.backupSchedule/checkSchedule (keyed by cluster.nodeName).",
+          "type": "string",
+          "enum": [
+            "cronjob",
+            "plan"
+          ],
+          "default": "cronjob"
+        },
+        "schedule": {
+          "description": "Cron schedule (backupMode=cronjob only)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "0 */6 * * *"
+        },
+        "timeZone": {
+          "description": "CronJob time zone (defaults to .timezone)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": ""
+        },
+        "borgUiResync": {
+          "description": "After each CronJob run (backupMode=cronjob), ask Borg UI to resync the cluster repository so the new archives, the pruned ones and the size show up right away instead of on Borg UI's next periodic reconcile run. Only takes effect with a Borg UI to talk to (borgUI.enabled or borgUI.agentConnection.server). Best effort: a failure is logged as a warning and never changes the backup's exit code.",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": true
+        },
+        "nodeName": {
+          "description": "Logical NODE_NAME for the cluster repo — used by BOTH the CronJob and the console/agent pod (its hostname: the Borg UI agent/repo name and its key in borg.checkSchedule.perHost / borg.backupSchedule.perHost)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "k8s-borg-mycluster"
+        },
+        "concurrencyPolicy": {
+          "description": "CronJob concurrency policy",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "Forbid"
+        },
+        "containerSecurityContext": {
+          "description": "Cluster container security context",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {
+            "privileged": true,
+            "capabilities": {
+              "add": [
+                "SYS_ADMIN"
+              ]
+            }
+          }
+        },
+        "resources": {
+          "description": "Cluster container resources",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {}
+        },
+        "nodeSelector": {
+          "description": "Node selector for the cluster CronJob pod",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "default": {}
+        },
+        "affinity": {
+          "description": "Affinity for the cluster CronJob pod",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "default": {}
+        },
+        "tolerations": {
+          "description": "Tolerations for the cluster CronJob pod",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "default": []
+        },
+        "extraVolumes": {
+          "description": "Extra volumes for the cluster CronJob + console pod",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "default": []
+        },
+        "extraVolumeMounts": {
+          "description": "Extra volume mounts for the cluster CronJob + console pod",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "default": []
+        },
+        "agentScripts": {
+          "description": "Pre/post-backup scripts published to the CLUSTER agent (cluster.mode=agent). Map of filename -> script body, mounted read-only + executable at /etc/borg-ui-agent-scripts on the console/agent pod and selectable as a pre/post-backup hook in Borg UI. Put cluster-backup scripts HERE (not under node.agentScripts): this pod is where the cluster DB/source secrets live; node pods do not have them. A wrapper for each enabled database is added automatically and DEEP-MERGED with the entries below (yours win on a name collision): databases.mariadb.enabled -> `backup-cluster-mariadb`, databases.postgres.enabled -> `backup-cluster-postgres` (each execs /usr/local/bin/backup-cluster-<engine>), and s3.enabled -> `s3-remount-buckets` (every listed bucket unmounted and mounted fresh) and `s3-check-mounts` (`s3-mount-buckets --check`: a warning in Borg UI when a listed bucket is not mounted) and, with s3.verifyListing, `s3-verify-listing` (the listing check of the CronJob; it mounts a lost or skipped bucket again). In cluster.backupMode=plan these run as pre-backup hooks of the cluster plan. Only add entries here for extra scripts or to override a default. Example:\nagentScripts:\n  backup-cluster-postgres: |\n    #!/bin/sh\n    # borg-ui: Dump the cluster Postgres before backup\n    pg_dumpall > /mnt/cluster/db.sql",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {}
+        },
+        "include": {
+          "description": "Borg include patterns for cluster backups",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": [
+            "P fm"
+          ]
+        },
+        "exclude": {
+          "description": "Borg exclude patterns for cluster backups",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        },
+        "s3Buckets": {
+          "description": "Buckets to mount and back up (one per line -> cluster-s3-buckets)",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        }
+      }
+    },
+    "borgUI": {
+      "title": "Borg UI (optional)",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Deploy the Borg UI server (Deployment/Service/Ingress)",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": false
+        },
+        "image": {
+          "description": "Borg UI server image",
+          "type": "object",
+          "properties": {
+            "registry": {
+              "description": "Borg UI server image registry",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "ghcr.io"
+            },
+            "repository": {
+              "description": "Borg UI server image repository",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "ioanalytica/k8s-borg-ui"
+            },
+            "tag": {
+              "description": "Borg UI server image tag",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "2.4.6"
+            },
+            "pullPolicy": {
+              "description": "Borg UI server image pull policy",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "IfNotPresent"
+            }
+          }
+        },
+        "startupProbe": {
+          "description": "Startup budget for the database upgrade the entrypoint runs before serving. Nothing listens until it finishes, and on a large database over NFS that is minutes; liveness would otherwise kill it and restart the migration from the beginning on every attempt. Default = 30 minutes.",
+          "type": "object",
+          "properties": {
+            "periodSeconds": {
+              "description": "Seconds between startup checks",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 10
+            },
+            "failureThreshold": {
+              "description": "Checks allowed before the container is considered failed",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 180
+            }
+          }
+        },
+        "publicBaseUrl": {
+          "description": "Public base URL advertised by the server",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "https://borgui.example.com"
+        },
+        "adminUser": {
+          "description": "Admin username (the Borg UI server hardcodes \"admin\"; kept for enrollment login)",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "admin"
+        },
+        "adminPassword": {
+          "description": "Admin password. Drives the server's INITIAL_ADMIN_PASSWORD *and* agent enrollment login — they must match. Sensitive: value or existingSecret[+existingSecretKey]. A file read with --set-file (or into a Secret with --from-file) keeps its final newline. Borg UI creates the admin without surrounding whitespace, and the reconcile Job and the agents log in with the value as it is, then without it.",
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "Admin password",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecret": {
+              "description": "Existing Secret holding the admin password",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecretKey": {
+              "description": "Key in existingSecret (default: BORG_UI_ADMIN_PASS)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "postgres": {
+          "description": "Postgres backend for the UI's own database. Off by default → the bundled SQLite file under /data. When enabled, the server assembles its connection from the parts below and, on first boot, upgrades the existing SQLite database into Postgres (the SQLite file is kept alongside as borg_bak.db). The Postgres server itself is not deployed here — this only points the UI at an existing one.",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Store the UI database in Postgres instead of the SQLite file",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "host": {
+              "description": "Postgres host (required when enabled)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "port": {
+              "description": "Postgres port",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 5432
+            },
+            "database": {
+              "description": "Postgres database name",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "borg"
+            },
+            "user": {
+              "description": "Inline username (leave empty when using existingSecret)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "password": {
+              "description": "Inline password (leave empty when using existingSecret)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "existingSecret": {
+              "description": "Name of an existing Secret holding the credentials",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "userKey": {
+              "description": "Key in existingSecret holding the username",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "username"
+            },
+            "passwordKey": {
+              "description": "Key in existingSecret holding the password",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "password"
+            }
+          }
+        },
+        "licensing": {
+          "description": "License activation. The server contacts the activation service on startup and refreshes its entitlement periodically; the plan itself is then evaluated locally from the signed entitlement stored in the database.\n\nAir-gapped: set startupSync=false and activationServiceUrl=\"\" (both are always rendered, so they override the image defaults). The instance then stays on the community plan until an admin imports a signed entitlement document via POST /api/system/licensing/import. Leaving sync on without egress costs every pod start the activation timeout and logs a refresh warning every hour.",
+          "type": "object",
+          "properties": {
+            "startupSync": {
+              "description": "Contact the activation service on startup and refresh it periodically",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "activationServiceUrl": {
+              "description": "Activation service URL. Empty disables all outbound license calls.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "https://license.borgui.com"
+            },
+            "activationPublicKey": {
+              "description": "Override the entitlement-signing public key",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "licenseKey": {
+              "description": "Applying a license from the HelmRelease. The reconcile Job does it on every install/upgrade (it already holds the admin PAT), so the license travels with the release instead of being clicked into the UI once. Two independent ways in:\n\n  licenseKey  -> POST /system/licensing/activate. Needs egress to the\n                 activation service. Applied only while the instance is\n                 unlicensed, so upgrades never re-activate and never burn a seat.\n  entitlement -> POST /system/licensing/import of a signed offline document.\n                 No egress — this is the air-gapped path.\n\nThe offline document is bound to the instance_id the server generates on its FIRST boot, so it is inherently a second step: install, read the instance_id (Settings > Licensing, or the reconcile Job log, which prints it), have the document issued, then set it here and upgrade.\n\nSet both and they cover each other: the document is used as long as it matches this instance, and once it doesn't — the database was wiped and the instance came back with a new id — the key takes over and gets a fresh entitlement issued. A stale document alone (no key) fails the reconcile rather than silently leaving the instance on the community plan.\n\nNeither is re-applied without cause: an instance that already holds a paid license is never re-activated, and a document is imported only when the instance is unlicensed or the document expires later than what it holds — a live instance renews its own entitlement, and re-asserting an older copy kept in the release would roll that back.",
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "License key",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecret": {
+                  "description": "Existing Secret holding the license key",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in existingSecret (default: BORG_UI_LICENSE_KEY)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            },
+            "entitlement": {
+              "description": "Signed offline entitlement document, from an existing Secret",
+              "type": "object",
+              "properties": {
+                "existingSecret": {
+                  "description": "Secret holding the signed offline entitlement document (JSON: payload/signature/key_id)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in that Secret",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "entitlement.json"
+                }
+              }
+            }
+          }
+        },
+        "errorReporting": {
+          "description": "Backend error reports (Borg UI 2.4.1 and later; older images ignore the setting). The server sends its own errors as \"Error - Report\" events to the Borg UI analytics ingest at https://t.borgui.com/e: unhandled request exceptions, 5xx responses with their cause, startup and migration failures, and failed jobs. Messages and stack traces are scrubbed of secrets first. The image default is on; nothing is sent while any user has turned analytics off in Settings > Preferences.\n\nThis switch covers the server only. The browser's usage analytics and its error reports go to the same ingest and follow each user's analytics preference; the chart has no switch for them.",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Send backend error reports (ERROR_REPORTING_ENABLED, always rendered; must be a boolean)",
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "extraEnv": {
+          "description": "Extra EnvVar objects appended to the Borg UI server container's env For server settings the chart has no value for, e.g.:\n  extraEnv:\n    - name: LOG_LEVEL\n      value: \"DEBUG\"\nA name the chart already sets (TZ, ENABLE_STARTUP_LICENSE_SYNC, ERROR_REPORTING_ENABLED, REDIS_*, DB_*, …) fails the render: set it through its chart value instead. Entries come after the chart's, so a value can refer to them as $(NAME).",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        },
+        "service": {
+          "description": "Borg UI Service",
+          "type": "object",
+          "properties": {
+            "type": {
+              "description": "Borg UI Service type",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "ClusterIP"
+            },
+            "port": {
+              "description": "Borg UI Service port",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 8081
+            }
+          }
+        },
+        "ingress": {
+          "description": "Borg UI Ingress",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Expose the Borg UI via Ingress",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "ingressClassName": {
+              "description": "Ingress class",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "traefik"
+            },
+            "host": {
+              "description": "Ingress host",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "borgui.example.com"
+            },
+            "annotations": {
+              "description": "Ingress annotations (restrict exposure to trusted networks!)",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "default": {}
+            },
+            "tls": {
+              "description": "TLS of the Borg UI Ingress",
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "description": "Enable TLS",
+                  "type": [
+                    "boolean",
+                    "integer",
+                    "string"
+                  ],
+                  "default": true
+                },
+                "secretName": {
+                  "description": "TLS Secret name",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "borgui-tls"
+                }
+              }
+            }
+          }
+        },
+        "resources": {
+          "description": "Borg UI server resources",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {}
+        },
+        "fuse": {
+          "description": "FUSE in the Borg UI server. The server mounts through FUSE for three features: server-side backups of SSH sources (sshfs), cloud mirrors of SSH repositories (sshfs), and \"Mount archive\" (borg mount). Browsing and restoring archives do not use it.\n\nFUSE needs three things in the container: /dev/fuse allowed by the device cgroup, CAP_SYS_ADMIN, and the setuid fusermount3 (privilege escalation). containerd allows /dev/fuse only to privileged containers and to devices a device plugin (or CDI) assigns; a hostPath mount of /dev/fuse is not enough, opening it fails with \"Operation not permitted\". Hence three ways to run:\n\n  enabled, deviceResource \"\"  -> privileged container (the default; works\n                                 on every node, nothing else to install)\n  enabled, deviceResource set -> not privileged: the pod requests one unit\n                                 of the device plugin's FUSE resource and\n                                 gets SYS_ADMIN, privilege escalation and\n                                 AppArmor unconfined (containerd's default\n                                 profile denies mount)\n  disabled                    -> not privileged, no privilege escalation,\n                                 only the capabilities the entrypoint needs\n                                 to set up /data and drop to the borg user;\n                                 the three features above fail, and so does\n                                 sudo in the container (package install\n                                 commands such as sudo apt-get)",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Let the Borg UI server mount through FUSE (SSH sources, SSH cloud mirrors, Mount archive)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "deviceResource": {
+              "description": "Extended resource of a FUSE device plugin, e.g. squat.ai/fuse; empty runs the container privileged",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "containerSecurityContext": {
+          "description": "Borg UI server container security context; set (even {}) it replaces the one borgUI.fuse selects",
+          "type": [
+            "object",
+            "array",
+            "string",
+            "boolean",
+            "null"
+          ],
+          "maxItems": 0,
+          "default": null
+        },
+        "redis": {
+          "description": "Archive-listing cache backend for the Borg UI server.\n  disabled → the server keeps its in-memory cache (lost on every UI-pod roll).\n  internal → deploy a dedicated Redis pod (its OWN Deployment, NOT a sidecar —\n             survives UI-pod rolls and, if scaled, is shared across workers).\n  external → point the server at an existing Redis instance.\nThe server auto-selects Redis over in-memory when REDIS_URL/REDIS_HOST is set.",
+          "type": "object",
+          "properties": {
+            "mode": {
+              "description": "Cache backend: disabled | internal | external",
+              "type": "string",
+              "enum": [
+                "disabled",
+                "internal",
+                "external"
+              ],
+              "default": "disabled"
+            },
+            "auth": {
+              "description": "Password shared by the server and (for internal) the Redis pod. Empty → no auth. Sensitive: value or existingSecret[+existingSecretKey] (key REDIS_PASSWORD).",
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "Redis password",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecret": {
+                  "description": "Existing Secret holding the Redis password",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in existingSecret (default: REDIS_PASSWORD)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            },
+            "cacheTtlMinutes": {
+              "description": "Cached-listing TTL in minutes (matches the UI). Empty → server default (120). Reconciled into the DB by the reconcile Job.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "internal": {
+              "description": "Internal Redis pod (mode=internal).",
+              "type": "object",
+              "properties": {
+                "image": {
+                  "description": "Redis image",
+                  "type": "object",
+                  "properties": {
+                    "registry": {
+                      "description": "Redis image registry",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": "docker.io"
+                    },
+                    "repository": {
+                      "description": "Redis image repository",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": "redis"
+                    },
+                    "tag": {
+                      "description": "Redis image tag",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": "7.4-alpine"
+                    },
+                    "pullPolicy": {
+                      "description": "Redis image pull policy",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": "IfNotPresent"
+                    }
+                  }
+                },
+                "maxmemory": {
+                  "description": "Redis maxmemory cap (cache size)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "256mb"
+                },
+                "maxmemoryPolicy": {
+                  "description": "Eviction policy when full",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": "allkeys-lru"
+                },
+                "persistence": {
+                  "description": "Persistence for the Redis pod. A cache survives a Redis-pod restart if enabled; otherwise it just re-fills. Off by default — the win here is surviving UI-pod rolls, which needs only a separate pod, not a PVC.",
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "description": "Keep the Redis data on a PersistentVolumeClaim",
+                      "type": [
+                        "boolean",
+                        "integer",
+                        "string"
+                      ],
+                      "default": false
+                    },
+                    "existingClaim": {
+                      "description": "Use an existing claim (the chart creates none)",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": ""
+                    },
+                    "storageClassName": {
+                      "description": "StorageClass of the claim (empty = the cluster default)",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": ""
+                    },
+                    "size": {
+                      "description": "Size of the claim",
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "default": "1Gi"
+                    }
+                  }
+                },
+                "resources": {
+                  "description": "Redis pod resources",
+                  "type": [
+                    "object",
+                    "array",
+                    "string"
+                  ],
+                  "maxItems": 0,
+                  "maxLength": 0,
+                  "default": {}
+                },
+                "nodeSelector": {
+                  "description": "Redis pod nodeSelector",
+                  "type": [
+                    "object",
+                    "array",
+                    "string"
+                  ],
+                  "maxItems": 0,
+                  "maxLength": 0,
+                  "default": {}
+                },
+                "tolerations": {
+                  "description": "Redis pod tolerations",
+                  "type": [
+                    "array",
+                    "object",
+                    "string"
+                  ],
+                  "maxProperties": 0,
+                  "maxLength": 0,
+                  "default": []
+                },
+                "affinity": {
+                  "description": "Redis pod affinity",
+                  "type": [
+                    "object",
+                    "array",
+                    "string"
+                  ],
+                  "maxItems": 0,
+                  "maxLength": 0,
+                  "default": {}
+                }
+              }
+            },
+            "external": {
+              "description": "External Redis (mode=external).",
+              "type": "object",
+              "properties": {
+                "url": {
+                  "description": "Full URL redis://[:password@]host:port/db — takes precedence if set",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "host": {
+                  "description": "Host (used when url is empty; password from redis.auth)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "port": {
+                  "description": "Port",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "default": 6379
+                },
+                "db": {
+                  "description": "Database number",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "default": 0
+                }
+              }
+            }
+          }
+        },
+        "agentConnection": {
+          "description": "How managed agents reach the Borg UI server. Which components actually enrol as agents is decided per component: node.backupMode=agent and cluster.backupMode=plan. (The server itself is never an agent — hence the name.) Enrolment still uses the admin user/password above; PAT-based agent auth is a later phase.",
+          "type": "object",
+          "properties": {
+            "server": {
+              "description": "Borg UI server URL. Empty → derived from the in-cluster Service.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            }
+          }
+        },
+        "reconcile": {
+          "description": "Reconcile Job (Helm post-install/upgrade hook): waits for the server, mints (and reuses) an admin PAT into a retained Secret, and reconciles OIDC/SSO, the system SSH key, remote machines and notification channels to match this HelmRelease every run. It runs once per Helm revision: a changed Secret referenced via existingSecret takes effect only with the next revision (forced upgrade); see https://k8s-borg.ioanalytica.com/operations/troubleshooting#changing-a-referenced-secret Runs the k8s-borg agent image (ships reconcile-borgui).",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Run the reconcile Job (only meaningful with borgUI.enabled)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "patName": {
+              "description": "Name of the PAT minted for admin/agent auth",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "k8s-borg-reconcile"
+            },
+            "waitSeconds": {
+              "description": "How long to wait for the server /health The wait starts once the Job's own image is pulled. When the release waits for the Job (Flux, helm --wait-for-jobs), image pull time plus waitSeconds must stay below the release timeout (HelmRelease spec.timeout, helm --timeout); otherwise a larger value only moves the failure from the Job to the release. The gated agent pods wait this long for the Job, too.",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 300
+            },
+            "ttlSecondsAfterFinished": {
+              "description": "Seconds a finished reconcile Job and its pod (with the log) are kept",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 86400
+            }
+          }
+        },
+        "oidc": {
+          "description": "OIDC / SSO. Reconciled declaratively by the reconcile Job (all fields the Borg UI settings dialog exposes). Only applied when oidc.enabled and the reconcile Job runs. Empty string = leave the server default.",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Enable OIDC login on the server",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "discoveryUrl": {
+              "description": "OIDC provider discovery URL (.well-known/openid-configuration)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "clientId": {
+              "description": "OIDC client ID",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "clientSecret": {
+              "description": "OIDC client secret (sensitive): value or existingSecret[+existingSecretKey].",
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "OIDC client secret",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecret": {
+                  "description": "Existing Secret holding the client secret",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in existingSecret (default: OIDC_CLIENT_SECRET)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            },
+            "providerName": {
+              "description": "Display name of the provider (login button)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "tokenAuthMethod": {
+              "description": "Token endpoint auth: client_secret_post | client_secret_basic",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "client_secret_post"
+            },
+            "scopes": {
+              "description": "OAuth scopes to request",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "openid profile email"
+            },
+            "redirectUriOverride": {
+              "description": "Override the auto-derived redirect URI (empty = auto)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "endSessionEndpointOverride": {
+              "description": "Override the provider logout endpoint (empty = auto)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "claimUsername": {
+              "description": "ID-token claim used for the username",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "preferred_username"
+            },
+            "claimEmail": {
+              "description": "ID-token claim used for the email",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "email"
+            },
+            "claimFullName": {
+              "description": "ID-token claim used for the full name",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "name"
+            },
+            "groupClaim": {
+              "description": "ID-token claim carrying the group list (e.g. Zitadel: urn:zitadel:iam:org:project:roles)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "roleClaim": {
+              "description": "ID-token claim carrying the role directly (empty = derive from groups)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "adminGroups": {
+              "description": "Comma-separated groups that receive the admin role",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "allRepositoriesRoleClaim": {
+              "description": "Claim carrying the per-all-repositories role",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "newUserMode": {
+              "description": "How to handle first-seen OIDC users: deny | viewer | pending | template",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "viewer"
+            },
+            "newUserTemplateUsername": {
+              "description": "Template user to copy permissions from (newUserMode=template)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "defaultRole": {
+              "description": "Global role granted to new OIDC users",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "viewer"
+            },
+            "defaultAllRepositoriesRole": {
+              "description": "Per-all-repositories role granted to new OIDC users",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "viewer"
+            },
+            "disableLocalAuth": {
+              "description": "Disable local password login (OIDC-only). Guarded: kept ON until an OIDC admin can sign in.",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            }
+          }
+        },
+        "systemSshKey": {
+          "description": "Import the pods' SSH key (ssh.existingSecret) as the Borg UI *system* SSH key, so the server reaches ssh:// repos and remote machines with the SAME identity the backup pods use (its public key is already on those targets). An init container stages the key for the server user (uid 1001) — a plain secret mount would have the wrong owner/mode. The reconcile Job then imports it once (POST /api/ssh-keys/import) and it lives encrypted in the Borg UI DB. Enabling remoteMachines below implies this import.",
+          "type": "object",
+          "properties": {
+            "import": {
+              "description": "Import ssh.existingSecret as the Borg UI system SSH key",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "name": {
+              "description": "Name for the imported system key",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "k8s-borg-system"
+            }
+          }
+        },
+        "remoteMachines": {
+          "description": "Remote machines (SSH connections) the reconcile Job reconciles via POST /api/ssh-keys/{systemKey}/test-connection (idempotent; no password — the public key must already be deployed on each target). Each entry is { host, username, port }; the connection is created with Borg UI defaults (use_sftp_mode=true, Hetzner-friendly). Requires the system key (auto-imported).",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        },
+        "notifications": {
+          "description": "Notification channels the reconcile Job provisions. Matched by name: a missing channel is created, an existing one is updated when its URL or a setting named here differs, an equal one is not written. Channels under other names (e.g. made in the UI) are never touched, and removing an entry here does NOT delete its channel. A channel the server rejects is a warning in the Job log, not a failed release. Per entry:\n  name                    required, unique\n  email                   an e-mail channel; the Job assembles the Apprise\n                          mailto(s):// URL from these fields:\n    smtp.host             required, the SMTP server\n    smtp.port             optional (Apprise default: 587 starttls, 465 ssl, 25 insecure)\n    smtp.mode             starttls (default) | ssl | insecure\n    username              optional SMTP login\n    password              the SMTP password: value (goes into the chart Secret)\n                          or existingSecret+existingSecretKey; needs username\n    from, fromName        sender address (required) and display name\n    to, cc, bcc           lists of addresses (to: at least one)\n    replyTo               optional address\n  serviceUrl              instead of email: any other Apprise URL (slack://,\n                          json://, …) as a whole, value or existingSecret+\n                          existingSecretKey — it carries its credentials\n  enabled                 default true; a channel disabled in the UI is\n                          enabled again on the next reconcile\n  titlePrefix, includeJobNameInTitle, monitorAllRepositories\n  events                  overrides of the notify_on_* flags, camelCase:\n                          backupStart backupSuccess backupWarning backupFailure\n                          restoreSuccess restoreFailure checkSuccess checkFailure\n                          restoreCheckSuccess restoreCheckFailure scheduleFailure\n                          staleBackup backupReport\nOnly the settings an entry names are enforced; the rest start at the API defaults (every failure event, stale backups and the backup report on; start, success and warning off) and keep what the UI sets later. The repository selection behind monitorAllRepositories=false is left to the UI.",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        }
+      }
+    },
+    "persistence": {
+      "title": "Persistence",
+      "description": "Operational volumes only: the Borg client cache, the Borg UI server state, and the managed-agent config/enrollment. (The backup *sources* are yours — mount them via extraVolumes.) Each volume can use an existing PVC, or the chart creates one (+ an optional static NFS PV via createPV).\n\n`retain: true` sets the PV reclaim policy to Retain AND adds helm.sh/resource-policy: keep to the PVC, so `helm uninstall` does NOT delete it — your Borg UI instance, config and agent enrollment survive and a re-install over the top picks them back up. `retain: false` lets uninstall remove the volume (fine for the disposable cache).\n\n`accessModes` is what the chart's claim asks for, and what its static PV offers with createPV. The default, ReadWriteMany, lets the node DaemonSet mount the cache and uiAgent volumes on every node, next to the console pod or the CronJob and, for the cache, the Borg UI server. Storage that offers only ReadWriteOnce, such as the local-path class of k3s and kind, needs [ReadWriteOnce]; every pod that mounts the claim then has to run on one node. Not used with existingClaim. Kubernetes does not change the access modes of an existing claim, so an upgrade that changes them fails: set them before the install. A claim that never bound holds nothing and can be deleted first; the data of a bound one has to move to a new claim, named in existingClaim (ui holds Borg UI's state, uiAgent Borg's key files).\n\nThe ui claim, and its static PV, exist only with borgUI.enabled: no other pod mounts it. A release that turns Borg UI off keeps them with `retain: true`, and takes them back when it turns Borg UI on again; with `retain: false` the upgrade deletes them. What counts is the annotation they already carry: a `retain` changed in the same upgrade does not reach them. cache and uiAgent exist in every release.",
+      "type": "object",
+      "properties": {
+        "cache": {
+          "description": "Borg's cache (/root/.cache), one directory per node",
+          "type": "object",
+          "properties": {
+            "retain": {
+              "description": "Keep the PVC/PV on uninstall (disposable → false)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "existingClaim": {
+              "description": "Use an existing claim (the chart creates no claim and no PV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "createPV": {
+              "description": "Create a static NFS PersistentVolume for the claim (server, path)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "server": {
+              "description": "NFS server of the static PV (createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "nfs.example.com"
+            },
+            "path": {
+              "description": "Exported directory on the NFS server (createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "/storage/shared/cluster/static/k8s-borg-cache"
+            },
+            "size": {
+              "description": "Size of the claim (and of the static PV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "5Gi"
+            },
+            "storageClassName": {
+              "description": "StorageClass of the claim (empty = the cluster default; not used with createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "accessModes": {
+              "description": "Access modes of the claim (and of the static PV with createPV)",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": [
+                "ReadWriteMany"
+              ]
+            }
+          }
+        },
+        "ui": {
+          "description": "Borg UI server state (/data); only with borgUI.enabled",
+          "type": "object",
+          "properties": {
+            "retain": {
+              "description": "Keep the Borg UI /data PVC/PV on uninstall and when Borg UI is turned off (config survives)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "existingClaim": {
+              "description": "Use an existing claim (the chart creates no claim and no PV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "createPV": {
+              "description": "Create a static NFS PersistentVolume for the claim (server, path)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "server": {
+              "description": "NFS server of the static PV (createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "nfs.example.com"
+            },
+            "path": {
+              "description": "Exported directory on the NFS server (createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "/storage/shared/cluster/static/k8s-borg-ui"
+            },
+            "size": {
+              "description": "Size of the claim (and of the static PV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "5Gi"
+            },
+            "storageClassName": {
+              "description": "StorageClass of the claim (empty = the cluster default; not used with createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "accessModes": {
+              "description": "Access modes of the claim (and of the static PV with createPV)",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": [
+                "ReadWriteMany"
+              ]
+            }
+          }
+        },
+        "uiAgent": {
+          "description": "Managed-agent config.toml and Borg's key files, one directory per node",
+          "type": "object",
+          "properties": {
+            "retain": {
+              "description": "Keep the agent config PVC/PV on uninstall (avoids re-enrollment). Holds, per node, the agent's config.toml and Borg's key files (borg-keys/).",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": true
+            },
+            "existingClaim": {
+              "description": "Use an existing claim (the chart creates no claim and no PV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "createPV": {
+              "description": "Create a static NFS PersistentVolume for the claim (server, path)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "server": {
+              "description": "NFS server of the static PV (createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "nfs.example.com"
+            },
+            "path": {
+              "description": "Exported directory on the NFS server (createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "/storage/shared/cluster/static/k8s-borg-ui-agent"
+            },
+            "size": {
+              "description": "Size of the claim (and of the static PV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "10Mi"
+            },
+            "storageClassName": {
+              "description": "StorageClass of the claim (empty = the cluster default; not used with createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "accessModes": {
+              "description": "Access modes of the claim (and of the static PV with createPV)",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": [
+                "ReadWriteMany"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "repoServer": {
+      "title": "Repository server (optional; Borg 2 over ssh)",
+      "description": "A Borg 2 repository server inside the release: sshd as the unprivileged user `borg`, every client key bound to `borg serve` for its own path below the data directory. It runs from the agent image, so server and clients always carry the same Borg 2 and borgstore. One replica, data on one node.\n\nBorg 2 is a beta and its repository format has changed more than once without a conversion path. Repositories on this server are test beds, not backups to rely on.\n\nClients address a repository as\n  ssh://borg@<host>:<port>/<path>/<repository>     (Borg 2.0.0b25 and later)\n  rest://borg@<host>:<port>/<path>/<repository>    (up to Borg 2.0.0b24)\nThe path is relative to the data directory. Nothing is wired up for the workloads of this release: set borg.repoBase and the known_hosts entry yourself, as for any other server.\n\nServer and clients share ONE Secret, the ssh Secret (section `ssh` above). The server takes from it:\n  ssh_host_ed25519_key   its host key\n  authorized_keys        the clients' public keys, one per line in the usual\n                         form \"<type> <key> <name>\". The comment names the client.\nAn init container rewrites every line into one that binds the key to `borg serve` for a single directory, and stages it together with the host key with the modes sshd insists on. The server container itself mounts neither the Secret nor anything it could write to.\n\nA new client is one more line in authorized_keys: it gets the directory named after it, and repoServer.defaultPermissions. The pod reads the Secret at start — restart it after a change.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Deploy the repository server",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": false
+        },
+        "port": {
+          "description": "Port sshd listens on in the pod (1024 or higher: sshd is unprivileged)",
+          "type": [
+            "integer",
+            "string"
+          ],
+          "default": 2222
+        },
+        "runAsUser": {
+          "description": "uid of the user `borg` the server runs as. The data directory has to belong to it; the server sets the directory to mode 0700 and creates everything below it readable for this user only. Deliberately not a uid other charts commonly run as — a second workload with the same number on the node could read the repositories.",
+          "type": [
+            "integer",
+            "string"
+          ],
+          "default": 20222
+        },
+        "runAsGroup": {
+          "description": "gid of the group `borg`",
+          "type": [
+            "integer",
+            "string"
+          ],
+          "default": 20222
+        },
+        "borg1": {
+          "description": "Serve Borg 1 repositories as well (`borg serve`). The client decides by the way it asks; the directory a key is confined to is the same for both. Borg 1 knows no permissions, only append-only: `no-delete` becomes --append-only, and a key that may only read or only write gets no Borg 1 access.",
+          "type": [
+            "boolean",
+            "integer",
+            "string"
+          ],
+          "default": true
+        },
+        "defaultPermissions": {
+          "description": "What a client may do unless listed below: all | no-delete | write-only | read-only. Enforced by the server (`borg serve --permissions`).",
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "all"
+        },
+        "clients": {
+          "description": "Optional. Another directory or other permissions for single clients:\n  name         the client, as named by the comment of its key\n  path         directory below the data directory the client is confined to\n               (default: its name). Repositories are created on demand anywhere\n               below it. Relative, no \"..\". Clients may share a directory, e.g.\n               a second key that may only read.\n  permissions  default: repoServer.defaultPermissions\nA name that matches no key stops the start: it is most likely a typo.",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "maxLength": 0,
+          "default": []
+        },
+        "service": {
+          "description": "Service of the repository server",
+          "type": "object",
+          "properties": {
+            "type": {
+              "description": "ClusterIP | NodePort | LoadBalancer. Pods of the cluster reach the server by the Service name with every type; NodePort and LoadBalancer add a way in for clients outside the cluster.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "ClusterIP"
+            },
+            "port": {
+              "description": "Service port",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 2222
+            },
+            "nodePort": {
+              "description": "Fixed node port (NodePort and LoadBalancer; empty = assigned)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "loadBalancerIP": {
+              "description": "Requested address (LoadBalancer). Newer load balancers take it from an annotation instead, see annotations.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "loadBalancerClass": {
+              "description": "Load balancer implementation (LoadBalancer; empty = default)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "loadBalancerSourceRanges": {
+              "description": "Networks allowed in (LoadBalancer), e.g. [\"192.0.2.0/24\"]",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            },
+            "externalTrafficPolicy": {
+              "description": "Cluster | Local (NodePort and LoadBalancer). Local keeps the client address in the sshd log, and only the node running the pod answers.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "Cluster"
+            },
+            "annotations": {
+              "description": "Service annotations, e.g. metallb.io/loadBalancerIPs",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "maxLength": 0,
+              "default": {}
+            }
+          }
+        },
+        "persistence": {
+          "description": "Where the repositories live. One of:\n  existingClaim       a claim you manage\n  local.createPV      a static `local` PersistentVolume for a directory on one\n                      node, plus its claim. The volume pins the pod to that node.\n  neither             a claim from storageClassName (or the default class)\nIn every case the directory has to exist and belong to runAsUser — the chart does not change ownership. Volume and claim created by the chart are kept on uninstall.",
+          "type": "object",
+          "properties": {
+            "existingClaim": {
+              "description": "Use an existing claim",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "size": {
+              "description": "Size of the claim (and of the local volume)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "100Gi"
+            },
+            "storageClassName": {
+              "description": "StorageClass of the claim (not used with local.createPV)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "local": {
+              "description": "A static local PersistentVolume for a directory on one node",
+              "type": "object",
+              "properties": {
+                "createPV": {
+                  "description": "Create a static local PersistentVolume",
+                  "type": [
+                    "boolean",
+                    "integer",
+                    "string"
+                  ],
+                  "default": false
+                },
+                "nodeName": {
+                  "description": "Node holding the directory (its kubernetes.io/hostname label)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "path": {
+                  "description": "Directory on that node",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            }
+          }
+        },
+        "resources": {
+          "description": "Container resources",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "maxLength": 0,
+          "default": {}
+        },
+        "nodeSelector": {
+          "description": "Node selector (not needed with local.createPV, which pins by itself)",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "default": {}
+        },
+        "affinity": {
+          "description": "Affinity",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "default": {}
+        },
+        "tolerations": {
+          "description": "Tolerations, for a storage node that is tainted",
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "maxProperties": 0,
+          "default": []
+        },
+        "podAnnotations": {
+          "description": "Extra pod annotations",
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "maxItems": 0,
+          "default": {}
+        },
+        "offsite": {
+          "description": "External copy: a CronJob mirrors every repository below the data directory to an rclone remote — S3-compatible storage, an SFTP target such as a Hetzner Storage Box, or any other rclone remote — for the case that the server's storage fails. A mirror, not a second backup: what a client deletes or compacts disappears from the copy with the next run.\n\nThe job reads the data directory read-only, as runAsUser, on the server's node. It copies one repository at a time, without a lock and without any passphrase: data first, then what refers to it, then the deletions, and again if a client wrote to the repository meanwhile. A repository that does not exist locally is never touched on the remote. Schedule it outside the backup windows. Examples: https://k8s-borg.ioanalytica.com/features/external-copy; the restore: https://k8s-borg.ioanalytica.com/operations/disaster-recovery#repository-server\n\nThe files below are mounted in /etc/borg-offsite; rclone.conf refers to the others by that path (key_file, known_hosts_file). Each: `value`, or an existing Secret via existingSecret[+existingSecretKey].",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "description": "Deploy the copy job (requires repoServer.enabled)",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "target": {
+              "description": "Where the copy goes: <remote>:<path>, the remote named as in rclone.conf. Every repository lands at the same path below it as below the data directory.",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "schedule": {
+              "description": "Cron schedule, outside the backup windows",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": "0 4 * * *"
+            },
+            "timeZone": {
+              "description": "Time zone of the schedule (defaults to .timezone)",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "suspend": {
+              "description": "Pause the copy, e.g. while the server is restored from it",
+              "type": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "default": false
+            },
+            "bwlimit": {
+              "description": "rclone --bwlimit, e.g. \"20M\" or \"08:00,2M 20:00,off\" (empty = none)",
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ],
+              "default": ""
+            },
+            "transfers": {
+              "description": "Files rclone transfers in parallel",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 4
+            },
+            "retries": {
+              "description": "Attempts per repository when a client wrote to it during the copy",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "default": 3
+            },
+            "extraArgs": {
+              "description": "More rclone options, passed to every rclone call",
+              "type": [
+                "array",
+                "object",
+                "string"
+              ],
+              "maxProperties": 0,
+              "maxLength": 0,
+              "default": []
+            },
+            "rcloneConfig": {
+              "description": "rclone.conf, mounted as /etc/borg-offsite/rclone.conf",
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "rclone.conf with the remote named in target",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecret": {
+                  "description": "Existing Secret holding rclone.conf",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in existingSecret (default: rclone.conf)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            },
+            "sshKey": {
+              "description": "SFTP: the private key, mounted as /etc/borg-offsite/ssh_key",
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "SFTP: private key, mounted as /etc/borg-offsite/ssh_key",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecret": {
+                  "description": "Existing Secret holding the key",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in existingSecret (default: ssh_key)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            },
+            "knownHosts": {
+              "description": "SFTP: the target's host key, mounted as /etc/borg-offsite/known_hosts",
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "SFTP: the target's host key, mounted as /etc/borg-offsite/known_hosts. Without known_hosts_file rclone accepts any host key.",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecret": {
+                  "description": "Existing Secret holding known_hosts",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                },
+                "existingSecretKey": {
+                  "description": "Key in existingSecret (default: known_hosts)",
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "default": ""
+                }
+              }
+            },
+            "resources": {
+              "description": "Container resources",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "maxLength": 0,
+              "default": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

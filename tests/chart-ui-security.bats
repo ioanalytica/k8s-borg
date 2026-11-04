@@ -83,6 +83,9 @@ ui() {
   [ "$output" = '{"runAsUser":0}' ] || fail "got $output"
   run ui '.securityContext' --set-json 'borgUI.containerSecurityContext={}'
   [ "$output" = "null" ] || fail "got $output"
+  # false is set as well, and renders none like {}; the values schema lets it through.
+  run ui '.securityContext' --set borgUI.containerSecurityContext=false
+  [ "$status" -eq 0 ] && [ "$output" = "null" ] || fail "got $output"
 }
 
 @test "a device resource with FUSE off is refused" {
