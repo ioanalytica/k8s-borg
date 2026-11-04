@@ -24,10 +24,12 @@ them.
 ## Plain manifests
 
 The chart is the maintained way to deploy k8s-borg. For plain YAML, for
-example to apply with Kustomize, render the chart with your values:
+example to apply with Kustomize, render the chart with your values. Without
+`--version`, Helm renders the latest release; `--version` with a release's
+number renders that one:
 
 ```sh
-helm template k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg --version <version> \
+helm template k8s-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
   -n k8s-borg -f my-values.yaml > k8s-borg.yaml
 ```
 

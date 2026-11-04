@@ -37,11 +37,11 @@ Registry. A first install needs an SSH host with Borg and a directory there for
 the repositories (`mycluster` below, which Borg 1 does not create), a
 passphrase, an SSH key the host accepts and the host's `known_hosts` line. The
 chart names no paths to back up by default: give them as `R` roots, here each
-node's `/etc`:
+node's `/etc`. Without `--version`, Helm installs the latest release:
 
 ```sh
 helm install my-borg oci://ghcr.io/ioanalytica/charts/k8s-borg \
-  --version <version> -n k8s-borg --create-namespace \
+  -n k8s-borg --create-namespace \
   --set borg.repoBase.value="ssh://user@borg.example.com:22/./mycluster" \
   --set borg.passphrase.value="…" \
   --set-file ssh.privateKey=./id_ed25519 \

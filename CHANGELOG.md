@@ -28,6 +28,11 @@
   chart's `README.md`, whose install section had only the command for a
   checkout of the repository; the OCI install comes first now.
 
+* **Install commands without a `<version>` placeholder.** The shell read it
+  as a redirection, so the install command of the README and the render
+  command of `examples/README.md` failed as copied. They take the latest
+  release now, and say that `--version` picks another.
+
 * **"Try it locally": the admin password is the one in the generated file.**
   The page said to sign in "with the password in `admin-password`", which
   could be read as the word itself.
