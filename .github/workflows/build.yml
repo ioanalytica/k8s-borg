@@ -287,7 +287,9 @@ jobs:
   # Artifact Hub indexes a chart version when its tag appears, and does not
   # check it again while its digest stays the same (1.3.2 is listed as
   # unsigned for that reason). A failed sign job leaves no tag behind; a
-  # re-run of this job sets the same tags on the same digests again.
+  # re-run of this job sets the same tags on the same digests again. A tag
+  # moves only to a newer build: a late re-run of an older release's failed
+  # jobs leaves `latest` and the shared tags on the newer release's images.
   tag:
     needs: [agent, runtime-base, server, chart, sign]
     if: startsWith(github.ref, 'refs/tags/')
@@ -307,7 +309,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # The images first: the chart, tagged last, names them by tag. Every
-      # list is checked before the first tag is set.
+      # list and every build time is checked before the first tag is set.
       - name: Tag the images
         env:
           AGENT: ${{ env.REGISTRY }}/${{ env.OWNER }}/k8s-borg@${{ needs.agent.outputs.digest }}
@@ -335,13 +337,38 @@ jobs:
             done <<<"$2"
             [ "$n" -gt 0 ] || { echo "✗ no tags for $image" >&2; return 1; }
           }
+          # built REF — when the index REF names was built (build-image.yml),
+          # or nothing for an index without the annotation.
+          built() { oras manifest fetch "$1" | jq -r '.annotations["org.opencontainers.image.created"] // ""'; }
+          # move_tags REF TAG… — set each TAG on REF, unless it names an index
+          # built after REF's: a newer release, or a newer prerelease for the
+          # shared Borg UI and runtime base tags. A tag that does not exist, or
+          # names an index without a build time, moves.
+          move_tags() {
+            local ref="$1" image="${1%@*}" ours t now
+            local -a move=()
+            shift
+            ours="$(built "$ref")"
+            for t in "$@"; do
+              now="$(oras resolve "$image:$t" 2>/dev/null)" || now=""
+              if [ -n "$now" ] && [[ "$(built "$image@$now")" > "$ours" ]]; then
+                echo "◆ $image:$t stays on $now, built after this release's index"
+                continue
+              fi
+              move+=("$t")
+            done
+            [ "${#move[@]}" -eq 0 ] || oras tag "$ref" "${move[@]}"
+          }
           agent="$(tags "$AGENT" "$AGENT_TAGS")"
           runtime_base="$(tags "$RUNTIME_BASE" "$RUNTIME_BASE_TAGS")"
           server="$(tags "$SERVER" "$SERVER_TAGS")"
+          for ref in "$AGENT" "$RUNTIME_BASE" "$SERVER"; do
+            [ -n "$(built "$ref")" ] || { echo "✗ $ref carries no build time" >&2; exit 1; }
+          done
           # A tag has no blanks: the lists split on their newlines.
-          oras tag "$AGENT" $agent
-          oras tag "$RUNTIME_BASE" $runtime_base
-          oras tag "$SERVER" $server
+          move_tags "$AGENT" $agent
+          move_tags "$RUNTIME_BASE" $runtime_base
+          move_tags "$SERVER" $server
       # Artifact Hub reads artifacthub-repo.yml from the tag `artifacthub.io`
       # of the chart's repository, as the layer of an ORAS artifact with these
       # media types. It reads it when a new version appears, so it goes up

@@ -38,17 +38,25 @@ setup() {
   mkdir -p "$bin"
   wf_run "$BUILD_WF" 'name: Tag the images' >"$BATS_TEST_TMPDIR/tag.sh"
   [ -s "$BATS_TEST_TMPDIR/tag.sh" ] || fail "no tag script found"
-  printf '#!/usr/bin/env bash\necho "$*" >>"$BATS_TEST_TMPDIR/oras.log"\n' >"$bin/oras"
+  # oras sets tags, finds none, and every index has a build time.
+  cat >"$bin/oras" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  tag)      echo "$*" >>"$BATS_TEST_TMPDIR/oras.log" ;;
+  manifest) echo '{"annotations":{"org.opencontainers.image.created":"2026-11-04T12:00:00Z"}}' ;;
+  *)        exit 1 ;;
+esac
+SH
   chmod +x "$bin/oras"
   export AGENT="$g/k8s-borg@sha256:1" AGENT_TAGS="$g/k8s-borg:1.3.3-rc.1"
   export RUNTIME_BASE="$g/k8s-borg-ui-runtime-base@sha256:2" RUNTIME_BASE_TAGS="$g/k8s-borg-ui-runtime-base:runtime-x-r1"
   export SERVER="$g/k8s-borg-ui@sha256:3" SERVER_TAGS="$(printf '%s\n' "$g/k8s-borg-ui:2.4.6" "$g/k8s-borg-ui:latest")"
-  GITHUB_REF_NAME=1.3.3-rc.1 PATH="$bin:$PATH" run bash -e "$BATS_TEST_TMPDIR/tag.sh"
+  GITHUB_REF_NAME=1.3.3-rc.1 PATH="$bin:$PATH" run bash -eo pipefail "$BATS_TEST_TMPDIR/tag.sh"
   [ "$status" -ne 0 ] && [[ "$output" == *"1.3.3-rc.1 is a prerelease: $g/k8s-borg-ui:latest stays where it is"* ]] \
     || fail "latest passed for a prerelease: $output"
   [ ! -e "$BATS_TEST_TMPDIR/oras.log" ] || fail "tags were set: $(cat "$BATS_TEST_TMPDIR/oras.log")"
   # The same list for a release goes through.
-  GITHUB_REF_NAME=1.3.3 PATH="$bin:$PATH" run bash -e "$BATS_TEST_TMPDIR/tag.sh"
+  GITHUB_REF_NAME=1.3.3 PATH="$bin:$PATH" run bash -eo pipefail "$BATS_TEST_TMPDIR/tag.sh"
   [ "$status" -eq 0 ] || fail "$output"
   grep -qxF "tag $SERVER 2.4.6 latest" "$BATS_TEST_TMPDIR/oras.log" || fail "oras was asked: $(cat "$BATS_TEST_TMPDIR/oras.log")"
 }

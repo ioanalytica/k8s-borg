@@ -38,10 +38,12 @@
   sign job signs those digests, and a new job, `tag`, sets the tags after
   it: the versions, `sha-…`, the shared Borg UI and runtime base tags,
   `latest` for a release, Artifact Hub's repository metadata and the chart's
-  version last. A failed signature leaves no tag behind. The server image
-  builds on the runtime base by its digest, the chart job still waits for
-  the image builds, and "Try it locally" and the GitHub Release wait for the
-  tags. `tests/release-signing.bats` keeps the order (#133).
+  version last. A failed signature leaves no tag behind, and a tag moves
+  only to a newer build: a late re-run of an older release's failed jobs
+  leaves `latest` and the shared tags where a newer release put them. The
+  server image builds on the runtime base by its digest, the chart job still
+  waits for the image builds, and "Try it locally" and the GitHub Release
+  wait for the tags. `tests/release-signing.bats` keeps the order (#133).
 
 ## 1.3.2
 
