@@ -150,8 +150,14 @@ jobs:
 
   chart:
     # Publishes on tags and would overwrite the chart in the registry —
-    # it waits for the gate like the image jobs do.
-    needs: gate
+    # it waits for the gate like the image jobs do. It also waits for the
+    # images, and pushes the chart as its last step, so that the sign job,
+    # which needs only this job then, signs the chart right after it appears.
+    # Pushed as soon as the gate passed, the chart sat unsigned in the registry
+    # for the ten minutes of the image builds: Artifact Hub indexed 1.3.2 in
+    # that time, and it never checks a version it has indexed again, so it
+    # lists 1.3.2 as unsigned. A failed image build now leaves no chart behind.
+    needs: [gate, agent, runtime-base, server]
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -169,8 +175,8 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v4.3.1
-      # This job does not depend on prep, so it needs the check of its own —
-      # and it is the one that would do the damage: package the old version and
+      # This job reads nothing of prep, so it runs the check of its own — and
+      # it is the one that would do the damage: package the old version and
       # overwrite it in the registry.
       - name: Tag must match the chart version
         if: startsWith(github.ref, 'refs/tags/')
@@ -187,6 +193,23 @@ jobs:
           mkdir -p "$RUNNER_TEMP/chart"
           helm lint ./chart
           helm package ./chart --destination "$RUNNER_TEMP/chart"
+      # The release job attaches this very file, the bytes of the chart layer
+      # pushed below and then signed. Kept as long as GitHub lets a run's
+      # failed jobs be re-run, so a sign job that failed on a Friday can still
+      # publish the release on Monday. Handed over before the push, so that
+      # the push is the job's last step. A re-run of this job after a failed
+      # push packages again and replaces the package of the failed attempt
+      # (overwrite), which would otherwise block the upload: the new package
+      # is the one that gets pushed and signed.
+      - name: Hand the package to the release job (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chart
+          path: ${{ runner.temp }}/chart/k8s-borg-*.tgz
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
       # Artifact Hub reads artifacthub-repo.yml from the tag `artifacthub.io`
       # of the chart's repository, as the layer of an ORAS artifact with these
       # media types. It reads it when a new version appears, so it goes up
@@ -225,18 +248,6 @@ jobs:
           digest="$(sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' <<<"$out")"
           [ -n "$digest" ] || { echo "✗ helm push reported no digest" >&2; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-      # The release job attaches this very file, the bytes of the chart layer
-      # just pushed and then signed. Kept as long as GitHub lets a run's
-      # failed jobs be re-run, so a sign job that failed on a Friday can still
-      # publish the release on Monday.
-      - name: Hand the package to the release job (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: chart
-          path: ${{ runner.temp }}/chart/k8s-borg-*.tgz
-          if-no-files-found: error
-          retention-days: 30
 
   # Keyless Sigstore signatures for everything the release pushed to GHCR, each
   # by its digest: a tag can be moved to another manifest, the digest is what

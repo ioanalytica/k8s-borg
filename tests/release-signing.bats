@@ -192,6 +192,27 @@ SH
   done
 }
 
+@test "the chart is pushed after the image builds, as the chart job's last step" {
+  # Pushed as soon as the gate passed, the chart sat unsigned in the registry
+  # while the images built; Artifact Hub indexed 1.3.2 in that time and keeps
+  # it listed as unsigned. Pushed last, after the images, the sign job (which
+  # then waits for this job alone) signs it right away.
+  local needs j last
+  needs="$(wf_job "$BUILD_WF" chart | sed -n 's/^    needs: \[\(.*\)\]$/\1/p' | tr -d ' ' | tr ',' '\n')"
+  [ -n "$(wf_image_jobs "$BUILD_WF")" ] || fail "no image jobs found"
+  for j in gate $(wf_image_jobs "$BUILD_WF"); do
+    grep -qx "$j" <<<"$needs" || fail "the chart job does not wait for $j"
+  done
+  # Every step starts with "      - ", whatever its first key.
+  last="$(wf_job "$BUILD_WF" chart | grep '^      - ' | tail -1)"
+  [ "$last" = "      - name: Push chart to GHCR (tags only)" ] || fail "the chart job's last step is: $last"
+  # The package is handed over before the push, so a re-run after a failed
+  # push uploads it again under the same name: without overwrite the upload
+  # fails on the failed attempt's artifact.
+  grep -qx '          overwrite: true' <<<"$(wf_step "$BUILD_WF" 'name: Hand the package to the release job (tags only)')" \
+    || fail "a re-run of the chart job cannot replace the package of a failed attempt"
+}
+
 @test "the GitHub Release is published only after the signatures verified" {
   local needs
   needs="$(wf_job "$BUILD_WF" release | sed -n 's/^    needs: \[\(.*\)\]$/\1/p' | tr -d ' ' | tr ',' '\n')"
