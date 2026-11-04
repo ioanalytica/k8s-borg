@@ -15,6 +15,19 @@
   and an expiry date, show in code scanning only.
   `tests/cve-scan-workflow.bats` covers the list, the gate and the summary.
 
+* **"Try it locally" runs against each tag's chart and images.** `build.yml`
+  calls `.github/workflows/try-locally.yml` once a tag's images and chart
+  are in GHCR and signed, with the tag as the version: the run pulls that
+  chart and installs it with the images it names, with the page and
+  `examples/k3d/` of the tag's commit. It stands beside the release, which
+  does not wait for it; a red run on an rc means the page or the release
+  needs a fix before `X.Y.Z` is tagged. A manual run takes a version as
+  well, to check a page change against a prerelease; the pull request run
+  and the weekly run are as before. Until now the page met a release's real
+  images only in the weekly run after the release: a release pull request's
+  run ends with a notice, and one that changes the page for the next
+  release fails against the published images (#122).
+
 ## 1.3.2
 
 * **Borg UI 2.4.6, as in 1.3.1.** The `borg-ui` submodule stays at the

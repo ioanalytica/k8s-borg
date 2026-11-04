@@ -151,7 +151,20 @@ EOF
     || fail "not the UI image of chart/values.yaml: $output"
 }
 
-@test "pull requests run on what the run reads; the others install the release" {
+# inputs EVENT — the inputs of one trigger, "name type required default" per
+# line (a dash for what is not set).
+inputs() {
+  awk -v ev="  $1:" '
+    $0 == ev { on = 1; next }
+    on && /^  [^ ]/ { exit }
+    on && /^      [a-z][a-z-]*:$/ { if (n) print n, t, r, d; n = $1; sub(/:$/, "", n); t = "-"; r = "-"; d = "-"; next }
+    on && n && $1 == "type:" { t = $2 }
+    on && n && $1 == "required:" { r = $2 }
+    on && n && $1 == "default:" { d = $2 }
+    END { if (n) print n, t, r, d }' "$WF"
+}
+
+@test "pull requests run on what the run reads; the others install the release or a version" {
   local want
   for want in "chart/**" "examples/k3d/**" "site/guide/try-locally.md" \
               "tests/try-locally/**" ".github/workflows/try-locally.yml"; do
@@ -159,12 +172,150 @@ EOF
   done
   grep -qx '  schedule:' "$WF" || fail "no weekly run"
   grep -qx '  workflow_dispatch:' "$WF" || fail "no manual run"
+  # By hand: the release or the checkout, or a published version.
+  inputs workflow_dispatch | grep -qx 'chart choice - release' || fail "the manual run's chart: $(inputs workflow_dispatch)"
+  inputs workflow_dispatch | grep -qx 'chart-version string - -' || fail "the manual run takes no version: $(inputs workflow_dispatch)"
+  # Called by build.yml: the tag's version, nothing else to choose.
+  [ "$(inputs workflow_call)" = "chart-version string true -" ] || fail "the called run's inputs: $(inputs workflow_call)"
   local step
+  step="$(wf_step "$WF" "name: The chart")"
+  grep -qxF '          VERSION: ${{ inputs.chart-version }}' <<<"$step" \
+    || fail "the chart step does not read the version input: $step"
+  grep -qxF "          CHOICE: \${{ github.event_name == 'pull_request' && 'checkout' || inputs.chart }}" <<<"$step" \
+    || fail "pull requests do not install the checkout's chart, or the others not the choice: $step"
   step="$(wf_step "$WF" "name: The page, end to end")"
-  grep -qxF "          CHART: \${{ (github.event_name == 'pull_request' || inputs.chart == 'checkout') && './chart' || '' }}" <<<"$step" \
-    || fail "pull requests do not install the checkout's chart, or the others not the release: $step"
-  grep -qxF '        run: tests/try-locally/run.sh ${CHART:+"$CHART"}' <<<"$step" \
+  grep -qxF '          CHART: ${{ steps.chart.outputs.dir }}' <<<"$step" \
+    || fail "the run does not get the chart step's directory: $step"
+  grep -qxF '          PUBLISHED: ${{ steps.chart.outputs.published }}' <<<"$step" \
+    || fail "the run does not learn whether the chart is a published one: $step"
+  grep -qxF '        run: tests/try-locally/run.sh ${PUBLISHED:+--published} ${CHART:+"$CHART"}' <<<"$step" \
     || fail "the step runs something else: $step"
+}
+
+@test "a pull request's newer push replaces its run; a called run cannot cancel the tag's build" {
+  # On the job, not the workflow: a called workflow's group is computed with
+  # the tag build's context, and must not be able to cancel that build. The
+  # inputs are in the group: it keeps one run waiting at most, so versions
+  # dispatched in a row would otherwise drop one.
+  ! grep -q '^concurrency:' "$WF" || fail "concurrency at the workflow level"
+  local job
+  job="$(wf_job "$WF" k3d)"
+  grep -qxF '      group: try-locally-${{ github.event_name }}-${{ github.ref }}-${{ inputs.chart }}-${{ inputs.chart-version }}' <<<"$job" \
+    || fail "the group is not the event's, the ref's and the inputs': $(grep -F 'group:' <<<"$job")"
+  grep -qxF "      cancel-in-progress: \${{ github.event_name == 'pull_request' }}" <<<"$job" \
+    || fail "a run other than a pull request's can cancel one: $(grep -F 'cancel-in-progress' <<<"$job")"
+}
+
+# chart_step VERSION CHOICE — the chart step's script with a helm that logs
+# its arguments and lays out what `helm pull --untar` would. The step's
+# outputs are in $BATS_TEST_TMPDIR/output, `out NAME` reads one.
+chart_step() {
+  local bin="$BATS_TEST_TMPDIR/bin" out="$BATS_TEST_TMPDIR/output"
+  mkdir -p "$bin" "$BATS_TEST_TMPDIR/temp"
+  : >"$BATS_TEST_TMPDIR/helm.log"
+  cat >"$bin/helm" <<'EOF'
+#!/bin/sh
+echo "$*" >>"$HELM_LOG"
+dir=""
+while [ $# -gt 0 ]; do [ "$1" = --untardir ] && dir="$2"; shift; done
+[ -z "$dir" ] || mkdir -p "$dir/k8s-borg"
+EOF
+  chmod +x "$bin/helm"
+  wf_run "$WF" 'name: The chart' >"$BATS_TEST_TMPDIR/chart.sh"
+  [ -s "$BATS_TEST_TMPDIR/chart.sh" ] || fail "no chart step script"
+  : >"$out"
+  PATH="$bin:$PATH" HELM_LOG="$BATS_TEST_TMPDIR/helm.log" VERSION="$1" CHOICE="$2" \
+    RUNNER_TEMP="$BATS_TEST_TMPDIR/temp" GITHUB_OUTPUT="$out" bash -e "$BATS_TEST_TMPDIR/chart.sh" >&2
+}
+out() { sed -n "s/^$1=//p" "$BATS_TEST_TMPDIR/output"; }
+
+@test "a version is pulled from GHCR, the checkout's chart is ./chart, the release is none" {
+  local dir="$BATS_TEST_TMPDIR/temp/chart/k8s-borg"
+  # The tag's build and a manual run with a version: the page's chart at
+  # that version, as a directory, with the images it names — in the
+  # registry, or the run fails.
+  chart_step 1.3.2-rc.1 release || fail "the step failed on a version"
+  [ "$(out dir)" = "$dir" ] || fail "a version hands on '$(out dir)'"
+  [ -d "$dir" ] || fail "$dir is not where helm pull --untar put the chart"
+  [ "$(out published)" = 1 ] || fail "a version is not a published chart: '$(out published)'"
+  grep -qxF "pull $PAGE_CHART --version 1.3.2-rc.1 --untar --untardir $BATS_TEST_TMPDIR/temp/chart" "$BATS_TEST_TMPDIR/helm.log" \
+    || fail "not the page's chart at the version: $(cat "$BATS_TEST_TMPDIR/helm.log")"
+  # A version set by hand wins over the choice.
+  chart_step 1.3.2-rc.1 checkout || fail "the step failed on a version with the checkout"
+  [ "$(out dir)" = "$dir" ] || fail "a version with the checkout hands on '$(out dir)'"
+  # A pull request, and the manual choice: the checkout's chart, no pull,
+  # and images it may still lack.
+  chart_step "" checkout || fail "the step failed on the checkout"
+  [ "$(out dir)" = ./chart ] || fail "the checkout hands on '$(out dir)'"
+  [ -z "$(out published)" ] || fail "the checkout counts as published"
+  [ ! -s "$BATS_TEST_TMPDIR/helm.log" ] || fail "the checkout pulled a chart: $(cat "$BATS_TEST_TMPDIR/helm.log")"
+  # The weekly run (no input at all) and the manual default: the release.
+  chart_step "" "" || fail "the step failed without inputs"
+  [ -z "$(out dir)" ] && [ -z "$(out published)" ] || fail "the weekly run hands on '$(out dir)' '$(out published)'"
+  chart_step "" release || fail "the step failed on the release"
+  [ -z "$(out dir)" ] || fail "the release hands on '$(out dir)'"
+  [ ! -s "$BATS_TEST_TMPDIR/helm.log" ] || fail "the release pulled a chart: $(cat "$BATS_TEST_TMPDIR/helm.log")"
+}
+
+# run_sh ARG… — run.sh up to its image check: a docker that knows no image,
+# a k3d without a cluster, stand-ins for the tools it needs later; helm is
+# the real one, for the chart's images.
+run_sh() {
+  local t
+  mkdir -p "$TMP/bin"
+  printf '#!/bin/sh\n[ "$1 $2" = "manifest inspect" ] || exit 2\necho "manifest unknown" >&2\nexit 1\n' >"$TMP/bin/docker"
+  printf '#!/bin/sh\nexit 1\n' >"$TMP/bin/k3d"
+  for t in kubectl ssh-keygen openssl curl jq; do printf '#!/bin/sh\nexit 0\n' >"$TMP/bin/$t"; done
+  chmod +x "$TMP"/bin/*
+  PATH="$TMP/bin:$PATH" run "$REPO_ROOT/tests/try-locally/run.sh" "$@"
+}
+
+@test "a chart whose images are not published is a notice; a published one with such images fails" {
+  command -v helm >/dev/null || fail "helm is required for the chart tests"
+  # run.sh takes its examples/k3d from the checkout and refuses a path the
+  # page's unquoted commands would split; it refuses in such a checkout
+  # before it reaches the images.
+  case "$REPO_ROOT" in
+    *[!A-Za-z0-9._/+@-]*) skip "run.sh refuses the checkout's path $REPO_ROOT" ;;
+  esac
+  run_sh "$REPO_ROOT/chart"
+  [ "$status" -eq 0 ] || fail "the checkout's chart with unpublished images failed ($status): $output"
+  grep -qF "◆ not run: the chart names images the tag's build has not published yet: ghcr.io/ioanalytica/" <<<"$output" \
+    || fail "no notice: $output"
+  run_sh --published "$REPO_ROOT/chart"
+  [ "$status" -eq 1 ] || fail "a published chart with missing images did not fail ($status): $output"
+  grep -qF "✗ the published chart names images the registry does not have: ghcr.io/ioanalytica/" <<<"$output" \
+    || fail "no failure: $output"
+  run_sh --published
+  [ "$status" -eq 2 ] || fail "--published without a chart ($status): $output"
+  run_sh --release "$REPO_ROOT/chart"
+  [ "$status" -eq 2 ] || fail "an unknown option ($status): $output"
+  run_sh "$REPO_ROOT/chart" "$REPO_ROOT/chart"
+  [ "$status" -eq 2 ] || fail "two charts ($status): $output"
+}
+
+@test "each tag's build runs the page against what it published, beside the signing and the release" {
+  local build="$REPO_ROOT/.github/workflows/build.yml" job needs j
+  job="$(wf_job "$build" try-locally)"
+  [ -n "$job" ] || fail "build.yml has no try-locally job"
+  grep -qxF '    uses: ./.github/workflows/try-locally.yml' <<<"$job" || fail "the job does not call the workflow: $job"
+  grep -qxF '      chart-version: ${{ github.ref_name }}' <<<"$job" || fail "the job does not pass the tag as the version: $job"
+  grep -qxF "    if: startsWith(github.ref, 'refs/tags/')" <<<"$job" || fail "the job is not guarded to tags: $job"
+  # After the signing, which waits for every image and the chart
+  # (release-signing.bats): run.sh installs the chart with the images it
+  # names, as users get them.
+  grep -qx '    needs: sign' <<<"$job" || fail "the job does not wait for the sign job alone: $(grep -F needs: <<<"$job")"
+  # Nothing waits for it: a red run on X.Y.Z holds up neither the signatures
+  # nor the release.
+  run awk '/^  [a-z][a-z0-9-]*:$/ { j = $1; sub(/:$/, "", j) }
+           $1 == "needs:" && /try-locally/ { print j }' "$build"
+  [ -z "$output" ] || fail "a job waits for try-locally: $output"
+  # The called workflow asks for contents: read and nothing more; the job
+  # grants it that, not the write permissions of its neighbours.
+  [ "$(grep -E '^      [a-z-]+: (read|write)$' <<<"$job" | tr -d ' ')" = "contents:read" ] \
+    || fail "the job's permissions: $(grep -E '^      [a-z-]+: (read|write)$' <<<"$job" | tr -d ' ' | tr '\n' ' ')"
+  [ "$(awk '/^permissions:/ { on = 1; next } on && /^  [a-z-]+:/ { print $1 $2; next } on { exit }' "$WF")" = "contents:read" ] \
+    || fail "the workflow asks for more than contents: read"
 }
 
 @test "the job has a time limit, and runs the k3d and the k3s the page is tested with" {

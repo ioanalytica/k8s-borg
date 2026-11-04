@@ -8,10 +8,18 @@ name: Try it locally
 # A pull request that changes what the page installs runs it with its own
 # chart, and with the images that chart names. One that names images not
 # published yet (a release, a move of the borg-ui pin) ends green with a
-# notice; the tag's build publishes them. The weekly run and a manual one
-# install the latest release, as the page does, and catch what moves under
-# it: the runner and the database image of examples/k3d/. The cluster runs
-# the k3s image the page's step 1 names.
+# notice: the tag's build publishes them, and then calls this workflow with
+# the tag as the chart version. That run pulls the chart from GHCR and
+# installs it with the images it names, which must be in the registry as
+# well; the page and examples/k3d/ are the tag's. It runs after the signing
+# and beside the release in build.yml, which does not wait for it: on an rc
+# a red run means the page or the release needs a fix before X.Y.Z is
+# tagged; on X.Y.Z the rc has passed the same page, and a flaky k3d run
+# must not hold up a release. A manual run takes a version as well, to check a page
+# change against a prerelease. The weekly run and a manual one without a
+# version install the latest release, as the page does, and catch what
+# moves under it: the runner and the database image of examples/k3d/. The
+# cluster runs the k3s image the page's step 1 names.
 #
 # Not among the checks the ruleset on main requires: its paths filter skips
 # it for most pull requests, and a skipped required check stays pending.
@@ -34,18 +42,35 @@ on:
         type: choice
         options: [release, checkout]
         default: release
+      chart-version:
+        description: A published version to install instead, such as 1.3.2-rc.1
+        type: string
+  # build.yml, for each tag, once its images and chart are in GHCR and
+  # signed.
+  workflow_call:
+    inputs:
+      chart-version:
+        description: The published version to install, with the images it names
+        type: string
+        required: true
 
+# The chart is pulled from GHCR without a token: the package is public.
 permissions:
   contents: read
-
-# A pull request's newer push replaces its run.
-concurrency:
-  group: try-locally-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   k3d:
     runs-on: ubuntu-26.04
+    # A pull request's newer push replaces its run; any other run queues
+    # behind one of the same event, ref and chart. The inputs are part of
+    # the group because a group keeps one run waiting at most: two versions
+    # dispatched behind a running one would otherwise lose the first. On the
+    # job, not the workflow: a called workflow's group is computed with the
+    # tag build's context, and a run by hand on that tag must not be able
+    # to cancel its signing and release.
+    concurrency:
+      group: try-locally-${{ github.event_name }}-${{ github.ref }}-${{ inputs.chart }}-${{ inputs.chart-version }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # Two to three minutes on a laptop, most of them for pulling the images.
     # The page's two rollout waits give up after 10 minutes each; the limit
     # leaves the run time to report what it found then.
@@ -75,7 +100,33 @@ jobs:
           sudo install -m 0755 "$RUNNER_TEMP/k3d" /usr/local/bin/k3d
           k3d version
           kubectl version --client
+      # The chart the run installs, as a directory for run.sh: a published
+      # version, pulled from GHCR, whose images must be in the registry too
+      # (run.sh --published); the checkout's, on a pull request or by
+      # choice; or none, for the latest release as the page installs it. A
+      # version set by hand wins over the choice.
+      - name: The chart
+        id: chart
+        env:
+          VERSION: ${{ inputs.chart-version }}
+          CHOICE: ${{ github.event_name == 'pull_request' && 'checkout' || inputs.chart }}
+        run: |
+          published=""
+          if [ -n "$VERSION" ]; then
+            helm pull oci://ghcr.io/ioanalytica/charts/k8s-borg --version "$VERSION" --untar --untardir "$RUNNER_TEMP/chart"
+            dir="$RUNNER_TEMP/chart/k8s-borg"
+            published=1
+          elif [ "$CHOICE" = checkout ]; then
+            dir=./chart
+          else
+            dir=""
+          fi
+          {
+            echo "dir=$dir"
+            echo "published=$published"
+          } >> "$GITHUB_OUTPUT"
       - name: The page, end to end
         env:
-          CHART: ${{ (github.event_name == 'pull_request' || inputs.chart == 'checkout') && './chart' || '' }}
-        run: tests/try-locally/run.sh ${CHART:+"$CHART"}
+          CHART: ${{ steps.chart.outputs.dir }}
+          PUBLISHED: ${{ steps.chart.outputs.published }}
+        run: tests/try-locally/run.sh ${PUBLISHED:+--published} ${CHART:+"$CHART"}

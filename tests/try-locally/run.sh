@@ -9,12 +9,15 @@
 # datastore snapshot and the k3s token, a file extracted from the archive,
 # the database dump.
 #
-#   tests/try-locally/run.sh           # the latest release, as the page installs it
-#   tests/try-locally/run.sh ./chart   # the chart of this checkout
+#   tests/try-locally/run.sh                   # the latest release, as the page installs it
+#   tests/try-locally/run.sh ./chart           # the chart of this checkout
+#   tests/try-locally/run.sh --published DIR   # a chart pulled from the registry
 #
 # A chart directory is installed with the images it names. When one of them
 # is not published yet (a release, a move of the borg-ui pin), the run stops
 # before the cluster, says so and succeeds: the tag's build publishes them.
+# With --published the chart is one the registry has, and so must its images
+# be: a missing one fails the run.
 #
 # The page's restore in Borg UI is left out: borg extract restores the same
 # file from the same archive.
@@ -198,12 +201,19 @@ cleanup() {
 # --- before the cluster ------------------------------------------------------
 
 CHART=""
-case $# in
-  0) ;;
-  1) [ -f "$1/Chart.yaml" ] || { echo "✗ $1 is no chart directory" >&2; exit 2; }
-     CHART="$(cd "$1" && pwd)" ;;
-  *) echo "usage: $0 [CHART_DIR]" >&2; exit 2 ;;
-esac
+PUBLISHED=""
+usage() { echo "usage: $0 [--published] [CHART_DIR]" >&2; exit 2; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --published) PUBLISHED=1 ;;
+    -*) usage ;;
+    *) [ -z "$CHART" ] || usage
+       [ -f "$1/Chart.yaml" ] || { echo "✗ $1 is no chart directory" >&2; exit 2; }
+       CHART="$(cd "$1" && pwd)" ;;
+  esac
+  shift
+done
+[ -z "$PUBLISHED" ] || [ -n "$CHART" ] || { echo "✗ --published takes a chart directory" >&2; exit 2; }
 
 # The page's commands take $url unquoted, as a reader's raw URL can be, and
 # the paths go into them as they are: a space would split them.
@@ -238,7 +248,15 @@ if [ -n "$CHART" ]; then
   # shellcheck disable=SC2086 # one image per word
   missing="$(unpublished $images)"
   if [ -n "$missing" ]; then
-    msg="not run: the chart names images the tag's build has not published yet: $(paste -sd ' ' - <<<"$missing")"
+    missing="$(paste -sd ' ' - <<<"$missing")"
+    # A published chart's images went up with it; one the registry lacks is
+    # a build that went wrong, or a run started before the images were up.
+    # Either way the page is not checked, and a notice would say it was.
+    if [ -n "$PUBLISHED" ]; then
+      echo "✗ the published chart names images the registry does not have: $missing" >&2
+      exit 1
+    fi
+    msg="not run: the chart names images the tag's build has not published yet: $missing"
     echo "◆ $msg"
     [ -z "${GITHUB_ACTIONS:-}" ] || echo "::notice title=Try it locally::$msg"
     exit 0
