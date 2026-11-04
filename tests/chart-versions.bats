@@ -198,8 +198,10 @@ YAML
   [ "$(sed -n 's/^version: //p' "$t/Chart.yaml")" = "$v" ] || fail "version: $(grep '^version:' "$t/Chart.yaml")"
   [ "$(sed -n 's/^appVersion: //p' "$t/Chart.yaml")" = "\"$v\"" ] || fail "appVersion: $(grep '^appVersion:' "$t/Chart.yaml")"
   grep -qxF "      image: ghcr.io/ioanalytica/k8s-borg:$v" "$t/Chart.yaml" || fail "$(grep 'k8s-borg:' "$t/Chart.yaml")"
-  # Nothing else moved: three lines differ from the repository's.
-  [ "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml" | grep -c '^>')" -eq 3 ] || fail "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml")"
+  # Nothing else moved: three lines replaced, none added or dropped.
+  [ "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml" | grep -c '^>')" -eq 3 ] \
+    && [ "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml" | grep -c '^<')" -eq 3 ] \
+    || fail "$(diff "$REPO_ROOT/chart/Chart.yaml" "$t/Chart.yaml")"
   # The agent image follows the appVersion (see above); the chart still lints.
   run helm lint "$t"
   [ "$status" -eq 0 ] || fail "$output"
