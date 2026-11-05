@@ -70,6 +70,24 @@ A pull request is easiest to review when it:
 - uses the commit style of the history: `feat(chart): …`, `fix: …`,
   `test(e2e): …`, `docs: …`, with the reason in the body.
 
+## Releases
+
+A release is one pull request: `version` and `appVersion` in
+`chart/Chart.yaml` at `X.Y.Z`, with the `k8s-borg` entry of
+`artifacthub.io/images` and the pin in `examples/helm/k8s-borg.yaml`, and
+`## Unreleased` in `CHANGELOG.md` turned into `## X.Y.Z`, led by the line for
+the Borg UI pin. Its commit on `main` is then tagged twice:
+
+1. `X.Y.Z-rc.1` builds a prerelease of that commit: the chart and the agent
+   image at `X.Y.Z-rc.1`, the entry of `## X.Y.Z` as its notes, no `latest`
+   tag moved. "Try it locally" runs against it.
+2. Once it passed, `X.Y.Z` on the same commit: the release is the source the
+   candidate tested.
+
+A fix goes to `main` by pull request, and its commit is tagged `X.Y.Z-rc.2`.
+`tests/check-release-tag.sh` takes the chart's version and any `-suffix` of it
+as a tag. Prereleases are public: they stay, like releases.
+
 ## Dependency updates
 
 [Renovate](https://docs.renovatebot.com/) opens the update pull requests, as

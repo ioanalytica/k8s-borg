@@ -10,7 +10,13 @@
 # version and attaching it to the new release. Tag 1.1.2 shipped that way: a
 # release named 1.1.2 carrying k8s-borg-1.1.1.tgz, and no 1.1.2 chart anywhere.
 #
+# A prerelease of the chart's version passes too: X.Y.Z-rc.1 goes on the commit
+# whose chart/Chart.yaml says X.Y.Z, the one X.Y.Z is tagged on once the
+# prerelease passed, and the build packages the chart at the tag's version
+# (scripts/chart-release-version.sh).
+#
 #   ./tests/check-release-tag.sh 1.1.2
+#   ./tests/check-release-tag.sh 1.1.2-rc.1
 set -euo pipefail
 
 tag="${1:-}"
@@ -24,16 +30,27 @@ tag="${1:-}"
 want="$(chart_version)"
 [ -n "$want" ] || { echo "✗ no version: found in chart/Chart.yaml" >&2; exit 1; }
 
-if [ "$tag" != "$want" ]; then
-  {
-    echo "✗ release tag '$tag' does not match chart/Chart.yaml version '$want'"
-    echo
-    echo "  Bump chart/Chart.yaml before tagging — version, appVersion, and the"
-    echo "  k8s-borg entry of artifacthub.io/images. Publishing as-is would"
-    echo "  package $want again and overwrite the chart already published under"
-    echo "  that version."
-  } >&2
-  exit 1
+if [ "$tag" = "$want" ]; then
+  echo "✓ release tag '$tag' matches chart/Chart.yaml"
+  exit 0
+fi
+# A SemVer prerelease of a version that has none itself: dot-separated
+# identifiers, none empty, a number without a leading zero. Helm refuses the
+# chart of any other version, after the images are built.
+identifier='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+suffix="${tag#"$want"-}"
+if [[ "$want" != *-* && "$tag" == "$want"-?* && "$suffix" =~ ^$identifier(\.$identifier)*$ ]]; then
+  echo "✓ release tag '$tag' is a prerelease of chart/Chart.yaml's $want"
+  exit 0
 fi
 
-echo "✓ release tag '$tag' matches chart/Chart.yaml"
+{
+  echo "✗ release tag '$tag' does not match chart/Chart.yaml version '$want'"
+  echo
+  echo "  Tag $want, or a prerelease of it ($want-rc.1), on the commit whose"
+  echo "  chart/Chart.yaml says $want. For another version, bump chart/Chart.yaml"
+  echo "  first: version, appVersion, and the k8s-borg entry of"
+  echo "  artifacthub.io/images. Publishing as-is would package $want again and"
+  echo "  overwrite the chart already published under that version."
+} >&2
+exit 1
