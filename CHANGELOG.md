@@ -6,11 +6,11 @@
   (agent 0.1.23, no database change).
 * **rclone 1.76.0 in the agent image.** It fixes CVE-2026-111943 and
   CVE-2026-78661. It refuses a redirect from HTTPS to HTTP, so a remote that
-  answers with one now fails: correct its endpoint in `rclone.conf`. For the
-  external copy, `--allow-https-downgrade` in `repoServer.offsite.extraArgs`
-  follows the redirect, except on Swift, NetStorage and Seafile, which refuse
-  it anyway. The Borg UI images keep rclone 1.75.2 until Borg UI's runtime base
-  moves.
+  answers with one now fails: correct its endpoint in `rclone.conf`. The flag
+  `--allow-https-downgrade` is no substitute: many backends, S3, WebDAV and
+  Swift among them, refuse such a redirect anyway, and with the others
+  credentials and data would travel unencrypted. The Borg UI images keep
+  rclone 1.75.2 until Borg UI's runtime base moves.
 
 ## 1.3.4
 
