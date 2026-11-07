@@ -43,7 +43,7 @@ on:
         options: [release, checkout]
         default: release
       chart-version:
-        description: A published version to install instead, such as 1.3.2-rc.1
+        description: A published version to install instead, such as 1.3.4-rc.1
         type: string
   # build.yml, for each tag, once its images and chart are in GHCR and
   # signed.
