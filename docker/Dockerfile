@@ -54,8 +54,8 @@ ARG PYTHON_VERSION=3.12
 # The MySQL client of databases.mysql (see the mysql-client stage), pinned to
 # the official image's multi-arch index digest: a bump changes both lines.
 # renovate: datasource=docker depName=mysql
-ARG MYSQL_VERSION=8.4.11
-ARG MYSQL_IMAGE_DIGEST=sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+ARG MYSQL_VERSION=8.4.13
+ARG MYSQL_IMAGE_DIGEST=sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
 
 FROM python:${PYTHON_VERSION}-alpine AS borg-builder
 
@@ -311,9 +311,9 @@ RUN python -m venv "${BORG_UI_AGENT_VENV}" \
 # which only speed up BSON for large volumes. PyYAML reads the credentials
 # file. Pinned, dnspython (pymongo's only dependency) included.
 # renovate: datasource=pypi depName=pymongo
-ARG PYMONGO_VERSION=4.18.3
+ARG PYMONGO_VERSION=4.19.0
 # renovate: datasource=pypi depName=dnspython
-ARG DNSPYTHON_VERSION=2.9.0
+ARG DNSPYTHON_VERSION=2.9.2
 # renovate: datasource=pypi depName=PyYAML
 ARG PYYAML_VERSION=6.0.3
 RUN python -m venv /opt/mongodb-admin/venv \
