@@ -29,7 +29,7 @@ Nothing here is a backup to rely on.
 ## 1. A cluster
 
 ```sh
-k3d cluster create k8s-borg --image rancher/k3s:v1.36.5-k3s1
+k3d cluster create k8s-borg --image rancher/k3s:v1.37.2-k3s1
 ```
 
 The image is the k3s the page is tested with; without it, the k3s depends on
