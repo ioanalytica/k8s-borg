@@ -24,6 +24,6 @@ arg_default() { sed -n "s/^ARG $1=\\(.*\\)/\\1/p" "$DOCKERFILE" | head -1; }
 @test "the agent image takes rclone from its own stage, not from Alpine" {
   grep -q '^COPY --from=rclone-fetch /out/usr/bin/rclone /usr/bin/rclone$' "$DOCKERFILE" \
     || fail "no COPY of the fetched rclone"
-  ! awk '/^RUN apk add/ { on = 1 } on && $1 == "rclone" { found = 1 } on && !/\\$/ { on = 0 } END { exit !found }' "$DOCKERFILE" \
+  ! awk '/^RUN apk / { on = 1 } on && $1 == "rclone" { found = 1 } on && !/\\$/ { on = 0 } END { exit !found }' "$DOCKERFILE" \
     || fail "the agent image still installs Alpine's rclone package"
 }
