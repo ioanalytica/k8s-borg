@@ -4,7 +4,7 @@ The whole chart in a throwaway [k3d](https://k3d.io) cluster on one machine,
 with no host outside it: the release's own repository server as the Borg host,
 a Borg UI server, the node and console pods enrolled at it as managed agents,
 a first backup and a restore. It takes a few minutes, most of them for pulling
-the images (about 550 MB). Tested with k3d 5.9 and k3s 1.36.
+the images (about 550 MB). Tested with k3d 5.9 and k3s 1.37.
 
 ::: warning A cluster to try the chart in
 The repositories live in a directory of the k3d node container and are gone
