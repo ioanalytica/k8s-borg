@@ -233,8 +233,13 @@ FROM python:${PYTHON_VERSION}-alpine
 # each and unused here, are removed in the same layer. valkey-cli (the client
 # alone, without a server) is for working with Redis and Valkey from the
 # console pod; backup-redis talks to the servers through redis-rdb-sync.
-# hadolint ignore=DL3018
-RUN apk add --no-cache \
+#
+# `apk upgrade` first: `apk add` leaves the packages the base image came with
+# at the versions it was built with, and a fix Alpine has published reaches
+# them only with the base image's next rebuild (krb5-libs, there for libtirpc).
+# hadolint ignore=DL3017,DL3018
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
         bash \
         ca-certificates \
         openssh-client \
