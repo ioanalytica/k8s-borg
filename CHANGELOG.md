@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.3.7
+
+* **Borg UI main after 2.4.9.** The `borg-ui` submodule moves from the
+  v2.4.9 release to Borg UI's `main` at 3e2f4f6b, thirteen commits later
+  (agent 0.1.24.13; one database migration, applied on startup). Among them:
+  * **Smaller Borg UI image** (karanhudia/borg-ui#1513). The runtime base
+    drops cron, gnupg, htop, ncdu, net-tools and tree, swaps iotop for
+    iotop-c, and upgrades the packages the Python base image ships, which
+    fixes two HIGH findings in zlib1g; Python's test and lint tools leave the
+    image. The UI image is about 170 MB smaller and has about a quarter fewer
+    scanner findings. A removed tool a hook script needs can come back from
+    the Packages page (`sudo apt-get install …`). With `borgUI.fuse.enabled`
+    set to false there is no `sudo` in the container; there it takes an image
+    built on the UI image with the tool added, set in `borgUI.image`.
+  * **Restore checks on agent repositories** (karanhudia/borg-ui#1534): the
+    canary file travels with the backup, and a cancelled check is no longer
+    a failure.
+  * **A schedule update keeps a due run** when the timing stays the same.
+  * **Editing a backup plan keeps its source snapshot settings.**
+  * **Job starters and operation controls run off the event loop**, so a slow
+    database or Borg call no longer stalls the web server.
+  * **An MCP server** at `/mcp` with read tools, a Pro feature of Borg UI.
+    It answers only to MCP connections created in Borg UI; personal API
+    tokens and login sessions are refused there, and an admin can switch it
+    off or cap the access level.
+* **The agent image upgrades its base image's packages** (#146), which fixes
+  the HIGH findings in krb5-libs.
+
 ## 1.3.6
 
 * **Borg UI 2.4.9.** The `borg-ui` submodule moves to the v2.4.9 release
