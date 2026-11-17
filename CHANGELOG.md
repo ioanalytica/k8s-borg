@@ -3,8 +3,8 @@
 ## 1.3.7
 
 * **Borg UI main after 2.4.9.** The `borg-ui` submodule moves from the
-  v2.4.9 release to Borg UI's `main` at dbe01d0a, eleven commits later
-  (agent 0.1.24.11; one database migration, applied on startup). Among them:
+  v2.4.9 release to Borg UI's `main` at 3e2f4f6b, thirteen commits later
+  (agent 0.1.24.13; one database migration, applied on startup). Among them:
   * **Smaller Borg UI image** (karanhudia/borg-ui#1513). The runtime base
     drops cron, gnupg, htop, ncdu, net-tools and tree, swaps iotop for
     iotop-c, and upgrades the packages the Python base image ships, which
