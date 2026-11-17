@@ -11,7 +11,9 @@
     fixes two HIGH findings in zlib1g; Python's test and lint tools leave the
     image. The UI image is about 170 MB smaller and has about a quarter fewer
     scanner findings. A removed tool a hook script needs can come back from
-    the Packages page (`sudo apt-get install …`).
+    the Packages page (`sudo apt-get install …`). With `borgUI.fuse.enabled`
+    set to false there is no `sudo` in the container; there it takes an image
+    built on the UI image with the tool added, set in `borgUI.image`.
   * **Restore checks on agent repositories** (karanhudia/borg-ui#1534): the
     canary file travels with the backup, and a cancelled check is no longer
     a failure.
