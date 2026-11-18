@@ -214,13 +214,22 @@ YAML
   done
 }
 
-# keeps_all KIND [HELM ARGS…] — the start script of KIND is there, runs
-# /run.sh and does not name the agent's directory.
+# keeps_all KIND [HELM ARGS…] — the start script of KIND is there and does
+# not name the agent's directory; run, it reaches /run.sh with a file in that
+# directory still in place. The node pods' interval script is a loop, which
+# tests/chart-node-start.bats runs: here it is only read.
 keeps_all() {
   local script
   script="$(q "$1" 'c["args"][0]' "${@:2}")" || fail "$1: no start script: $script"
   [[ $script == *"/run.sh"* ]] || fail "$1: no /run.sh in: $script"
   [[ $script != *"k8s-borg/tmp"* ]] || fail "$1: $script"
+  [ "$1" != DaemonSet ] || return 0
+  mkdir -p "$TMP/scratch"
+  touch "$TMP/scratch/keep"
+  rm -f "$TMP/seen"
+  start "$@"
+  [ "$status" -eq 0 ] || fail "$1: $output"
+  [ "$(cat "$TMP/seen")" = keep ] || fail "$1: /run.sh saw: $(cat "$TMP/seen" 2>&1)"
 }
 
 @test "pods that run no agent empty nothing" {
