@@ -68,12 +68,13 @@ for d in yaml.safe_load_all(sys.stdin):
 }
 
 # refused LIST NAME WORKLOAD [HELM ARGS…] — the render fails, and says that
-# NAME, an entry of LIST, is taken in WORKLOAD.
+# NAME, an entry of LIST, is taken in WORKLOAD. LIST is the whole label of the
+# message, which follows Helm's "…validations.yaml:LINE:COL): ".
 refused() {
   local list=$1 name=$2 workload=$3; shift 3
   run helm template rel "$CHART" -n backup -f "$VALUES" "$@"
   [ "$status" -ne 0 ] || fail "rendered a second volume $name in $workload"
-  [[ $output == *"$list: the volume name \"$name\" is used more than once in $workload "* ]] || fail "$output"
+  [[ $output == *"): $list: the volume name \"$name\" is used more than once in $workload "* ]] || fail "$output"
   [[ $output == *"give the entry another name"* ]] || fail "$output"
 }
 
