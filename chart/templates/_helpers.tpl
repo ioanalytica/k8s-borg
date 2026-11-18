@@ -1048,6 +1048,41 @@ Volume mounts shared by all backup workloads. Requires NODE_NAME in the env.
 {{- end -}}
 
 {{/*
+Fail the render when two volumes of a workload's pod have one name: an entry
+of the release's extra volumes that takes the name of one of the chart's own
+volumes there, or of another entry. Kubernetes refuses such a workload; the
+message here names the lists that hold the entry. The workload is read as it
+renders, so every volume the chart adds to it counts, and none where the
+workload or a feature is off. Renders nothing.
+Usage: include "k8s-borg.volumes.validateNames" (dict "template" "/daemonset.yaml" "extra" (dict "extraVolumes" .Values.extraVolumes) "context" $)
+*/}}
+{{- define "k8s-borg.volumes.validateNames" -}}
+{{- $workload := include (print .context.Template.BasePath .template) .context | fromYaml -}}
+{{- $podSpec := dig "spec" "template" "spec" dict (dig "spec" "jobTemplate" $workload $workload) -}}
+{{- $names := list -}}
+{{- range $volume := get $podSpec "volumes" | default list -}}
+{{- $names = append $names (toString (get $volume "name")) -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $name := $names -}}
+{{- if hasKey $seen $name -}}
+{{- $lists := list -}}
+{{- range $key, $volumes := $.extra -}}
+{{- if $volumes -}}
+{{- range $volume := include "common.tplvalues.render" (dict "value" $volumes "context" $.context) | fromYamlArray -}}
+{{- if and (kindIs "map" $volume) (eq (toString (get $volume "name")) $name) -}}
+{{- $lists = append $lists $key -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- fail (printf "%s: the volume name %q is used more than once in %s %s (its volumes: %s). Volume names are unique within a pod: give the entry another name." ($lists | uniq | sortAlpha | join ", " | default "the chart's own volumes") $name $workload.kind $workload.metadata.name ($names | uniq | join ", ")) -}}
+{{- end -}}
+{{- $_ := set $seen $name true -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 DB secret volumes (cluster/app workloads).
 */}}
 {{/*
