@@ -84,7 +84,7 @@
       "default": "UTC"
     },
     "extraVolumes": {
-      "description": "Extra volumes added to ALL backup workloads. Mount your own sources to back up here — e.g. an NFS share or a PVC at /mnt/nfs. The chart does not assume any shared source of its own.",
+      "description": "Extra volumes added to ALL backup workloads. Mount your own sources to back up here — e.g. an NFS share or a PVC at /mnt/nfs. The chart does not assume any shared source of its own. An entry must not take the name of a volume the chart adds to the same workload (cache, config, mounts, …): the render fails and names it.",
       "type": [
         "array",
         "object",

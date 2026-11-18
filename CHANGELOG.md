@@ -14,6 +14,11 @@
   `/tmp` for restore checks through `extraVolumes` is no longer used for
   them: move it to `tmpDir.volume`. See
   [Temporary files](https://k8s-borg.ioanalytica.com/features/borg-ui-agents#temporary-files).
+* **A volume name used twice fails the render.** An entry of `extraVolumes`
+  or `cluster.extraVolumes` that takes the name of a volume the chart adds to
+  the same workload, or of another entry, made a workload Kubernetes refuses.
+  `helm` now stops with a message that names the list, the name and the
+  workload.
 
 ## 1.3.7
 

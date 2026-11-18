@@ -101,3 +101,12 @@ sqlite-copy also uses below its copy directory.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /*
+Volume names are unique within a pod: no entry of the extra volumes may take
+the name of a volume the chart adds to the same workload, or of another entry.
+Last, so that the checks above speak first.
+*/}}
+{{- include "k8s-borg.volumes.validateNames" (dict "template" "/daemonset.yaml" "extra" (dict "extraVolumes" .Values.extraVolumes) "context" $) }}
+{{- range $template := list "/cronjob.yaml" "/statefulset-app.yaml" }}
+{{- include "k8s-borg.volumes.validateNames" (dict "template" $template "extra" (dict "extraVolumes" $.Values.extraVolumes "cluster.extraVolumes" $.Values.cluster.extraVolumes) "context" $) }}
+{{- end }}
