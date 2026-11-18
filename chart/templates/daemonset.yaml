@@ -90,6 +90,9 @@ spec:
             {}
             {{- end }}
         {{- end }}
+        {{- if eq .Values.node.backupMode "agent" }}
+        {{- include "k8s-borg.volumes.agentTmp" (dict "tmpDir" .Values.node.tmpDir) | nindent 8 }}
+        {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
@@ -116,6 +119,7 @@ spec:
             - |
               hostname "k8s-borg-${NODE_NAME}" 2>/dev/null || printf '%s' "${NODE_NAME}" > /proc/sys/kernel/hostname
               {{- if eq .Values.node.backupMode "agent" }}
+              {{- include "k8s-borg.agentTmpClean" . | nindent 14 }}
               /run.sh run
               exit $?
               {{- else }}
@@ -137,6 +141,8 @@ spec:
             {{- include "k8s-borg.env.agent" . | nindent 12 }}
             - name: BORG_REGISTER_PLAN
               value: "true"
+            - name: TMPDIR
+              value: {{ include "k8s-borg.agentTmpDir" . | quote }}
             {{- if $nodeScripts }}
             - name: BORG_UI_AGENT_SCRIPTS_DIR
               value: /etc/borg-ui-agent-scripts
@@ -214,6 +220,9 @@ spec:
             {{- if $sqlite.enabled }}
             - name: sqlite-copies
               mountPath: {{ include "k8s-borg.sqliteCopyDir" . }}
+            {{- end }}
+            {{- if eq .Values.node.backupMode "agent" }}
+            {{- include "k8s-borg.volumeMounts.agentTmp" (dict "tmpDir" .Values.node.tmpDir "workload" (printf "%s-node" (include "common.names.fullname" .)) "context" $) | nindent 12 }}
             {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}

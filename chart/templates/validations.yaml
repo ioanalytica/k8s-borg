@@ -62,6 +62,16 @@ what the script accepts. Any borg.version but 2 is Borg 1, as for the scripts.
 {{- fail (printf "borg.encryption: %q is not a Borg %s mode; valid: %s. Empty selects the default, %s." $mode $major (join ", " $valid) (first $valid)) }}
 {{- end }}
 {{- end }}
+{{- /*
+tmpDir: a volume of the install's own is used as it is. The section is missing
+in values kept from an older chart (--reuse-values).
+*/}}
+{{- range $scope := list "node" "cluster" }}
+{{- $tmpDir := default dict (get (get $.Values $scope) "tmpDir") }}
+{{- if and $tmpDir.volume (or $tmpDir.sizeLimit $tmpDir.medium) }}
+{{- fail (printf "%[1]s.tmpDir.volume replaces the emptyDir: %[1]s.tmpDir.sizeLimit and %[1]s.tmpDir.medium do not apply to it; give the volume its own size and medium, or leave them empty" $scope) }}
+{{- end }}
+{{- end }}
 {{- include "k8s-borg.repoServer.validate" . }}
 {{- include "k8s-borg.repoServer.offsite.validate" . }}
 {{- include "k8s-borg.ui.notifications.validate" . }}

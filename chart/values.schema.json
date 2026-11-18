@@ -943,6 +943,36 @@
           "maxLength": 0,
           "default": {}
         },
+        "tmpDir": {
+          "description": "Where the node pod writes its temporary files as a managed agent (node.backupMode=agent): a volume of its own (TMPDIR) instead of the container's writable layer. A Borg UI restore check extracts there, in Full Archive mode the whole archive, so the volume needs as much free space as the largest archive checked that way, on every node. The default is an emptyDir on the node's disk. https://k8s-borg.ioanalytica.com/features/borg-ui-agents#temporary-files",
+          "type": "object",
+          "properties": {
+            "sizeLimit": {
+              "description": "Size limit of the emptyDir (\"\" = none); on the node's disk the kubelet evicts the pod that exceeds it",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "medium": {
+              "description": "Medium of the emptyDir: \"\" (the node's disk) or \"Memory\" (counts against the pod's memory)",
+              "type": "string",
+              "default": ""
+            },
+            "volume": {
+              "description": "A volume source used instead of the emptyDir (e.g. a generic ephemeral volume, or a hostPath on a larger disk); the pod uses a directory of its own in it, <namespace>/<workload>/<node name>",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "maxLength": 0,
+              "default": {}
+            }
+          }
+        },
         "datastoreSnapshot": {
           "description": "Snapshot of the cluster datastore on the control-plane nodes, archived with the node backup: etcd of k3s or kubeadm (etcdctl), or k3s's SQLite. Each node pod detects its datastore itself; a node without one skips the step. The snapshot holds every Secret of the cluster in clear text: it is written to a memory-backed volume of the pod only, archived from there, and removed after the run. Restore: https://k8s-borg.ioanalytica.com/operations/disaster-recovery#cluster-datastore",
           "type": "object",
@@ -1226,6 +1256,36 @@
           ],
           "maxProperties": 0,
           "default": []
+        },
+        "tmpDir": {
+          "description": "Where the console pod writes its temporary files as a managed agent (cluster.mode=agent): a volume of its own (TMPDIR) instead of the container's writable layer. A Borg UI restore check extracts there, in Full Archive mode the whole archive, so the volume needs as much free space as the largest archive checked that way. The default is an emptyDir on the node's disk. https://k8s-borg.ioanalytica.com/features/borg-ui-agents#temporary-files",
+          "type": "object",
+          "properties": {
+            "sizeLimit": {
+              "description": "Size limit of the emptyDir (\"\" = none); on the node's disk the kubelet evicts the pod that exceeds it",
+              "type": [
+                "string",
+                "number"
+              ],
+              "default": ""
+            },
+            "medium": {
+              "description": "Medium of the emptyDir: \"\" (the node's disk) or \"Memory\" (counts against the pod's memory)",
+              "type": "string",
+              "default": ""
+            },
+            "volume": {
+              "description": "A volume source used instead of the emptyDir (e.g. a generic ephemeral volume, or a hostPath on a larger disk); the pod uses a directory of its own in it, <namespace>/<workload>/<cluster.nodeName>",
+              "type": [
+                "object",
+                "array",
+                "string"
+              ],
+              "maxItems": 0,
+              "maxLength": 0,
+              "default": {}
+            }
+          }
         },
         "agentScripts": {
           "description": "Pre/post-backup scripts published to the CLUSTER agent (cluster.mode=agent). Map of filename -> script body, mounted read-only + executable at /etc/borg-ui-agent-scripts on the console/agent pod and selectable as a pre/post-backup hook in Borg UI. Put cluster-backup scripts HERE (not under node.agentScripts): this pod is where the cluster DB/source secrets live; node pods do not have them. A wrapper for each enabled database is added automatically and DEEP-MERGED with the entries below (yours win on a name collision): databases.mariadb.enabled -> `backup-cluster-mariadb`, databases.postgres.enabled -> `backup-cluster-postgres` (each execs /usr/local/bin/backup-cluster-<engine>), and s3.enabled -> `s3-remount-buckets` (every listed bucket unmounted and mounted fresh) and `s3-check-mounts` (`s3-mount-buckets --check`: a warning in Borg UI when a listed bucket is not mounted) and, with s3.verifyListing, `s3-verify-listing` (the listing check of the CronJob; it mounts a lost or skipped bucket again). In cluster.backupMode=plan these run as pre-backup hooks of the cluster plan. Only add entries here for extra scripts or to override a default. Example:\nagentScripts:\n  backup-cluster-postgres: |\n    #!/bin/sh\n    # borg-ui: Dump the cluster Postgres before backup\n    pg_dumpall > /mnt/cluster/db.sql",

@@ -219,6 +219,68 @@ node's disk); the node include patterns archive them from there.
 {{- end -}}
 
 {{/*
+Where a managed agent writes its temporary files (TMPDIR), above all the
+archive a restore check extracts: a volume of its own instead of the
+container's writable layer.
+*/}}
+{{- define "k8s-borg.agentTmpDir" -}}
+/var/lib/k8s-borg/tmp
+{{- end -}}
+
+{{/*
+A line of the agent pods' start script: empty that directory. The volume
+outlives the container, unlike the writable layer, so what a container left
+there when it ended (the archive of an interrupted restore check) would stay
+and add up; the pod has the directory to itself. The path is spelled out, as
+TMPDIR is the caller's wherever the script runs outside the pod (the tests).
+*/}}
+{{- define "k8s-borg.agentTmpClean" -}}
+{{- $dir := include "k8s-borg.agentTmpDir" . -}}
+[ ! -d {{ $dir }} ] || find {{ $dir }} -mindepth 1 -maxdepth 1 -exec rm -rf {} + || echo "WARNING: could not empty {{ $dir }}, the agent's directory for temporary files." >&2
+{{- end -}}
+
+{{/*
+The volume behind it: an emptyDir, or the volume the install names. Values
+kept from a chart without the section (--reuse-values) count as its defaults.
+Its name carries the chart's: a release may have a volume called tmp or
+agent-tmp of its own in extraVolumes, mounted for the same purpose.
+Usage: include "k8s-borg.volumes.agentTmp" (dict "tmpDir" .Values.node.tmpDir)
+*/}}
+{{- define "k8s-borg.volumes.agentTmp" -}}
+{{- $tmpDir := default dict .tmpDir -}}
+- name: k8s-borg-agent-tmp
+  {{- if $tmpDir.volume }}
+  {{- toYaml $tmpDir.volume | nindent 2 }}
+  {{- else if or $tmpDir.medium $tmpDir.sizeLimit }}
+  emptyDir:
+    {{- with $tmpDir.medium }}
+    medium: {{ . | quote }}
+    {{- end }}
+    {{- with $tmpDir.sizeLimit }}
+    sizeLimit: {{ . | quote }}
+    {{- end }}
+  {{- else }}
+  emptyDir: {}
+  {{- end }}
+{{- end -}}
+
+{{/*
+Its mount. A volume the install names may be one that several agents share
+(a claim, a host path that other pods or releases use as well), and a pod
+that starts empties its directory: each pod gets one of its own in the volume,
+<namespace>/<workload>/<NODE_NAME>.
+Usage: include "k8s-borg.volumeMounts.agentTmp" (dict "tmpDir" .Values.node.tmpDir "workload" "<name>" "context" $)
+*/}}
+{{- define "k8s-borg.volumeMounts.agentTmp" -}}
+{{- $tmpDir := default dict .tmpDir -}}
+- name: k8s-borg-agent-tmp
+  mountPath: {{ include "k8s-borg.agentTmpDir" . }}
+  {{- if $tmpDir.volume }}
+  subPathExpr: {{ printf "%s/%s/$(NODE_NAME)" .context.Release.Namespace .workload | quote }}
+  {{- end }}
+{{- end -}}
+
+{{/*
 The node pods' ServiceAccount with node.sqlite: get on the listed claims and on
 persistent volumes (node-sqlite-rbac.yaml).
 */}}

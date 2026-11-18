@@ -469,6 +469,26 @@ node:
   ##       # borg-ui: Dump the local database before backup
   ##       pg_dumpall > /var/backups/db.sql
   agentScripts: {}
+  ## Where the node pod writes its temporary files as a managed agent
+  ## (node.backupMode=agent): a volume of its own (TMPDIR) instead of the container's
+  ## writable layer. A Borg UI restore check extracts there, in Full Archive
+  ## mode the whole archive, so the volume needs as much free space as the
+  ## largest archive checked that way, on every node. The default is an emptyDir on the node's disk.
+  ## https://k8s-borg.ioanalytica.com/features/borg-ui-agents#temporary-files
+  tmpDir:
+    ## @param node.tmpDir.sizeLimit Size limit of the emptyDir ("" = none); on the node's disk the kubelet evicts the pod that exceeds it
+    sizeLimit: ""
+    ## @param node.tmpDir.medium Medium of the emptyDir: "" (the node's disk) or "Memory" (counts against the pod's memory)
+    medium: ""
+    ## @param node.tmpDir.volume A volume source used instead of the emptyDir (e.g. a generic ephemeral volume, or a hostPath on a larger disk); the pod uses a directory of its own in it, <namespace>/<workload>/<node name>
+    volume: {}
+    #  ephemeral:
+    #    volumeClaimTemplate:
+    #      spec:
+    #        accessModes: [ReadWriteOnce]
+    #        resources:
+    #          requests:
+    #            storage: 200Gi
   ## Snapshot of the cluster datastore on the control-plane nodes, archived with
   ## the node backup: etcd of k3s or kubeadm (etcdctl), or k3s's SQLite. Each node
   ## pod detects its datastore itself; a node without one skips the step. The
@@ -594,6 +614,26 @@ cluster:
   extraVolumes: []
   ## @param cluster.extraVolumeMounts Extra volume mounts for the cluster CronJob + console pod
   extraVolumeMounts: []
+  ## Where the console pod writes its temporary files as a managed agent
+  ## (cluster.mode=agent): a volume of its own (TMPDIR) instead of the container's
+  ## writable layer. A Borg UI restore check extracts there, in Full Archive
+  ## mode the whole archive, so the volume needs as much free space as the
+  ## largest archive checked that way. The default is an emptyDir on the node's disk.
+  ## https://k8s-borg.ioanalytica.com/features/borg-ui-agents#temporary-files
+  tmpDir:
+    ## @param cluster.tmpDir.sizeLimit Size limit of the emptyDir ("" = none); on the node's disk the kubelet evicts the pod that exceeds it
+    sizeLimit: ""
+    ## @param cluster.tmpDir.medium Medium of the emptyDir: "" (the node's disk) or "Memory" (counts against the pod's memory)
+    medium: ""
+    ## @param cluster.tmpDir.volume A volume source used instead of the emptyDir (e.g. a generic ephemeral volume, or a hostPath on a larger disk); the pod uses a directory of its own in it, <namespace>/<workload>/<cluster.nodeName>
+    volume: {}
+    #  ephemeral:
+    #    volumeClaimTemplate:
+    #      spec:
+    #        accessModes: [ReadWriteOnce]
+    #        resources:
+    #          requests:
+    #            storage: 200Gi
   ## @param cluster.agentScripts Pre/post-backup scripts published to the CLUSTER agent (cluster.mode=agent).
   ##   Map of filename -> script body, mounted read-only + executable at
   ##   /etc/borg-ui-agent-scripts on the console/agent pod and selectable as a pre/post-backup

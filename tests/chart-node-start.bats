@@ -72,8 +72,12 @@ start() {
   script=$(container args "$@" | python3 -c 'import json, sys; print(json.load(sys.stdin)[0])')
   [ -n "$script" ] || fail "no start script rendered"
   script=${script//\/run.sh/\"\$RUN_SH\"}
+  # As an agent the script empties the agent's directory for temporary files
+  # first (tests/chart-agent-tmp.bats): here that is a directory of the test.
+  script=${script//\/var\/lib\/k8s-borg\/tmp/\"\$SCRATCH\"}
+  [[ $script != *"/var/lib/"* ]] || fail "the start script names a path of the machine: $script"
   status=0
-  RUN_SH="$TMP/run.sh" PATH="$TMP/bin:$PATH" /bin/sh -c "$script" &
+  RUN_SH="$TMP/run.sh" SCRATCH="$TMP/scratch" PATH="$TMP/bin:$PATH" /bin/sh -c "$script" &
   pid=$!
   wait "$pid" || status=$?
 }
