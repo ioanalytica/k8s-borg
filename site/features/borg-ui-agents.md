@@ -158,7 +158,9 @@ node:
 
 In a volume you name, each pod works in a directory of its own,
 `<namespace>/<workload>/<node name>` (the console pod: `cluster.nodeName`), so
-the pods may share one claim or host path, also with other releases.
+the pods may share one claim or host path, also with other releases. That
+holds within one cluster: two clusters that share such a volume, with the same
+namespace, release and node names, would use the same directories.
 
 An agent pod empties its directory each time its container starts: the volume
 outlives a restart of the container, and the archive of an interrupted check

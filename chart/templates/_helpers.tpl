@@ -242,11 +242,13 @@ TMPDIR is the caller's wherever the script runs outside the pod (the tests).
 {{/*
 The volume behind it: an emptyDir, or the volume the install names. Values
 kept from a chart without the section (--reuse-values) count as its defaults.
+Its name carries the chart's: a release may have a volume called tmp or
+agent-tmp of its own in extraVolumes, mounted for the same purpose.
 Usage: include "k8s-borg.volumes.agentTmp" (dict "tmpDir" .Values.node.tmpDir)
 */}}
 {{- define "k8s-borg.volumes.agentTmp" -}}
 {{- $tmpDir := default dict .tmpDir -}}
-- name: agent-tmp
+- name: k8s-borg-agent-tmp
   {{- if $tmpDir.volume }}
   {{- toYaml $tmpDir.volume | nindent 2 }}
   {{- else if or $tmpDir.medium $tmpDir.sizeLimit }}
@@ -271,7 +273,7 @@ Usage: include "k8s-borg.volumeMounts.agentTmp" (dict "tmpDir" .Values.node.tmpD
 */}}
 {{- define "k8s-borg.volumeMounts.agentTmp" -}}
 {{- $tmpDir := default dict .tmpDir -}}
-- name: agent-tmp
+- name: k8s-borg-agent-tmp
   mountPath: {{ include "k8s-borg.agentTmpDir" . }}
   {{- if $tmpDir.volume }}
   subPathExpr: {{ printf "%s/%s/$(NODE_NAME)" .context.Release.Namespace .workload | quote }}

@@ -54,8 +54,8 @@ template = d["spec"].get("jobTemplate", d)["spec"]["template"]
 spec = template["spec"]
 c = spec["containers"][0]
 env = {e["name"]: e.get("value", e.get("valueFrom")) for e in c.get("env", [])}
-volume = [v for v in spec["volumes"] if v["name"] == "agent-tmp"]
-mount = [m for m in c["volumeMounts"] if m["name"] == "agent-tmp"]
+volume = [v for v in spec["volumes"] if v["name"] == "k8s-borg-agent-tmp"]
+mount = [m for m in c["volumeMounts"] if m["name"] == "k8s-borg-agent-tmp"]
 print(eval(sys.argv[2]))' "$kind" "$expr"
 }
 
@@ -81,17 +81,17 @@ EOF
 }
 
 @test "a node agent gets an emptyDir for its temporary files, and TMPDIR points there" {
-  [ "$(q DaemonSet 'volume' "${node_agent[@]}")" = "[{'name': 'agent-tmp', 'emptyDir': {}}]" ] \
+  [ "$(q DaemonSet 'volume' "${node_agent[@]}")" = "[{'name': 'k8s-borg-agent-tmp', 'emptyDir': {}}]" ] \
     || fail "$(q DaemonSet 'volume' "${node_agent[@]}")"
   [ "$(q DaemonSet 'mount' "${node_agent[@]}")" \
-    = "[{'name': 'agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}]" ] \
+    = "[{'name': 'k8s-borg-agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}]" ] \
     || fail "$(q DaemonSet 'mount' "${node_agent[@]}")"
   [ "$(q DaemonSet 'env.get("TMPDIR")' "${node_agent[@]}")" = /var/lib/k8s-borg/tmp ] || fail
 }
 
 @test "the console pod as an agent gets the same, from cluster.tmpDir" {
   [ "$(q StatefulSet 'volume, mount, env.get("TMPDIR")' "${cluster_agent[@]}")" \
-    = "([{'name': 'agent-tmp', 'emptyDir': {}}], [{'name': 'agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}], '/var/lib/k8s-borg/tmp')" ] \
+    = "([{'name': 'k8s-borg-agent-tmp', 'emptyDir': {}}], [{'name': 'k8s-borg-agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}], '/var/lib/k8s-borg/tmp')" ] \
     || fail "$(q StatefulSet 'volume, mount, env.get("TMPDIR")' "${cluster_agent[@]}")"
   # Each agent has its own settings.
   [ "$(q StatefulSet 'volume[0]["emptyDir"]' "${cluster_agent[@]}" "${node_agent[@]}" \
@@ -128,11 +128,11 @@ EOF
   # releases) holds one directory per pod, <namespace>/<workload>/<NODE_NAME>:
   # an agent that starts clears only its own.
   [ "$(q DaemonSet 'mount' "${node_agent[@]}" --set-json "node.tmpDir.volume=$claim")" \
-    = "[{'name': 'agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp', 'subPathExpr': 'backup/rel-k8s-borg-node/\$(NODE_NAME)'}]" ] \
+    = "[{'name': 'k8s-borg-agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp', 'subPathExpr': 'backup/rel-k8s-borg-node/\$(NODE_NAME)'}]" ] \
     || fail "$(q DaemonSet 'mount' "${node_agent[@]}" --set-json "node.tmpDir.volume=$claim")"
   [ "$(q StatefulSet 'volume, mount' "${cluster_agent[@]}" \
         --set-json 'cluster.tmpDir.volume={"hostPath":{"path":"/data/scratch","type":"DirectoryOrCreate"}}')" \
-    = "([{'name': 'agent-tmp', 'hostPath': {'path': '/data/scratch', 'type': 'DirectoryOrCreate'}}], [{'name': 'agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp', 'subPathExpr': 'backup/rel-k8s-borg-app/\$(NODE_NAME)'}])" ] \
+    = "([{'name': 'k8s-borg-agent-tmp', 'hostPath': {'path': '/data/scratch', 'type': 'DirectoryOrCreate'}}], [{'name': 'k8s-borg-agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp', 'subPathExpr': 'backup/rel-k8s-borg-app/\$(NODE_NAME)'}])" ] \
     || fail
 }
 
@@ -141,10 +141,10 @@ EOF
   # with; null removes the key from the coalesced values the same way.
   local unset=(--set node.tmpDir=null --set cluster.tmpDir=null)
   [ "$(q DaemonSet 'volume, mount' "${node_agent[@]}" "${unset[@]}")" \
-    = "([{'name': 'agent-tmp', 'emptyDir': {}}], [{'name': 'agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}])" ] \
+    = "([{'name': 'k8s-borg-agent-tmp', 'emptyDir': {}}], [{'name': 'k8s-borg-agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}])" ] \
     || fail "$(q DaemonSet 'volume, mount' "${node_agent[@]}" "${unset[@]}" 2>&1)"
   [ "$(q StatefulSet 'volume, mount' "${cluster_agent[@]}" "${unset[@]}")" \
-    = "([{'name': 'agent-tmp', 'emptyDir': {}}], [{'name': 'agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}])" ] \
+    = "([{'name': 'k8s-borg-agent-tmp', 'emptyDir': {}}], [{'name': 'k8s-borg-agent-tmp', 'mountPath': '/var/lib/k8s-borg/tmp'}])" ] \
     || fail "$(q StatefulSet 'volume, mount' "${cluster_agent[@]}" "${unset[@]}" 2>&1)"
   # Also with both agents off.
   run helm template rel "$CHART" -n backup -f "$VALUES" "${unset[@]}"
@@ -214,8 +214,36 @@ YAML
   done
 }
 
+# keeps_all KIND [HELM ARGS…] — the start script of KIND is there, runs
+# /run.sh and does not name the agent's directory.
+keeps_all() {
+  local script
+  script="$(q "$1" 'c["args"][0]' "${@:2}")" || fail "$1: no start script: $script"
+  [[ $script == *"/run.sh"* ]] || fail "$1: no /run.sh in: $script"
+  [[ $script != *"k8s-borg/tmp"* ]] || fail "$1: $script"
+}
+
 @test "pods that run no agent empty nothing" {
-  [[ "$(q DaemonSet 'c["args"][0]')" != *"k8s-borg/tmp"* ]] || fail "$(q DaemonSet 'c["args"][0]')"
-  [[ "$(q StatefulSet 'c["args"][0]')" != *"k8s-borg/tmp"* ]] || fail "$(q StatefulSet 'c["args"][0]')"
-  [[ "$(q CronJob 'c["args"][0]' "${cluster_agent[@]}")" != *"k8s-borg/tmp"* ]] || fail
+  keeps_all DaemonSet
+  keeps_all StatefulSet
+  # The CronJob shares cluster.* with the console pod, but runs no agent.
+  keeps_all CronJob "${cluster_agent[@]}"
+}
+
+@test "the volume's name is the chart's own: a release's volume called agent-tmp renders beside it" {
+  local extra="$BATS_TEST_TMPDIR/extra.yaml" kind
+  cat >"$extra" <<'YAML'
+extraVolumes:
+  - name: agent-tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: agent-tmp
+    mountPath: /tmp
+YAML
+  for kind in DaemonSet StatefulSet; do
+    [ "$(q "$kind" 'sorted(n for n in {v["name"] for v in spec["volumes"]} if [v["name"] for v in spec["volumes"]].count(n) > 1)' \
+          "${node_agent[@]}" "${cluster_agent[@]}" -f "$extra")" = "[]" ] || fail "$kind has a volume name twice"
+    [ "$(q "$kind" 'sorted(v["name"] for v in spec["volumes"] if "tmp" in v["name"])' \
+          "${node_agent[@]}" "${cluster_agent[@]}" -f "$extra")" = "['agent-tmp', 'k8s-borg-agent-tmp']" ] || fail "$kind"
+  done
 }
