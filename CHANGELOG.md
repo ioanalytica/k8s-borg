@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+* **A volume for the agents' temporary files** (#142). A Borg UI restore
+  check extracts on the agent, in Full Archive mode the whole archive, and so
+  far into the container's writable layer. The node pods
+  (`node.backupMode=agent`) and the console pod (`cluster.mode=agent`) now
+  write their temporary files to a volume of their own, at
+  `/var/lib/k8s-borg/tmp` (`TMPDIR`): an `emptyDir` by default, with
+  `node.tmpDir`/`cluster.tmpDir` to give it a `sizeLimit`, keep it in memory
+  or use another `volume` on nodes with a small root disk. The pod empties
+  the directory each time its container starts. A volume you mounted at
+  `/tmp` for restore checks through `extraVolumes` is no longer used for
+  them: move it to `tmpDir.volume`. See
+  [Temporary files](https://k8s-borg.ioanalytica.com/features/borg-ui-agents#temporary-files).
+
 ## 1.3.7
 
 * **Borg UI main after 2.4.9.** The `borg-ui` submodule moves from the

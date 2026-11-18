@@ -115,3 +115,57 @@ borg:
 
 A removed backup schedule turns the plan's schedule off, as
 `register-backup-plan` rewrites the whole plan.
+
+## Temporary files
+
+A managed agent writes its temporary files to a volume of its own, mounted at
+`/var/lib/k8s-borg/tmp` with `TMPDIR` pointing there, instead of the
+container's writable layer. What matters is the restore check of Borg UI: the
+agent extracts the archive into a temporary directory, verifies it and removes
+it again.
+
+- **Full Archive** extracts the whole archive. The volume needs as much free
+  space as the archive's original size, on every node whose agent runs such a
+  check.
+- **Probe Paths** and the canary check extract a few files only.
+
+By default the volume is an `emptyDir` on the node's disk without a size
+limit, so a large check still uses the node's ephemeral storage. Set it up
+per agent, the node pods under `node.tmpDir`, the console pod under
+`cluster.tmpDir`:
+
+| Value | Effect |
+| --- | --- |
+| `sizeLimit` | On the node's disk, the kubelet evicts the agent pod when the volume grows past it: the check fails, and the pod starts again with an empty volume. It is a threshold, not reserved space; a node with less free disk than the limit still runs short first. |
+| `medium: Memory` | The files are kept in memory and count against the pod's memory limit. Only for small checks. Here `sizeLimit` is the size of the volume: a check that needs more fails for lack of space. |
+| `volume` | Any volume source in place of the `emptyDir`, for nodes with a small root disk. `sizeLimit` and `medium` do not apply to it. |
+
+```yaml
+node:
+  backupMode: agent
+  tmpDir:
+    # A volume per node pod from a storage class, removed with the pod.
+    volume:
+      ephemeral:
+        volumeClaimTemplate:
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: local-path
+            resources:
+              requests:
+                storage: 200Gi
+```
+
+In a volume you name, each pod works in a directory of its own,
+`<namespace>/<workload>/<node name>` (the console pod: `cluster.nodeName`), so
+the pods may share one claim or host path, also with other releases.
+
+An agent pod empties its directory each time its container starts: the volume
+outlives a restart of the container, and the archive of an interrupted check
+would stay otherwise. Keep nothing of your own in that directory.
+
+The path `/tmp` stays free for a mount of your own. The agent no longer writes
+its temporary files there, so a volume mounted at `/tmp` for restore checks
+through `extraVolumes` is no longer used for them: move it to `tmpDir.volume`.
+The agent empties only its own directory in it: remove what earlier checks
+left elsewhere in that volume, or use a new one.
