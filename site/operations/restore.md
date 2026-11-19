@@ -196,7 +196,8 @@ scripted:
 
 The RDB file holds the keys of every database with their TTLs, not the ACL
 users and not the configuration. It loads into the server it came from or a
-newer release of the same one; Valkey 9 writes its own format (`VALKEY080`).
+newer release of the same one; Valkey 9 writes its own format (`VALKEY080`,
+`VALKEY081` from 9.2).
 The primaries of a cluster are dumped one after another, each consistent in
 itself: put each file on the primary that holds its slots in a cluster with
 the same slot layout (`<instance>-cluster-nodes.txt`), or load the files one
