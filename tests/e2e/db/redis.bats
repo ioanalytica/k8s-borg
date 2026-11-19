@@ -56,8 +56,10 @@ teardown_file() {
   local magic
   magic=$(head -c 9 "$DUMPS/e2e/e2e.rdb")
   if rd_valkey9; then
-    # The server's own format: the version redis-rdb-sync announced.
-    [ "$magic" = VALKEY080 ] || fail "magic $magic"
+    # The server's own format, VALKEY080 or a later one (9.2: VALKEY081):
+    # the version redis-rdb-sync announced.
+    [[ $magic =~ ^VALKEY[0-9]{3}$ ]] && [ "${magic#VALKEY}" -ge 80 ] \
+      || fail "magic $magic"
   else
     [[ $magic == REDIS* ]] || fail "magic $magic"
   fi

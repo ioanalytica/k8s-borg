@@ -11,10 +11,10 @@ valkey-cli would exit 0.
 
 This is what `valkey-cli --rdb` does — REPLCONF capa eof, REPLCONF rdb-only 1,
 SYNC — plus one step it lacks: a Valkey server is told its own version with
-REPLCONF version. Valkey 9 writes its new RDB format (VALKEY080) only to a
-replica that announces a version which can read it; to anything else it sends
-the old format, which cannot hold its new types (hash fields with a TTL), and
-the transfer fails. Redis writes its own format to every replica and is told
+REPLCONF version. Valkey 9 writes its new RDB format (VALKEY080, VALKEY081
+from 9.2) only to a replica that announces a version which can read it; to
+anything else it sends the old format, which cannot hold its new types (hash
+fields with a TTL), and the transfer fails. Redis writes its own format to every replica and is told
 nothing.
 
 With TLS the server's certificate is verified against --cacert (or the
