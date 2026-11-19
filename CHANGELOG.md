@@ -1,7 +1,32 @@
 # Changelog
 
-## Unreleased
+## 1.3.8
 
+* **Borg UI 2.4.10.** The `borg-ui` submodule moves from Borg UI's `main` at
+  3e2f4f6b to the v2.4.10 release, seventeen commits later (agent 0.1.25; two
+  database migrations, applied on startup). Among them:
+  * **MCP is a beta, off by default** (karanhudia/borg-ui#1582). After the
+    upgrade, MCP tool calls and new MCP connections are refused until an
+    admin turns the beta on under Settings > Advanced; existing connections
+    can still be listed and revoked. With the beta on, operate connections
+    can also start, cancel and retry jobs, run checks and restore files.
+  * **A plan can prune only its own archives** (karanhudia/borg-ui#1564), an
+    opt-in option for plans that share a repository. On an agent repository
+    it needs agent 0.1.25 or newer; with an older agent the prune fails
+    rather than pruning every archive. The plans the chart registers do not
+    set it and prune as before.
+  * **Clearer errors.** Borg failures answer with a status that names the
+    cause (a lock, a missing passphrase, a missing repository) instead of
+    500; deleting a repository with a filesystem mounted inside it is
+    refused; a database a newer Borg UI migrated stops the start with a
+    message.
+  * **The server makes its data directory writable for its user** before it
+    creates the database, and stops with a message when it cannot.
+  * **Password checks and the database work of agent sessions and of the
+    scheduler run off the event loop.**
+  * **Two gaps in when a plan run may start are closed**, and a user who ran
+    a repository wipe can be deleted.
+  * Community installs show a sale notice from 23 November to 1 December.
 * **A volume for the agents' temporary files** (#142). A Borg UI restore
   check extracts on the agent, in Full Archive mode the whole archive, and so
   far into the container's writable layer. The node pods

@@ -1374,7 +1374,7 @@
                 "string",
                 "number"
               ],
-              "default": "2.4.9-13-g3e2f4f6bc"
+              "default": "2.4.10"
             },
             "pullPolicy": {
               "description": "Borg UI server image pull policy",
