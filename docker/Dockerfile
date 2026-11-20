@@ -54,8 +54,8 @@ ARG PYTHON_VERSION=3.12
 # The MySQL client of databases.mysql (see the mysql-client stage), pinned to
 # the official image's multi-arch index digest: a bump changes both lines.
 # renovate: datasource=docker depName=mysql
-ARG MYSQL_VERSION=8.4.13
-ARG MYSQL_IMAGE_DIGEST=sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+ARG MYSQL_VERSION=26.10.0
+ARG MYSQL_IMAGE_DIGEST=sha256:3819b2b23835c4a73c8b022fafc33c8095c0f81c929a8b7a84613d2fba6c52f5
 
 FROM python:${PYTHON_VERSION}-alpine AS borg-builder
 
