@@ -1,0 +1,62 @@
+# The hash pins that go with a version pin. On a Renovate pull request that
+# moves one of these versions, the workflow pin-checksums.yml (from
+# ioanalytica/renovate-config, whose README describes every key) fills the
+# sums from the release, after checking its PGP signature where one is given,
+# and adds the CHANGELOG line. It reads this table from the pull request's
+# merge base, so a change here applies to the pull requests opened after it
+# is merged. A new signing key is a decision: the run fails until it is here.
+
+# A release installs oras with the local action; the job oras of Lint & test
+# fails while the sum is wrong. CI only, so no CHANGELOG line.
+- name: oras
+  version: .github/actions/setup-oras/action.yml#ORAS_VERSION
+  sums: https://github.com/oras-project/oras/releases/download/v{v}/oras_{v}_checksums.txt
+  signature: "{sums}.asc"
+  # ORAS Project Release Signing, from the KEYS file of oras-project/oras.
+  key: C6FC42F0DE84A345FAADB742F44418110791EF37
+  key_url: https://raw.githubusercontent.com/oras-project/oras/main/KEYS
+  pins:
+    - file: .github/actions/setup-oras/action.yml
+      var: ORAS_SHA256
+      asset: oras_{v}_linux_amd64.tar.gz
+
+# etcd publishes its sums unsigned: as trustworthy as the release page.
+- name: etcd
+  version: docker/Dockerfile#ETCD_VERSION
+  sums: https://github.com/etcd-io/etcd/releases/download/v{v}/SHA256SUMS
+  pins:
+    - { file: docker/Dockerfile, var: ETCD_SHA256_AMD64, asset: "etcd-v{v}-linux-amd64.tar.gz" }
+    - { file: docker/Dockerfile, var: ETCD_SHA256_ARM64, asset: "etcd-v{v}-linux-arm64.tar.gz" }
+  changelog:
+    file: CHANGELOG.md
+    line: "* **etcd {v} in the agent image.** `etcdctl` and `etcdutl`, which the node backup uses for the datastore snapshot, move from {old} to {v}."
+
+# Clear-signed sums. docker/Dockerfile repeats the pins of docker/rclone.env
+# as ARG defaults (tests/rclone-pin.bats), so both files move together.
+- name: rclone
+  version: docker/rclone.env#RCLONE_VERSION
+  sums: https://downloads.rclone.org/v{v}/SHA256SUMS
+  signature: inline
+  # The rclone release key, from keys.openpgp.org.
+  key: FBF737ECE9F8AB18604BD2AC93935E02FF3B54FA
+  pins:
+    - { file: docker/rclone.env, var: RCLONE_SHA256_AMD64, asset: "rclone-v{v}-linux-amd64.zip" }
+    - { file: docker/rclone.env, var: RCLONE_SHA256_ARM64, asset: "rclone-v{v}-linux-arm64.zip" }
+    - { file: docker/Dockerfile, var: RCLONE_SHA256_AMD64, asset: "rclone-v{v}-linux-amd64.zip" }
+    - { file: docker/Dockerfile, var: RCLONE_SHA256_ARM64, asset: "rclone-v{v}-linux-arm64.zip" }
+  changelog:
+    file: CHANGELOG.md
+    line: "* **rclone {v} in the agent image**, moved from {old}."
+
+# s3fs publishes no sums: the sum of the source archive itself. Every release
+# is a decision (the patch in docker/s3fs/), see .github/renovate.json.
+- name: s3fs
+  version: docker/Dockerfile#S3FS_VERSION
+  algorithm: sha512
+  pins:
+    - file: docker/Dockerfile
+      var: S3FS_SHA512
+      url: https://github.com/s3fs-fuse/s3fs-fuse/archive/v{v}.tar.gz
+  changelog:
+    file: CHANGELOG.md
+    line: "* **s3fs {v} in the agent image**, built from the release with the patch of docker/s3fs/, moved from {old}."

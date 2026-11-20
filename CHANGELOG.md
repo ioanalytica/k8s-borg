@@ -11,6 +11,22 @@
   MongoDB backup, moves from pymongo 4.19.0 to 4.20.0; the MongoDB servers it
   supports stay 4.4 and newer.
 
+### Project and CI
+
+* **Renovate on the shared preset, hash pins filled by a workflow.**
+  `.github/renovate.json` extends the preset of ioanalytica/renovate-config.
+  No update waits on the Dependency Dashboard any more: a new major, a new
+  etcd minor, an s3fs release and a moved action tag come as pull requests
+  with the label `decision`. There is no limit on open pull requests, each
+  one requests a review, and security fixes come at any time. The MySQL
+  client stays on the 8.4 LTS series. The sums of oras, etcd, rclone and s3fs
+  are listed in `.github/checksums.yaml`: on the bot's branch,
+  `.github/workflows/pin-checksums.yml` fills them from the release, after
+  checking its PGP signature where one is given, and adds the CHANGELOG line
+  of etcd, rclone and s3fs. "Dependency updates" in `CONTRIBUTING.md`
+  describes it; `tests/renovate-config.bats` keeps every hash pin in the
+  table.
+
 ## 1.3.8
 
 * **Borg UI 2.4.10.** The `borg-ui` submodule moves from Borg UI's `main` at
