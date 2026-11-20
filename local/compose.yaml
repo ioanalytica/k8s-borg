@@ -10,7 +10,7 @@ x-agent-image: &agent-image
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:19-alpine
     environment:
       POSTGRES_USER: borg
       POSTGRES_PASSWORD: borg
