@@ -1,6 +1,6 @@
 # A bare Debian machine with systemd: what the server's install.sh expects to
 # find. Everything the agent needs is left for the installer to bring.
-FROM debian:12
+FROM debian:13
 
 # hadolint ignore=DL3008
 RUN apt-get update \
