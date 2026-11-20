@@ -119,7 +119,7 @@ problems = []
 files = ["docker/Dockerfile", "docker/rclone.env"] + [os.path.relpath(a, root)
          for a in sorted(glob.glob(f"{root}/.github/actions/*/action.y*ml"))]
 for path in files:
-    for var in re.findall(r"^ *(?:ARG |export )?(\w+_SHA(?:256|512)\w*)[=:] *[\"\x27]?[0-9a-f]{64}", open(f"{root}/{path}").read(), re.M):
+    for var in re.findall(r"^\s*(?:(?:ARG|export)\s+)?(\w+_SHA(?:256|512)\w*)\s*(?:=|:\s)\s*[\"\x27]?[0-9a-f]{64}", open(f"{root}/{path}").read(), re.M):
         if (path, var) not in listed:
             problems.append(f"{path}: {var} is not in .github/checksums.yaml")
 for e in table:
