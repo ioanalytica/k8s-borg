@@ -105,6 +105,8 @@ sys.exit(1 if problems else 0)
 }
 
 @test "every hash pin of the agent image and the local actions is one .github/checksums.yaml fills" {
+  # A hash pin is any assignment whose value is a sum of 64 hex digits or
+  # more, whatever its name: an image digest reads sha256:…, a commit 40.
   # The workflow pin-checksums.yml fills the pins the table names when
   # Renovate moves their version; a pin missing there would make every such
   # pull request red until someone copies the sum by hand. Each entry's
@@ -119,7 +121,7 @@ problems = []
 files = ["docker/Dockerfile", "docker/rclone.env"] + [os.path.relpath(a, root)
          for a in sorted(glob.glob(f"{root}/.github/actions/*/action.y*ml"))]
 for path in files:
-    for var in re.findall(r"^\s*(?:(?:ARG|export)\s+)?(\w*SHA(?:256|512)\w*)\s*(?:=|:\s)\s*[\"\x27]?[0-9a-fA-F]{64}", open(f"{root}/{path}").read(), re.M):
+    for var in re.findall(r"^\s*(?:(?:ARG|export)\s+)?(\w+)\s*(?:=|:\s)\s*[\"\x27]?[0-9a-fA-F]{64}", open(f"{root}/{path}").read(), re.M):
         if (path, var) not in listed:
             problems.append(f"{path}: {var} is not in .github/checksums.yaml")
 for e in table:
