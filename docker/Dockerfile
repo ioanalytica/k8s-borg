@@ -316,7 +316,7 @@ RUN python -m venv "${BORG_UI_AGENT_VENV}" \
 # which only speed up BSON for large volumes. PyYAML reads the credentials
 # file. Pinned, dnspython (pymongo's only dependency) included.
 # renovate: datasource=pypi depName=pymongo
-ARG PYMONGO_VERSION=4.20.0
+ARG PYMONGO_VERSION=4.20.1
 # renovate: datasource=pypi depName=dnspython
 ARG DNSPYTHON_VERSION=2.9.2
 # renovate: datasource=pypi depName=PyYAML
