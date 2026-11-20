@@ -10,7 +10,7 @@ containers: no tag, no chart version, no registry, no cluster.
 | `postgres`, `redis` | the server's database and Redis | – |
 | `repo-server` | the repository server of the agent image (sshd, `borg serve`) | `ssh://borg@localhost:2222` |
 | `agent` | one managed agent from the agent image; enrolls itself and registers a repository on `repo-server` | – |
-| `target` | optional: a bare Debian 12 with systemd, the target of the server's `install.sh` | – |
+| `target` | optional: a bare Debian 13 with systemd, the target of the server's `install.sh` | – |
 
 This tests Borg UI and the agents, not the chart: the agent is started by the
 image's own `/run-agent.sh`, but without the chart's reconcile Job, schedules
