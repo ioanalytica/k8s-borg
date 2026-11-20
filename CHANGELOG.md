@@ -7,6 +7,10 @@
   It is built with Go 1.26.11 and golang.org/x/net 0.62.0, which fix
   CVE-2026-97054 in Go's standard library and CVE-2026-78661 in x/net.
 
+* **pymongo 4.20.0 in the agent image.** `mongodb-admin`, the helper of the
+  MongoDB backup, moves from pymongo 4.19.0 to 4.20.0; the MongoDB servers it
+  supports stay 4.4 and newer.
+
 ## 1.3.8
 
 * **Borg UI 2.4.10.** The `borg-ui` submodule moves from Borg UI's `main` at
