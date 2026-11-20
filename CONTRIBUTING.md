@@ -91,30 +91,45 @@ as a tag. Prereleases are public: they stay, like releases.
 ## Dependency updates
 
 [Renovate](https://docs.renovatebot.com/) opens the update pull requests, as
-[`.github/renovate.json`](.github/renovate.json) configures it: early on
-Mondays (Europe/Berlin), for releases at least three days old, and never
-merged by the bot. Its Dependency Dashboard issue lists every dependency it
-found and the updates that wait for approval there.
+[`.github/renovate.json`](.github/renovate.json) configures it on top of the
+shared preset of
+[ioanalytica/renovate-config](https://github.com/ioanalytica/renovate-config):
+early on Mondays (Europe/Berlin), for releases at least three days old, a
+security fix at any time, each with a review request, and never merged by the
+bot. Nothing waits for approval on its Dependency Dashboard issue, which lists
+every dependency it found: an update that is a deliberate move, every new
+major among them, comes as a pull request with the label `decision`. Closing
+it declines that version; Renovate proposes the next one.
+
+The hash pins that go with a version pin are listed in
+[`.github/checksums.yaml`](.github/checksums.yaml). On the bot's branch, the
+workflow `.github/workflows/pin-checksums.yml` fills them from the release,
+after checking its PGP signature where the table names a key, and adds the
+`CHANGELOG.md` line, as a signed commit of the GitHub App
+`ioanalytica-renovate-helper`. When a check fails it commits nothing and says
+why in a comment; the rebase checkbox of the pull request runs it again (a
+re-run by hand does nothing). A new hash pin needs its entry in the table
+(`tests/renovate-config.bats`), and pins in `.github/workflows/` belong in a
+local action under `.github/actions/`: the app may not change workflows.
 
 - **GitHub Actions** are pinned to a commit, with the release in a comment
   (`uses: actions/checkout@<sha> # v7.0.1`); `tests/renovate-config.bats`
   fails on a tag. Minor and patch releases come as one pull request, together
   with the Helm and cosign versions the workflows install and the runner
   images; a new major comes on its own. A new commit under an unchanged
-  release means the tag was moved, and waits for approval on the dashboard.
-  oras, which a release installs with `.github/actions/setup-oras`, comes
-  on its own: its `ORAS_SHA256` is updated by hand on the bot's branch, from
-  the release's checksums once their PGP signature checks out, and the job
-  `oras` of Lint & test fails until it matches.
+  release means the tag was moved: its pull request carries the label
+  `decision`. oras, which a release installs with `.github/actions/setup-oras`,
+  comes on its own, with its `ORAS_SHA256` filled from the release's signed
+  checksums; the job `oras` of Lint & test fails until it matches.
 - **The agent image's pins** in `docker/Dockerfile` and `docker/rclone.env`
   each sit under a `# renovate: datasource=… depName=…` line, and a new pin
-  needs one too (`tests/renovate-config.bats`). MySQL (version and digest),
-  pymongo, dnspython and PyYAML come as one pull request. etcd and rclone come
-  on their own: their checksums are updated by hand on the bot's branch, from
-  the source the pull request names, and the build fails until they match. A
-  new etcd minor, every s3fs release (it is built with a patch) and every new
-  major wait for approval on the dashboard. A pull request that changes the
-  agent image gets its line in `CHANGELOG.md` on the bot's branch.
+  needs one too (`tests/renovate-config.bats`). MySQL (version and digest,
+  held to the 8.4 LTS series), pymongo, dnspython and PyYAML come as one pull
+  request, which gets its line in `CHANGELOG.md` on the bot's branch by hand.
+  etcd, rclone and s3fs come on their own, with their sums and their
+  `CHANGELOG.md` line from the workflow; the build fails while a sum is
+  wrong. A new etcd minor and every s3fs release (it is built with a patch)
+  carry the label `decision`.
 - **k3d**, which `.github/workflows/try-locally.yml` installs, and **the k3s
   image** the page "Try it locally" creates its cluster with
   (`k3d cluster create … --image rancher/k3s:…`) come on their own; each pull

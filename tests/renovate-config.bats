@@ -104,6 +104,39 @@ sys.exit(1 if problems else 0)
   [ "$status" -eq 0 ] || fail "$output"
 }
 
+@test "every hash pin of the agent image and the local actions is one .github/checksums.yaml fills" {
+  # A hash pin is any assignment whose value is a sum of 64 hex digits or
+  # more, whatever its name: an image digest reads sha256:…, a commit 40.
+  # The workflow pin-checksums.yml fills the pins the table names when
+  # Renovate moves their version; a pin missing there would make every such
+  # pull request red until someone copies the sum by hand. Each entry's
+  # version is one a custom manager moves, and pins in workflows are refused
+  # by the workflow (its app may not change them).
+  run py '
+import glob, json, os, re, sys, yaml
+root, c = sys.argv[1], json.load(open(sys.argv[2]))
+table = yaml.safe_load(open(f"{root}/.github/checksums.yaml"))
+listed = {(p["file"], p["var"]) for e in table for p in e["pins"]}
+problems = []
+files = ["docker/Dockerfile", "docker/rclone.env"] + [os.path.relpath(a, root)
+         for a in sorted(glob.glob(f"{root}/.github/actions/*/action.y*ml"))]
+for path in files:
+    for var in re.findall(r"^\s*(?:(?:ARG|export)\s+)?(\w+)\s*(?:=|:\s)\s*[\"\x27]?[0-9a-fA-F]{64}", open(f"{root}/{path}").read(), re.M):
+        if (path, var) not in listed:
+            problems.append(f"{path}: {var} is not in .github/checksums.yaml")
+for e in table:
+    name, (path, var) = e["name"], e["version"].split("#")
+    if not re.search(rf"# renovate: .*\n *(?:ARG )?{var}[=:]", open(f"{root}/{path}").read()):
+        problems.append(f"{name}: {var} in {path} has no # renovate: line above it")
+    for pin in (p["file"] for p in e["pins"]):
+        if pin.startswith(".github/workflows/"):
+            problems.append(f"{name}: {pin} is a workflow, which the app may not change")
+print("\n".join(problems))
+sys.exit(1 if problems else 0)
+'
+  [ "$status" -eq 0 ] || fail "$output"
+}
+
 @test "the k3s image of the page Try it locally is one a custom manager reads, releases alone" {
   # The job try-locally.yml runs the page's k3d cluster create, so the page and
   # the job move together. Docker Hub also has the release candidates and a tag

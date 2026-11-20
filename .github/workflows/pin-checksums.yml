@@ -1,0 +1,31 @@
+name: Pin checksums
+
+# On a Renovate pull request that moves a version of .github/checksums.yaml,
+# fills the hash pins that go with it from the release (after checking its
+# PGP signature where the table names a key) and adds the CHANGELOG line, as
+# a commit of the GitHub App ioanalytica-renovate-helper on the bot's branch.
+# The reusable workflow of ioanalytica/renovate-config does the work; its
+# README says what it checks. It runs only on renovate[bot]'s own pushes: a
+# re-run by hand does nothing, the rebase checkbox of the pull request runs
+# it again. Not a required check: the build and Lint & test fail while a pin
+# is wrong.
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  pin-checksums:
+    if: startsWith(github.head_ref, 'renovate/')
+    uses: ioanalytica/renovate-config/.github/workflows/pin-checksums.yml@b893c2228d48ab719081276e6f9f7dbf0ec5cb6c # v1.0.1
+    # contents: read checks the pull request out (the commit uses the app's
+    # token); id-token: write lets the called workflow read which commit of
+    # renovate-config it runs from; pull-requests: write lets it comment when
+    # a check fails.
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    secrets:
+      RENOVATE_HELPER_APP_ID: ${{ secrets.RENOVATE_HELPER_APP_ID }}
+      RENOVATE_HELPER_PRIVATE_KEY: ${{ secrets.RENOVATE_HELPER_PRIVATE_KEY }}
