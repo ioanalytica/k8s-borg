@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+* **etcd 3.6.17 in the agent image.** `etcdctl` and `etcdutl`, which the
+  node backup uses for the datastore snapshot, move from 3.6.16 to 3.6.17.
+  It is built with Go 1.26.11 and golang.org/x/net 0.62.0, which fix
+  CVE-2026-97054 in Go's standard library and CVE-2026-78661 in x/net.
+
 ## 1.3.8
 
 * **Borg UI 2.4.10.** The `borg-ui` submodule moves from Borg UI's `main` at
