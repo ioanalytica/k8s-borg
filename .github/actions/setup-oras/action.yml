@@ -19,7 +19,7 @@ runs:
         # release at run time: a replaced release would bring its own sums. It
         # moves with the version, by hand; the job oras of lint-test.yml fails
         # until it matches.
-        ORAS_SHA256: 66fb0ad7206f3f6fa77ed5b552049d364ccf4b50b1684554f731f76302b52ca0
+        ORAS_SHA256: d8e1dce2fd8ce996f1d901845b688eb0cf505a6082897606f053825bb47935d1
       run: |
         # The jobs that use it run on x64; an arm64 runner would get a binary
         # it cannot run.
