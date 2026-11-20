@@ -11,7 +11,7 @@ runs:
       shell: bash
       env:
         # renovate: datasource=github-releases depName=oras-project/oras
-        ORAS_VERSION: 1.3.6
+        ORAS_VERSION: 1.4.0
         # The sum of oras_${ORAS_VERSION}_linux_amd64.tar.gz in the release's
         # checksums, whose PGP signature (ORAS Project Release Signing,
         # C6FC42F0DE84A345FAADB742F44418110791EF37, from the KEYS file of
