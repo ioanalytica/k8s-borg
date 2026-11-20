@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* **etcd 3.7.3 in the agent image.** `etcdctl` and `etcdutl`, which the node backup uses for the datastore snapshot, move from 3.6.17 to 3.7.3.
 * **etcd 3.6.17 in the agent image.** `etcdctl` and `etcdutl`, which the
   node backup uses for the datastore snapshot, move from 3.6.16 to 3.6.17.
   It is built with Go 1.26.11 and golang.org/x/net 0.62.0, which fix
