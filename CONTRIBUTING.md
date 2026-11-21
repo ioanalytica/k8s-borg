@@ -108,15 +108,16 @@ its default, `auto`):
   as a new pull request. Moving to the declined major by hand brings its
   updates back.
 - A digest, such as a moved action tag: only that digest is declined.
-- A group with updates to different versions: nothing is declined, and
-  Renovate opens it again at its next scheduled run. To hold one of them back,
-  constrain it in `.github/renovate.json`, as `allowedVersions` holds the
-  MySQL client to 8.4. A group whose updates all go to one version, such as
-  `renovate-config`, is declined like a single update.
+- A pull request whose body says ":ghost: **Immortal**", usually a group
+  whose updates go to different versions: nothing is declined, and Renovate
+  opens it again at its next scheduled run, without a comment. To hold one of
+  its updates back, constrain it in `.github/renovate.json`, as
+  `allowedVersions` holds the MySQL client to 8.4. Any other group, such as
+  `renovate-config`, whose updates go to one version, is declined like a
+  single update.
 
 When Renovate declines, it says so in a comment on the closed pull request;
-renaming the closed pull request lifts the decline. A group it opens again
-gets no such comment.
+renaming the closed pull request lifts the decline.
 
 The hash pins that go with a version pin are listed in
 [`.github/checksums.yaml`](.github/checksums.yaml). On the bot's branch, the
