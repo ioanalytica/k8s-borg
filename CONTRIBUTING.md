@@ -98,8 +98,25 @@ early on Mondays (Europe/Berlin), for releases at least three days old, a
 security fix at any time, each with a review request, and never merged by the
 bot. Nothing waits for approval on its Dependency Dashboard issue, which lists
 every dependency it found: an update that is a deliberate move, every new
-major among them, comes as a pull request with the label `decision`. Closing
-it declines that version; Renovate proposes the next one.
+major among them, comes as a pull request with the label `decision`. What
+closing a pull request declines depends on the update (with `recreateWhen` at
+its default, `auto`):
+
+- A minor or patch update: only that version is declined. The next release
+  comes as a new pull request.
+- A major: every release of that major is declined, and the next major comes
+  as a new pull request. Moving to the declined major by hand brings its
+  updates back.
+- A digest, such as a moved action tag: only that digest is declined.
+- A group with updates to different versions: nothing is declined, and
+  Renovate opens it again at its next scheduled run. To hold one of them back,
+  constrain it in `.github/renovate.json`, as `allowedVersions` holds the
+  MySQL client to 8.4. A group whose updates all go to one version, such as
+  `renovate-config`, is declined like a single update.
+
+When Renovate declines, it says so in a comment on the closed pull request;
+renaming the closed pull request lifts the decline. A group it opens again
+gets no such comment.
 
 The hash pins that go with a version pin are listed in
 [`.github/checksums.yaml`](.github/checksums.yaml). On the bot's branch, the
