@@ -269,13 +269,24 @@ blamed_on_repository() {
   export BORG_RSH="ssh -p 1" BORGSTORE_RSH="ssh -p 1"
   run borg-init
   blamed_on_repository
+  # ssh's "Connection refused" is in the output unless ssh's exit wins a race
+  # against Borg; then each major drops it in its own way.
+  #
   # Borg 1 reads ssh's stdout before its stderr when both are ready, so when
-  # ssh's exit closes them in one go it reports the closed connection and drops
-  # ssh's "Connection refused".
-  [[ "$output" == *"Connection refused"* ]] ||
-    { [ "$BORG_VERSION" = "1" ] &&
-      [[ "$output" == *"Connection closed by remote host. Is borg working on the server?"* ]]; } ||
-    fail "$output"
+  # ssh's exit closes them in one go it reports the closed connection.
+  #
+  # Borg 2 (borgstore 0.7.0) fails to send its first request when ssh is gone
+  # by then. Closing the session then fails on the same pipe, and that second
+  # error replaces the message that would have quoted ssh: Borg prints a
+  # traceback instead (#163).
+  [[ "$output" == *"Connection refused"* ]] && return
+  if [ "$BORG_VERSION" = "1" ]; then
+    [[ "$output" == *"Connection closed by remote host. Is borg working on the server?"* ]] ||
+      fail "$output"
+  else
+    [[ "$output" == *"stdio connection lost while sending request"* ]] || fail "$output"
+    [[ "$output" == *"BrokenPipeError: [Errno 32] Broken pipe"* ]] || fail "$output"
+  fi
 }
 
 # --- the passphrase -----------------------------------------------------------
