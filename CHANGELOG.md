@@ -28,6 +28,10 @@
   describes it; `tests/renovate-config.bats` keeps every hash pin in the
   table.
 
+* **PostgreSQL 18 in the local test stack and the k3d example.** Both move
+  from 17 to 18, the newest server the database suite tests. A local stack
+  from before needs `./stack.sh reset` once.
+
 ## 1.3.8
 
 * **Borg UI 2.4.10.** The `borg-ui` submodule moves from Borg UI's `main` at

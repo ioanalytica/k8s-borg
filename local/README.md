@@ -37,6 +37,9 @@ After a `build`, `up` recreates the containers on the new images and keeps the
 data. When the new source cannot read the old data (another Borg 2 beta, an
 older database schema), `reset` first.
 
+The database is PostgreSQL 18. A stack whose database PostgreSQL 17 created
+does not start on it: `reset` once.
+
 ## Licence
 
 The server is left as the image ships it: a new instance asks the activation
