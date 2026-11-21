@@ -1,12 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.3.9
 
+* **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
+* **Alpine package fixes in the agent image.** The image is built anew
+  and upgrades its base image's packages: mariadb-client and mariadb-common
+  move from 11.8.9 to 11.8.10, which fixes CVE-2026-101679, CVE-2026-101775
+  and CVE-2026-101796, and libxml2 from 2.13.9-r2 to 2.13.9-r3, which fixes
+  CVE-2026-86144, all HIGH.
 * **etcd 3.7.4 in the agent image.** `etcdctl` and `etcdutl`, which the
   node backup uses for the datastore snapshot, move from 3.6.16 to 3.7.4.
   It is built with Go 1.26.11 and golang.org/x/net 0.62.0, which fix
   CVE-2026-97054 in Go's standard library and CVE-2026-78661 in x/net.
-
 * **pymongo 4.20.1 in the agent image.** `mongodb-admin`, the helper of the
   MongoDB backup, moves from pymongo 4.19.0 to 4.20.1; the MongoDB servers it
   supports stay 4.4 and newer.
