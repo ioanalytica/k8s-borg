@@ -2,14 +2,13 @@
 
 ## Unreleased
 
-* **etcd 3.7.3 in the agent image.** `etcdctl` and `etcdutl`, which the node backup uses for the datastore snapshot, move from 3.6.17 to 3.7.3.
-* **etcd 3.6.17 in the agent image.** `etcdctl` and `etcdutl`, which the
-  node backup uses for the datastore snapshot, move from 3.6.16 to 3.6.17.
+* **etcd 3.7.4 in the agent image.** `etcdctl` and `etcdutl`, which the
+  node backup uses for the datastore snapshot, move from 3.6.16 to 3.7.4.
   It is built with Go 1.26.11 and golang.org/x/net 0.62.0, which fix
   CVE-2026-97054 in Go's standard library and CVE-2026-78661 in x/net.
 
-* **pymongo 4.20.0 in the agent image.** `mongodb-admin`, the helper of the
-  MongoDB backup, moves from pymongo 4.19.0 to 4.20.0; the MongoDB servers it
+* **pymongo 4.20.1 in the agent image.** `mongodb-admin`, the helper of the
+  MongoDB backup, moves from pymongo 4.19.0 to 4.20.1; the MongoDB servers it
   supports stay 4.4 and newer.
 
 ### Project and CI
@@ -27,6 +26,10 @@
   of etcd, rclone and s3fs. "Dependency updates" in `CONTRIBUTING.md`
   describes it; `tests/renovate-config.bats` keeps every hash pin in the
   table.
+
+* **PostgreSQL 18 in the local test stack and the k3d example.** Both move
+  from 17 to 18, the newest server the database suite tests. A local stack
+  from before needs `./stack.sh reset` once.
 
 ## 1.3.8
 

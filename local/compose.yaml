@@ -10,13 +10,16 @@ x-agent-image: &agent-image
 
 services:
   postgres:
-    image: postgres:17-alpine
+    # The newest PostgreSQL the database suite tests (tests/e2e/db/run.sh).
+    # From 18 on, the image keeps its data in a directory per major under
+    # /var/lib/postgresql, so the volume is mounted there.
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: borg
       POSTGRES_PASSWORD: borg
       POSTGRES_DB: borg
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U borg -d borg"]
       interval: 2s
