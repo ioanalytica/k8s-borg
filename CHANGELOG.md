@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+* **Every release upgrades the images' packages anew.** The release build
+  runs the final stage of the agent image, which starts with `apk upgrade`,
+  and the final stage of Borg UI's runtime base, which starts with
+  `apt-get upgrade`, without the layer cache. A release no longer publishes
+  the packages of an earlier one while the base image is unchanged; the
+  server image is built on that runtime base. The end-to-end suites build
+  the agent image the same way, so they test the packages Alpine serves at
+  the time rather than those of an earlier run.
+  The stages that compile Borg and s3fs or fetch etcd, rclone and the MySQL
+  client keep their cache.
+
 ## 1.3.9
 
 * **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).

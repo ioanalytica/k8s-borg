@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: ""
+      no-cache-filters:
+        description: Stages of the Dockerfile to build without the layer cache, comma-separated, or empty
+        required: false
+        type: string
+        default: ""
 
 env:
   REGISTRY: ghcr.io
@@ -122,6 +127,9 @@ jobs:
           provenance: mode=max,version=v1
           cache-from: type=gha,scope=${{ inputs.image }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ inputs.image }}-${{ matrix.platform }}
+          # The stages build.yml names here run anew in every build, the
+          # others come from the cache (see build.yml for why).
+          no-cache-filters: ${{ inputs.no-cache-filters }}
       - name: Export digest
         run: |
           mkdir -p "$RUNNER_TEMP/digests"

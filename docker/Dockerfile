@@ -216,7 +216,12 @@ RUN set -eu; \
     done
 
 # --- agent image -------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-alpine
+# Named so that the release build can run it without the layer cache
+# (`no-cache-filters: agent` in .github/workflows/build.yml): the `apk upgrade`
+# below has the same cache key for as long as the base image is unchanged, so a
+# cached layer would ship the packages of an earlier build. The stages above
+# keep their cache.
+FROM python:${PYTHON_VERSION}-alpine AS agent
 
 # `fuse` (the FUSE 2 library) is what mfusepy loads for `borg2 mount`; Alpine
 # already ships libfuse3.so.4, so fuse3 alone does not satisfy it. s3fs comes
