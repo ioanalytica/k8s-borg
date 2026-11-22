@@ -97,6 +97,11 @@ jobs:
       context: .
       file: ./docker/Dockerfile
       agent-edge: ${{ needs.prep.outputs.agent_edge }}
+      # The final stage runs anew in every release, its `apk upgrade` first:
+      # that layer's cache key is the base image and the instruction, so a
+      # cached copy would publish the packages of an earlier release for as
+      # long as the base image is unchanged. The builder stages stay cached.
+      no-cache-filters: agent
       # `latest` moves with releases only (here and in the two jobs below):
       # every version with a -suffix is a prerelease, a beta such as
       # 1.2.4-beta.1 as well as a chart revision such as 1.2.3-1.
@@ -117,6 +122,10 @@ jobs:
       image: k8s-borg-ui-runtime-base
       context: EMPTY
       file: ./borg-ui/Dockerfile.runtime-base
+      # The same for Borg UI's `apt-get upgrade`, in the final stage of its
+      # runtime base. The server image is built on the runtime base this job
+      # pushes, by digest, so it gets the same packages.
+      no-cache-filters: runtime-base
       build-args: |
         BORG1_VERSION=${{ needs.prep.outputs.borg1 }}
         BORG2_VERSION=${{ needs.prep.outputs.borg2 }}
