@@ -1,7 +1,18 @@
 # Changelog
 
-## Unreleased
+## 1.3.10
 
+* **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
+* **Debian krb5 fixes in the Borg UI images.** The runtime base and the
+  server image built on it are built anew and upgrade their base image's
+  packages: libgssapi-krb5-2, libk5crypto3, libkrb5-3 and libkrb5support0
+  move from krb5 1.21.3-5+deb13u1 to 1.21.3-5+deb13u2, which fixes 14 HIGH
+  vulnerabilities (CVE-2026-71199, CVE-2026-71200, CVE-2026-107364,
+  CVE-2026-112315 to CVE-2026-112323, CVE-2026-118380 and CVE-2026-119079).
+  The server image keeps its tag `2.4.10`, and `borgUI.image.pullPolicy`
+  defaults to `IfNotPresent`: a node that already holds that image keeps
+  the old one until it pulls the image again, for example with
+  `borgUI.image.pullPolicy: Always` for the upgrade.
 * **Every release upgrades the images' packages anew.** The release build
   runs the final stage of the agent image, which starts with `apk upgrade`,
   and the final stage of Borg UI's runtime base, which starts with
