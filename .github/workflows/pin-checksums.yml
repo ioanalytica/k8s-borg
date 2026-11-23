@@ -17,7 +17,7 @@ permissions: {}
 jobs:
   pin-checksums:
     if: startsWith(github.head_ref, 'renovate/')
-    uses: ioanalytica/renovate-config/.github/workflows/pin-checksums.yml@b893c2228d48ab719081276e6f9f7dbf0ec5cb6c # v1.0.1
+    uses: ioanalytica/renovate-config/.github/workflows/pin-checksums.yml@ea24dff54559be39a98074ce4d6055c2f9ba7a44 # v1.1.0
     # contents: read checks the pull request out (the commit uses the app's
     # token); id-token: write lets the called workflow read which commit of
     # renovate-config it runs from; pull-requests: write lets it comment when

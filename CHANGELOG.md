@@ -13,6 +13,15 @@
   The stages that compile Borg and s3fs or fetch etcd, rclone and the MySQL
   client keep their cache.
 
+### Project and CI
+
+* **Renovate runs every night, and what the images contain does not wait.**
+  `.github/renovate.json` extends ioanalytica/renovate-config 1.1.0: update
+  pull requests come every night instead of on Mondays, and an update of
+  etcd, rclone, s3fs or the MySQL client comes in the night after its
+  release instead of three days later. The Python packages of the agent
+  image, the workflows and the tests keep the three days.
+
 ## 1.3.9
 
 * **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
