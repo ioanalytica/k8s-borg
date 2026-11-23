@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Dependency update pull requests for k8s-borg, on the shared preset of ioanalytica/renovate-config (schedule, minimum release age, DCO, review requests, the label decision). CONTRIBUTING.md says what the bot updates and what stays manual; tests/renovate-config.bats guards both. The hash pins that go with a version pin are .github/checksums.yaml's: the workflow pin-checksums.yml fills them on the bot's branch.",
-  "extends": ["github>ioanalytica/renovate-config#v1.1.0"],
+  "extends": ["github>ioanalytica/renovate-config#v1.1.1"],
   "ignorePaths": ["borg-ui/**", "examples/**", "tests/**"],
   "git-submodules": {
     "description": "The borg-ui pin moves by hand: each move is a release with its CHANGELOG line.",

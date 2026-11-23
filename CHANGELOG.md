@@ -16,7 +16,7 @@
 ### Project and CI
 
 * **Renovate runs every night, and what the images contain does not wait.**
-  `.github/renovate.json` extends ioanalytica/renovate-config 1.1.0: update
+  `.github/renovate.json` extends ioanalytica/renovate-config 1.1.1: update
   pull requests come every night instead of on Mondays, and an update of
   etcd, rclone, s3fs or the MySQL client comes in the night after its
   release instead of three days later. The Python packages of the agent
