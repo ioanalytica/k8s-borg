@@ -99,14 +99,17 @@ the bot. A release must be three days old before its pull request comes, with
 three exceptions. etcd, rclone, s3fs and the MySQL client of the agent image
 come in the night after their release (its Python packages wait the three
 days). A new digest under an unchanged tag has no release date and does not
-wait. And a fix for a vulnerability that GitHub's advisories or the OSV
-database list for a package comes at any time; a security fix they do not list
-comes like any other release of that component. The groups that come once a
-month, listed below, stay monthly. Nothing waits for approval on its
-Dependency Dashboard issue, which lists every dependency it found: an update
-that is a deliberate move, every new major among them, comes as a pull request
-with the label `decision`. What closing a pull request declines depends on the
-update (with `recreateWhen` at its default, `auto`):
+wait. And a fix for a vulnerability that Renovate raises an alert for comes at
+any time, in a monthly group as well. It raises one where GitHub's advisories
+or the OSV database list the vulnerability for a package it follows through a
+package manager, from OSV for a direct dependency only. A security fix without
+such an alert, as in a base image or a binary taken from a release page, comes
+like any other release of that component. The groups that come once a month,
+listed below, stay monthly. Nothing waits for approval on its Dependency
+Dashboard issue, which lists every dependency it found: an update that is a
+deliberate move, every new major among them, comes as a pull request with the
+label `decision`. What closing a pull request declines depends on the update
+(with `recreateWhen` at its default, `auto`):
 
 - A minor or patch update: only that version is declined. The next release
   comes as a new pull request.
