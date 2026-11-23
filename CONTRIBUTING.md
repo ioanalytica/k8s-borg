@@ -94,10 +94,13 @@ as a tag. Prereleases are public: they stay, like releases.
 [`.github/renovate.json`](.github/renovate.json) configures it on top of the
 shared preset of
 [ioanalytica/renovate-config](https://github.com/ioanalytica/renovate-config):
-every night (Europe/Berlin), for releases at least three days old, at once
-for what the agent image and the chart contain (its Python packages wait the
-three days), a security fix at any time, each with a review request, and never merged by the
-bot. Nothing waits for approval on its Dependency Dashboard issue, which lists
+every night (Europe/Berlin), each with a review request, and never merged by
+the bot. A release must be three days old before its pull request comes, with
+two exceptions: etcd, rclone, s3fs and the MySQL client of the agent image
+come in the night after their release (its Python packages wait the three
+days), and a security fix comes at any time. The groups that come once a
+month, listed below, stay monthly. Nothing waits for approval on its
+Dependency Dashboard issue, which lists
 every dependency it found: an update that is a deliberate move, every new
 major among them, comes as a pull request with the label `decision`. What
 closing a pull request declines depends on the update (with `recreateWhen` at
