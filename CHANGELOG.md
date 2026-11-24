@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+* **MySQL client 8.4.13.1 in the agent image.** `mysql` and `mysqldump`,
+  which back up and restore MySQL and Percona Server, are taken from the
+  official `mysql:8.4.13` image. That image was built anew on 2026-11-23,
+  and its client moves from 8.4.13 to 8.4.13.1.
+* **PyYAML 6.0.4 in the agent image.** `mongodb-admin`, the helper of the
+  MongoDB backup, reads its credentials file with PyYAML, which moves from
+  6.0.3 to 6.0.4. The release bounds the expansion of nested merge keys,
+  which could take exponential time.
+
 ## 1.3.10
 
 * **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
