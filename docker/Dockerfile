@@ -55,7 +55,7 @@ ARG PYTHON_VERSION=3.12
 # the official image's multi-arch index digest: a bump changes both lines.
 # renovate: datasource=docker depName=mysql
 ARG MYSQL_VERSION=8.4.13
-ARG MYSQL_IMAGE_DIGEST=sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+ARG MYSQL_IMAGE_DIGEST=sha256:cd05748e60471137face0ba0a256c9c48669198aee1f12132f413fc91fd8948f
 
 FROM python:${PYTHON_VERSION}-alpine AS borg-builder
 
@@ -325,7 +325,7 @@ ARG PYMONGO_VERSION=4.20.1
 # renovate: datasource=pypi depName=dnspython
 ARG DNSPYTHON_VERSION=2.9.2
 # renovate: datasource=pypi depName=PyYAML
-ARG PYYAML_VERSION=6.0.3
+ARG PYYAML_VERSION=6.0.4
 RUN python -m venv /opt/mongodb-admin/venv \
     && NO_EXT=1 /opt/mongodb-admin/venv/bin/pip install --no-cache-dir \
         "pymongo==${PYMONGO_VERSION}" "dnspython==${DNSPYTHON_VERSION}" "PyYAML==${PYYAML_VERSION}" \
