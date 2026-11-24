@@ -116,7 +116,8 @@ sys.exit(1 if problems else 0)
 import glob, json, os, re, sys, yaml
 root, c = sys.argv[1], json.load(open(sys.argv[2]))
 table = yaml.safe_load(open(f"{root}/.github/checksums.yaml"))
-listed = {(p["file"], p["var"]) for e in table for p in e["pins"]}
+# An entry without pins only adds its CHANGELOG line.
+listed = {(p["file"], p["var"]) for e in table for p in e.get("pins", [])}
 problems = []
 files = ["docker/Dockerfile", "docker/rclone.env"] + [os.path.relpath(a, root)
          for a in sorted(glob.glob(f"{root}/.github/actions/*/action.y*ml"))]
@@ -128,7 +129,7 @@ for e in table:
     name, (path, var) = e["name"], e["version"].split("#")
     if not re.search(rf"# renovate: .*\n *(?:ARG )?{var}[=:]", open(f"{root}/{path}").read()):
         problems.append(f"{name}: {var} in {path} has no # renovate: line above it")
-    for pin in (p["file"] for p in e["pins"]):
+    for pin in (p["file"] for p in e.get("pins", [])):
         if pin.startswith(".github/workflows/"):
             problems.append(f"{name}: {pin} is a workflow, which the app may not change")
 print("\n".join(problems))

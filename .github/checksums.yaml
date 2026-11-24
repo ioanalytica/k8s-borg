@@ -2,7 +2,8 @@
 # moves one of these versions, the workflow pin-checksums.yml (from
 # ioanalytica/renovate-config, whose README describes every key) fills the
 # sums from the release, after checking its PGP signature where one is given,
-# and adds the CHANGELOG line. It reads this table from the pull request's
+# and adds the CHANGELOG line. An entry without pins has no sum to fill and
+# gets only its CHANGELOG line. It reads this table from the pull request's
 # merge base, so a change here applies to the pull requests opened after it
 # is merged. A new signing key is a decision: the run fails until it is here.
 
@@ -60,3 +61,30 @@
   changelog:
     file: CHANGELOG.md
     line: "* **s3fs {v} in the agent image**, built from the release with the patch of docker/s3fs/, moved from {old}."
+
+# No hash pins below: these versions ship in the agent image, and the workflow
+# only adds their CHANGELOG line. A new digest under the same MySQL version
+# moves no version, so that line is written by hand.
+- name: mysql
+  version: docker/Dockerfile#MYSQL_VERSION
+  changelog:
+    file: CHANGELOG.md
+    line: "* **MySQL client {v} in the agent image.** `mysql` and `mysqldump`, which back up and restore MySQL and Percona Server, are taken from the official `mysql:{v}` image and move from {old} to {v}."
+
+- name: pymongo
+  version: docker/Dockerfile#PYMONGO_VERSION
+  changelog:
+    file: CHANGELOG.md
+    line: "* **pymongo {v} in the agent image.** `mongodb-admin`, the helper of the MongoDB backup, moves from pymongo {old} to {v}."
+
+- name: dnspython
+  version: docker/Dockerfile#DNSPYTHON_VERSION
+  changelog:
+    file: CHANGELOG.md
+    line: "* **dnspython {v} in the agent image.** dnspython, the only dependency of the pymongo that `mongodb-admin` uses, moves from {old} to {v}."
+
+- name: pyyaml
+  version: docker/Dockerfile#PYYAML_VERSION
+  changelog:
+    file: CHANGELOG.md
+    line: "* **PyYAML {v} in the agent image.** `mongodb-admin`, the helper of the MongoDB backup, reads its credentials file with PyYAML, which moves from {old} to {v}."
