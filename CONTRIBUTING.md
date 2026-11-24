@@ -133,7 +133,9 @@ after checking its PGP signature where the table names a key, and adds the
 `CHANGELOG.md` line, as a signed commit of the GitHub App
 `ioanalytica-renovate-helper`. When a check fails it commits nothing and says
 why in a comment; the rebase checkbox of the pull request runs it again (a
-re-run by hand does nothing). A new hash pin needs its entry in the table
+re-run by hand does nothing). An entry without pins (`name`, `version`,
+`changelog`) gets only its `CHANGELOG.md` line, for a version that ships in
+the image without a sum. A new hash pin needs its entry in the table
 (`tests/renovate-config.bats`), and pins in `.github/workflows/` belong in a
 local action under `.github/actions/`: the app may not change workflows.
 
@@ -150,7 +152,9 @@ local action under `.github/actions/`: the app may not change workflows.
   each sit under a `# renovate: datasource=… depName=…` line, and a new pin
   needs one too (`tests/renovate-config.bats`). MySQL (version and digest,
   held to the 8.4 LTS series), pymongo, dnspython and PyYAML come as one pull
-  request, which gets its line in `CHANGELOG.md` on the bot's branch by hand.
+  request; they have no sums, and the workflow adds the `CHANGELOG.md` line of
+  each version that moves. A new MySQL digest under the same version moves
+  none: that line is added on the bot's branch by hand.
   etcd, rclone and s3fs come on their own, with their sums and their
   `CHANGELOG.md` line from the workflow; the build fails while a sum is
   wrong. A new etcd minor and every s3fs release (it is built with a patch)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Dependency update pull requests for k8s-borg, on the shared preset of ioanalytica/renovate-config (schedule, minimum release age, DCO, review requests, the label decision). CONTRIBUTING.md says what the bot updates and what stays manual; tests/renovate-config.bats guards both. The hash pins that go with a version pin are .github/checksums.yaml's: the workflow pin-checksums.yml fills them on the bot's branch.",
-  "extends": ["github>ioanalytica/renovate-config#v1.1.1"],
+  "extends": ["github>ioanalytica/renovate-config#v1.2.0"],
   "ignorePaths": ["borg-ui/**", "examples/**", "tests/**"],
   "git-submodules": {
     "description": "The borg-ui pin moves by hand: each move is a release with its CHANGELOG line.",
@@ -117,10 +117,17 @@
       "semanticCommitScope": "images"
     },
     {
-      "description": "etcd, rclone and s3fs get their CHANGELOG line from the workflow pin-checksums.yml (.github/checksums.yaml).",
+      "description": "etcd, rclone, s3fs, the MySQL client, pymongo, dnspython and PyYAML get their CHANGELOG line from the workflow pin-checksums.yml (.github/checksums.yaml) when their version moves.",
       "matchFileNames": ["docker/Dockerfile", "docker/rclone.env"],
-      "matchDepNames": ["!etcd-io/etcd", "!rclone/rclone", "!s3fs-fuse/s3fs-fuse"],
+      "matchDepNames": ["!etcd-io/etcd", "!rclone/rclone", "!s3fs-fuse/s3fs-fuse", "!mysql", "!pymongo", "!dnspython", "!PyYAML"],
       "prBodyNotes": ["This changes the agent image: add a line under `## Unreleased` in CHANGELOG.md before merging."]
+    },
+    {
+      "description": "A new digest under the same MySQL version is no version the table sees: its line is written by hand.",
+      "matchFileNames": ["docker/Dockerfile"],
+      "matchDepNames": ["mysql"],
+      "matchUpdateTypes": ["digest"],
+      "prBodyNotes": ["The MySQL image was built anew under the same version: add a line under `## Unreleased` in CHANGELOG.md before merging."]
     },
     {
       "matchFileNames": ["docker/Dockerfile"],
