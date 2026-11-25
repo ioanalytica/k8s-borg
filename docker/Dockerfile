@@ -55,7 +55,7 @@ ARG PYTHON_VERSION=3.12
 # the official image's multi-arch index digest: a bump changes both lines.
 # renovate: datasource=docker depName=mysql
 ARG MYSQL_VERSION=8.4.13
-ARG MYSQL_IMAGE_DIGEST=sha256:cd05748e60471137face0ba0a256c9c48669198aee1f12132f413fc91fd8948f
+ARG MYSQL_IMAGE_DIGEST=sha256:8c233bad33d520a7aae1c1e619c3a9775f4a1ba2d463d692fada04ec7f40be00
 
 FROM python:${PYTHON_VERSION}-alpine AS borg-builder
 
