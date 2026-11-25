@@ -13,7 +13,10 @@ metadata:
   annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
   {{- end }}
 spec:
-  schedule: {{ .Values.cluster.schedule | quote }}
+  schedule: {{ include "k8s-borg.cluster.schedule" . | quote }}
+  {{- if include "k8s-borg.cluster.suspended" . }}
+  suspend: true
+  {{- end }}
   timeZone: {{ .Values.cluster.timeZone | default .Values.timezone | quote }}
   concurrencyPolicy: {{ .Values.cluster.concurrencyPolicy }}
   successfulJobsHistoryLimit: 1

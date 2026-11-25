@@ -41,7 +41,8 @@ Backup execution is chosen **per component**, along two independent axes:
   cluster-scope data **and** the long-lived console pod (deployed when
   `cluster.enabled`). Two independent axes:
   - `cluster.backupMode` — *how the backup is scheduled*: `cronjob` (default, a k8s
-    CronJob on `cluster.schedule`) or `plan` (a server-side BackupPlan run by the
+    CronJob on `cluster.schedule`, or on `borg.backupSchedule.perHost.<cluster.nodeName>`
+    while `cluster.schedule` is empty, else every six hours) or `plan` (a server-side BackupPlan run by the
     console/agent pod; needs `cluster.mode=agent`; no CronJob).
   - `cluster.mode` — *whether the console pod is enrolled in Borg UI*: `legacy`
     (default, inspection only — tails the log, `kubectl exec` in) or `agent` (enroll

@@ -185,15 +185,77 @@ YAML
 }
 
 @test "the install notes name the keys of pods that do not run as agents" {
-  # The console pod applies no backup schedule in cronjob mode; node pods in
-  # interval mode apply none at all.
+  # Node pods in interval mode apply no schedule at all.
   out="$(notes --set cluster.mode=agent --set cluster.nodeName=k8s-borg \
     --set 'borg.checkSchedule.perHost.k8s-borg=15 2 * * 0' \
     --set 'borg.backupSchedule.perHost.k8s-borg=0 */4 * * *' \
     --set 'borg.backupSchedule.perHost.k8s-borg-node01=0 2 * * *')"
   [[ "$out" != *"borg.checkSchedule.perHost.k8s-borg"* ]] || fail "$out"
-  [[ "$out" == *"• borg.backupSchedule.perHost.k8s-borg"$'\n'* ]] || fail "$out"
+  [[ "$out" != *"• borg.backupSchedule.perHost.k8s-borg"$'\n'* ]] || fail "$out"
   [[ "$out" == *"• borg.backupSchedule.perHost.k8s-borg-node01"* ]] || fail "$out"
+}
+
+@test "the install notes name the console pod's backup key when cluster.schedule overrides it" {
+  out="$(notes --set cluster.nodeName=k8s-borg --set 'cluster.schedule=0 3 * * *' \
+    --set 'borg.backupSchedule.perHost.k8s-borg=0 */4 * * *')"
+  [[ "$out" == *"• borg.backupSchedule.perHost.k8s-borg"$'\n'* ]] || fail "$out"
+  [[ "$out" == *"cluster-data backups (0 3 * * *)"* ]] || fail "$out"
+}
+
+# --- the cluster CronJob -------------------------------------------------------
+
+# cronjob_spec ARGS… — the schedule and suspend lines of the cluster CronJob.
+cronjob_spec() {
+  RENDERED="$(render "$@")" || return 1
+  object CronJob rel-k8s-borg-cluster | awk '/^  (schedule|suspend):/ { print $1, $2, $3, $4, $5, $6 }' \
+    | sed 's/ *$//'
+}
+
+@test "the cluster CronJob runs every six hours without a schedule of its own" {
+  [ "$(cronjob_spec)" = 'schedule: "0 */6 * * *"' ] || fail "$(cronjob_spec)"
+}
+
+@test "the cluster CronJob takes the console pod's perHost backup schedule" {
+  # In legacy and in agent mode: the key is cluster.nodeName either way.
+  for mode in legacy agent; do
+    out="$(cronjob_spec --set cluster.mode=$mode --set cluster.nodeName=k8s-borg \
+      --set 'borg.backupSchedule.perHost.k8s-borg=0 */4 * * *')"
+    [ "$out" = 'schedule: "0 */4 * * *"' ] || fail "$mode: $out"
+  done
+  out="$(notes --set cluster.nodeName=k8s-borg --set 'borg.backupSchedule.perHost.k8s-borg=0 */4 * * *')"
+  [[ "$out" == *"Cluster backup: k8s CronJob (0 */4 * * * from borg.backupSchedule.perHost.k8s-borg)."* ]] \
+    || fail "$out"
+  [[ "$out" != *WARNING* ]] || fail "$out"
+}
+
+@test "cluster.schedule wins over the perHost backup schedule" {
+  out="$(cronjob_spec --set 'cluster.schedule=0 3 * * *' \
+    --set 'borg.backupSchedule.perHost.k8s-borg-mycluster=0 */4 * * *')"
+  [ "$out" = 'schedule: "0 3 * * *"' ] || fail "$out"
+}
+
+@test "the default backup schedule leaves the cluster CronJob alone" {
+  # borg.backupSchedule.default is meant for the agents; it would otherwise
+  # move every cluster backup that runs on the six hours.
+  out="$(cronjob_spec --set 'borg.backupSchedule.default=45 * * * *' \
+    --set 'borg.backupSchedule.perHost.k8s-borg-node01=0 2 * * *')"
+  [ "$out" = 'schedule: "0 */6 * * *"' ] || fail "$out"
+}
+
+@test "off as the console pod's backup schedule suspends the cluster CronJob, also unquoted" {
+  for off in 'off' '"off"'; do
+    printf 'borg:\n  backupSchedule:\n    perHost:\n      k8s-borg-mycluster: %s\n' "$off" >"$BATS_TEST_TMPDIR/off.yaml"
+    out="$(cronjob_spec -f "$BATS_TEST_TMPDIR/off.yaml")"
+    [ "$out" = "$(printf '%s\n' 'schedule: "0 */6 * * *"' 'suspend: true')" ] || fail "$off: $out"
+  done
+  out="$(notes -f "$BATS_TEST_TMPDIR/off.yaml")"
+  [[ "$out" == *"Cluster backup: k8s CronJob (suspended: borg.backupSchedule.perHost.k8s-borg-mycluster is off)."* ]] \
+    || fail "$out"
+}
+
+@test "in plan mode there is no CronJob, whatever the schedules" {
+  RENDERED="$(render "${AGENTS[@]}" --set 'borg.backupSchedule.perHost.k8s-borg-mycluster=0 */4 * * *')"
+  [ -z "$(object CronJob rel-k8s-borg-cluster)" ] || fail "a CronJob in plan mode"
 }
 
 @test "the install notes warn of nothing without perHost keys" {

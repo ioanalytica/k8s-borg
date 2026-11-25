@@ -1129,7 +1129,7 @@
           "default": "legacy"
         },
         "backupMode": {
-          "description": "How the cluster backup is scheduled (not who talks to Borg UI): \"cronjob\" → a k8s CronJob runs it on cluster.schedule (the console pod, if agent, just makes the repo visible); \"plan\" → a server-side BackupPlan run by the console/agent pod (needs cluster.mode=agent). Plan/check schedules come from borg.backupSchedule/checkSchedule (keyed by cluster.nodeName).",
+          "description": "How the cluster backup is scheduled (not who talks to Borg UI): \"cronjob\" → a k8s CronJob runs it on cluster.schedule (the console pod, if agent, just makes the repo visible); \"plan\" → a server-side BackupPlan run by the console/agent pod (needs cluster.mode=agent). Plan/check schedules come from borg.backupSchedule/checkSchedule (keyed by cluster.nodeName); the CronJob takes borg.backupSchedule.perHost.<cluster.nodeName> too, unless cluster.schedule is set.",
           "type": "string",
           "enum": [
             "cronjob",
@@ -1138,12 +1138,12 @@
           "default": "cronjob"
         },
         "schedule": {
-          "description": "Cron schedule (backupMode=cronjob only)",
+          "description": "Cron schedule of the CronJob (backupMode=cronjob only). Empty: borg.backupSchedule.perHost.<cluster.nodeName> if that key is set (\"off\" suspends the CronJob), else \"0 */6 * * *\"; borg.backupSchedule.default does not apply to the CronJob",
           "type": [
             "string",
             "number"
           ],
-          "default": "0 */6 * * *"
+          "default": ""
         },
         "timeZone": {
           "description": "CronJob time zone (defaults to .timezone)",

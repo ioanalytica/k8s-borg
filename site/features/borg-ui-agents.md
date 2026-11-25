@@ -59,8 +59,10 @@ its own hostname in `perHost` and falls back to `default`:
 | console pod (`cluster.mode=agent`) | `cluster.nodeName` itself (default `k8s-borg-mycluster`) |
 | node pod (`node.backupMode=agent`) | `k8s-borg-<node name>`, e.g. `k8s-borg-node01` on node `node01` |
 
-The console pod applies the backup schedule only with `cluster.backupMode=plan`;
-in `cronjob` mode `cluster.schedule` runs the cluster backup.
+The console pod applies the backup schedule with `cluster.backupMode=plan`. In
+`cronjob` mode the CronJob runs the cluster backup on `cluster.schedule`; left
+empty, it takes the console pod's `perHost` entry (`"off"` suspends the
+CronJob), else every six hours. `default` does not apply to the CronJob.
 
 ```yaml
 cluster:
