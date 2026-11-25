@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.3.12
 
+* **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
+* **Debian zstd fix in the Borg UI images.** The runtime base and the
+  server image built on it are built anew and upgrade their base image's
+  packages: libzstd1 moves from 1.5.7+dfsg-1 to 1.5.7+dfsg-1+deb13u1, which
+  fixes a HIGH vulnerability (CVE-2026-124851). The server image keeps its
+  tag `2.4.10`, and `borgUI.image.pullPolicy` defaults to `IfNotPresent`: a
+  node that already holds that image keeps the old one until it pulls the
+  image again, for example with `borgUI.image.pullPolicy: Always` for the
+  upgrade.
 * **The cluster CronJob takes the console pod's backup schedule.** With
   `cluster.backupMode=cronjob` the CronJob ran on `cluster.schedule` only,
   every six hours by default, and an entry for `cluster.nodeName` under
@@ -12,6 +21,19 @@
   `cluster.schedule` that is set wins, and `borg.backupSchedule.default`
   does not apply to the CronJob. Only installs with such a `perHost` entry
   and no `cluster.schedule` change their cluster backup schedule.
+* **The agent's MySQL client on Oracle Linux 9.9.** The official
+  `mysql:8.4.13` image was built anew once more on 2026-11-23, now on
+  Oracle Linux 9.9. The client stays 8.4.13.1; the libraries the agent
+  image takes along with it move with that base: glibc from 2.34-275 to
+  2.34-290, libstdc++ and libgcc from 11.5.0-14 to 11.5.0-15.
+
+### Project and CI
+
+* **Renovate writes the changelog line for components without checksums.**
+  `.github/renovate.json` extends ioanalytica/renovate-config 1.2.0: when
+  the version of the agent's MySQL client, pymongo, dnspython or PyYAML
+  moves, the pin-checksums workflow adds its line under `## Unreleased`. A
+  new MySQL image under the same version still gets its line by hand.
 
 ## 1.3.11
 
