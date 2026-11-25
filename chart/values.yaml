@@ -196,7 +196,9 @@ borg:
   ## Scheduled backups (borg create via a server-side backup plan). Same shape and
   ## POD-HOSTNAME keys as checkSchedule; each agent pod applies its own cron via
   ## `register-backup-plan`, mounted at BORG_BACKUP_SCHEDULE_DIR. The console pod
-  ## registers a plan only with cluster.backupMode=plan. Sources/excludes come from
+  ## registers a plan only with cluster.backupMode=plan; with cluster.backupMode=cronjob
+## the CronJob takes the console pod's perHost entry (not `default`) unless
+## cluster.schedule is set. Sources/excludes come from
   ## node.include/exclude and cluster.include/exclude (the /root/.borg pattern
   ## files), not from here. Leave both empty to create plans without a schedule
   ## (they can still be run manually). A change rolls the agent pods, as above;
@@ -571,10 +573,12 @@ cluster:
   ##   Borg UI): "cronjob" → a k8s CronJob runs it on cluster.schedule (the console
   ##   pod, if agent, just makes the repo visible); "plan" → a server-side BackupPlan
   ##   run by the console/agent pod (needs cluster.mode=agent). Plan/check schedules
-  ##   come from borg.backupSchedule/checkSchedule (keyed by cluster.nodeName).
+  ##   come from borg.backupSchedule/checkSchedule (keyed by cluster.nodeName); the
+  ##   CronJob takes borg.backupSchedule.perHost.<cluster.nodeName> too, unless
+  ##   cluster.schedule is set.
   backupMode: cronjob
-  ## @param cluster.schedule Cron schedule (backupMode=cronjob only)
-  schedule: "0 */6 * * *"
+  ## @param cluster.schedule Cron schedule of the CronJob (backupMode=cronjob only). Empty: borg.backupSchedule.perHost.<cluster.nodeName> if that key is set ("off" suspends the CronJob), else "0 */6 * * *"; borg.backupSchedule.default does not apply to the CronJob
+  schedule: ""
   ## @param cluster.timeZone CronJob time zone (defaults to .timezone)
   timeZone: ""
   ## @param cluster.borgUiResync After each CronJob run (backupMode=cronjob), ask Borg UI

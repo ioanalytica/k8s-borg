@@ -8,7 +8,7 @@ Workloads:
   • DaemonSet  {{ include "common.names.fullname" . }}-node     — per-node backups (mode: {{ .Values.node.backupMode }})
 {{- end }}
 {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
-  • CronJob    {{ include "common.names.fullname" . }}-cluster  — cluster-data backups ({{ .Values.cluster.schedule }})
+  • CronJob    {{ include "common.names.fullname" . }}-cluster  — cluster-data backups ({{ include "k8s-borg.cluster.scheduleNote" . }})
 {{- end }}
 {{- if .Values.cluster.enabled }}
   • StatefulSet {{ include "common.names.fullname" . }}-app     — console pod ({{ .Values.cluster.mode }}{{ if eq .Values.cluster.mode "agent" }}: enrolled in Borg UI{{ if eq .Values.cluster.backupMode "plan" }}, registers a backup plan{{ else }}, repo visible only{{ end }}{{ end }})
@@ -20,7 +20,7 @@ Mode:
   Agents connect to {{ include "k8s-borg.ui.serverUrl" . }} and register their repository.
 {{- end }}
 {{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") }}
-  Cluster backup: k8s CronJob ({{ .Values.cluster.schedule }}).
+  Cluster backup: k8s CronJob ({{ include "k8s-borg.cluster.scheduleNote" . }}).
 {{- else if and .Values.cluster.enabled (eq .Values.cluster.backupMode "plan") }}
   Cluster backup: Borg UI BackupPlan (registered by the console/agent pod).
 {{- end }}
@@ -37,8 +37,9 @@ WARNING: no agent pod applies these schedules:
 {{- end }}
   The keys are pod hostnames. The console pod is "{{ $.Values.cluster.nodeName }}" (cluster.nodeName)
   and applies schedules with cluster.mode=agent, its backup schedule with
-  cluster.backupMode=plan only. A node pod is "k8s-borg-<node name>" and applies
-  them with node.backupMode=agent.
+  cluster.backupMode=plan. With cluster.backupMode=cronjob the CronJob takes the
+  backup schedule under that key, unless cluster.schedule is set. A node pod is
+  "k8s-borg-<node name>" and applies them with node.backupMode=agent.
 {{- end }}
 
 {{- if include "k8s-borg.databases.uncovered" . }}

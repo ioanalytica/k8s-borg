@@ -382,7 +382,8 @@ off
 {{/*
 perHost schedule keys that no agent pod applies, one values path per line. The
 keys are pod hostnames: the console pod's is cluster.nodeName (it applies the
-check schedule as an agent, the backup schedule in plan mode only), a node
+check schedule as an agent, the backup schedule in plan mode; in cronjob mode
+the CronJob takes the backup schedule unless cluster.schedule is set), a node
 pod's "k8s-borg-<node name>" (daemonset.yaml). Node names are not known at
 render time, so any key with that prefix counts while the nodes run as agents.
 */}}
@@ -394,12 +395,55 @@ render time, so any key with that prefix counts while the nodes run as agents.
 borg.checkSchedule.perHost.{{ $host }}
 {{- end }}
 {{- end }}
-{{- $console = and $console (eq .Values.cluster.backupMode "plan") -}}
+{{- $console = or (and $console (eq .Values.cluster.backupMode "plan")) (include "k8s-borg.cluster.scheduleFromPerHost" .) -}}
 {{- range $host, $cron := .Values.borg.backupSchedule.perHost }}
 {{- if not (or (and $console (eq $host $.Values.cluster.nodeName)) (and $nodes (hasPrefix "k8s-borg-" $host))) }}
 borg.backupSchedule.perHost.{{ $host }}
 {{- end }}
 {{- end }}
+{{- end -}}
+
+{{/*
+"true" when the cluster CronJob takes its schedule from
+borg.backupSchedule.perHost.<cluster.nodeName>: backupMode=cronjob, no
+cluster.schedule, and a value under that key. borg.backupSchedule.default does
+not apply to the CronJob, so that a default meant for the node agents leaves
+the cluster backup as it was.
+*/}}
+{{- define "k8s-borg.cluster.scheduleFromPerHost" -}}
+{{- $perHost := .Values.borg.backupSchedule.perHost | default dict -}}
+{{- if and .Values.cluster.enabled (eq .Values.cluster.backupMode "cronjob") (not (toString (.Values.cluster.schedule | default ""))) (include "k8s-borg.schedules.value" (get $perHost .Values.cluster.nodeName)) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+"true" when borg.backupSchedule.perHost.<cluster.nodeName> is "off" and the
+cluster CronJob takes its schedule from there: the CronJob is suspended, as a
+plan's schedule is turned off in plan mode.
+*/}}
+{{- define "k8s-borg.cluster.suspended" -}}
+{{- if include "k8s-borg.cluster.scheduleFromPerHost" . -}}
+{{- if eq (include "k8s-borg.schedules.value" (get (.Values.borg.backupSchedule.perHost | default dict) .Values.cluster.nodeName)) "off" -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The schedule of the cluster CronJob: cluster.schedule, else
+borg.backupSchedule.perHost.<cluster.nodeName>, else every six hours. A
+suspended CronJob keeps the six hours, as a CronJob needs a schedule.
+*/}}
+{{- define "k8s-borg.cluster.schedule" -}}
+{{- $schedule := toString (.Values.cluster.schedule | default "") -}}
+{{- if $schedule -}}
+{{- $schedule -}}
+{{- else if and (include "k8s-borg.cluster.scheduleFromPerHost" .) (not (include "k8s-borg.cluster.suspended" .)) -}}
+{{- include "k8s-borg.schedules.value" (get (.Values.borg.backupSchedule.perHost | default dict) .Values.cluster.nodeName) -}}
+{{- else -}}
+0 */6 * * *
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -1590,5 +1634,19 @@ in an existing Secret. */}}
 {{- if not (regexMatch "^[1-9][0-9]*$" (toString $o.transfers)) -}}
 {{- fail (printf "repoServer.offsite.transfers must be 1 or more (got %v)" $o.transfers) -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The cluster CronJob's schedule as the install notes show it: the cron, and
+where it comes from when that is not cluster.schedule.
+*/}}
+{{- define "k8s-borg.cluster.scheduleNote" -}}
+{{- if include "k8s-borg.cluster.suspended" . -}}
+suspended: borg.backupSchedule.perHost.{{ .Values.cluster.nodeName }} is off
+{{- else if include "k8s-borg.cluster.scheduleFromPerHost" . -}}
+{{ include "k8s-borg.cluster.schedule" . }} from borg.backupSchedule.perHost.{{ .Values.cluster.nodeName }}
+{{- else -}}
+{{ include "k8s-borg.cluster.schedule" . }}
 {{- end -}}
 {{- end -}}

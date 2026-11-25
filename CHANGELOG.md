@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+* **The cluster CronJob takes the console pod's backup schedule.** With
+  `cluster.backupMode=cronjob` the CronJob ran on `cluster.schedule` only,
+  every six hours by default, and an entry for `cluster.nodeName` under
+  `borg.backupSchedule.perHost` was left unused, with a warning in the
+  install notes, which Flux does not show. `cluster.schedule` is now empty
+  by default: the CronJob then takes that `perHost` entry (`"off"`
+  suspends the CronJob) and otherwise runs every six hours as before. A
+  `cluster.schedule` that is set wins, and `borg.backupSchedule.default`
+  does not apply to the CronJob. Only installs with such a `perHost` entry
+  and no `cluster.schedule` change their cluster backup schedule.
+
 ## 1.3.11
 
 * **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
