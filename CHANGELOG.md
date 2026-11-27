@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.3.13
 
+* **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
+* **Alpine valkey-cli fix in the agent image.** The agent image is built
+  anew and upgrades its base image's packages: valkey-cli moves from
+  9.0.7-r0 to 9.0.8-r0, which fixes a HIGH vulnerability (CVE-2026-130822).
+  Upgrading is recommended.
 * **pymongo 4.20.2 in the agent image.** `mongodb-admin`, the helper of the MongoDB backup, moves from pymongo 4.20.1 to 4.20.2.
 
 ## 1.3.12
