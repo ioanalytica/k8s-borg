@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* **pymongo 4.20.2 in the agent image.** `mongodb-admin`, the helper of the MongoDB backup, moves from pymongo 4.20.1 to 4.20.2.
+
 ## 1.3.12
 
 * **Borg UI 2.4.10.** The pin stays (agent 0.1.25, no database change).
